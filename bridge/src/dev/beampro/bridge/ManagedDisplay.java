@@ -84,7 +84,8 @@ final class ManagedDisplay {
 
     public static final class Watchdog {
         public static void main(String[] args) throws Exception {
-            if(android.os.Process.myUid()!=2000)throw new SecurityException("Shell display helper only");
+            int uid=android.os.Process.myUid();
+            if(uid!=2000&&uid!=0)throw new SecurityException("Shell display helper only");
             Looper.prepareMainLooper();
             LinkedBlockingQueue<String> queue=new LinkedBlockingQueue<>(32);
             Thread reader=new Thread(()->{

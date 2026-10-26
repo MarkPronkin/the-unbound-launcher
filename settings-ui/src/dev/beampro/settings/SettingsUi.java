@@ -435,7 +435,7 @@ public final class SettingsUi {
         }
 
         void adbSetup(Section section) {
-            link(section, "code", "On-device ADB", "Pair this phone and start AR Space", v -> AdbEntry.open(activity));
+            link(section, "code", "On-device ADB", "Pair this phone or connect with Shizuku", v -> AdbEntry.open(activity));
         }
 
         void about(Section section) {

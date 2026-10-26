@@ -4,6 +4,19 @@ from branding import _append_pool_string, _pool_strings
 from build_port_bootstrap import chunks
 
 AUTHORITY = "com.xreal.evapro.nebula.unbound.bridge"
+SHIZUKU_AUTHORITY = "com.xreal.evapro.nebula.shizuku"
+SHIZUKU_PERMISSION = "moe.shizuku.manager.permission.API_V23"
+SHIZUKU_V3_META = "moe.shizuku.client.V3_SUPPORT"
+ANDROID_ATTRIBUTES = {
+    "name": 0x01010003,
+    "permission": 0x01010006,
+    "enabled": 0x0101000E,
+    "exported": 0x01010010,
+    "process": 0x01010011,
+    "multiprocess": 0x01010013,
+    "authorities": 0x01010018,
+    "value": 0x01010024,
+}
 
 
 def patch_usb_attach_manifest(original):
@@ -98,7 +111,8 @@ def patch_manifest(original):
     pool = original[at:at + size]
     strings = _pool_strings(pool)
     _, resource_at, resource_header, resource_size = next(n for n in nodes if n[0] == 0x180)
-    resource_ids = struct.unpack_from("<" + "I" * ((resource_size - resource_header) // 4), original, resource_at + resource_header)
+    resource_ids = list(struct.unpack_from("<" + "I" * ((resource_size - resource_header) // 4), original, resource_at + resource_header))
+    resources_modified = False
 
     def index(value):
         nonlocal pool, strings
@@ -106,6 +120,19 @@ def patch_manifest(original):
             pool = _append_pool_string(pool, value)
             strings = _pool_strings(pool)
         return strings.index(value)
+
+    def ensure_attribute(name):
+        nonlocal resources_modified
+        if name in strings and strings.index(name) < len(resource_ids) and resource_ids[strings.index(name)]:
+            return resource_ids[strings.index(name)]
+        if name not in ANDROID_ATTRIBUTES:
+            raise ValueError(f"Missing mapped Android attribute: {name}")
+        idx = index(name)
+        while len(resource_ids) <= idx:
+            resource_ids.append(0)
+        resource_ids[idx] = ANDROID_ATTRIBUTES[name]
+        resources_modified = True
+        return resource_ids[idx]
 
     ns = index("http://schemas.android.com/apk/res/android")
 
@@ -115,14 +142,9 @@ def patch_manifest(original):
         # An out-of-order authorities attribute makes it skip exported/process,
         # even though a raw XML dump still displays their intended values.
         def attribute_id(attr):
-            name = attr[0]
-            if name not in strings or strings.index(name) >= len(resource_ids):
-                raise ValueError(f"Missing mapped Android attribute: {name}")
-            return resource_ids[strings.index(name)]
+            return ensure_attribute(attr[0])
         for name, kind, value in sorted(attrs, key=attribute_id):
-            # Attribute names must already have their framework ID in the resource map.
-            if name not in strings:
-                raise ValueError(f"Missing mapped Android attribute: {name}")
+            ensure_attribute(name)
             value = index(value) if kind == 3 else value
             encoded.append(struct.pack("<IIIHBBI", ns, index(name), value if kind == 3 else 0xFFFFFFFF, 8, 0, kind, value))
         begin = struct.pack("<HHIII", 0x102, 16, 36 + 20 * len(encoded), 0, 0xFFFFFFFF)
@@ -130,19 +152,31 @@ def patch_manifest(original):
         end = struct.pack("<HHIIIII", 0x103, 16, 24, 0, 0xFFFFFFFF, 0xFFFFFFFF, index(tag))
         return begin + end
 
+    permission_additions = element("uses-permission", [("name", 3, SHIZUKU_PERMISSION)])
     additions = element("activity", [("name", 3, "dev.beampro.adb.AdbPairingActivity"), ("exported", 0x12, 0)])
     additions += element("activity", [("name", 3, "dev.beampro.port.ArBackdropActivity"), ("exported", 0x12, 0)])
     additions += element("service", [("name", 3, "dev.beampro.adb.PairingOverlayService"), ("exported", 0x12, 0)])
+    additions += element("meta-data", [("name", 3, SHIZUKU_V3_META), ("value", 0x12, 0xFFFFFFFF)])
+    additions += element("provider", [("name", 3, "rikka.shizuku.ShizukuProvider"),
+                                       ("authorities", 3, SHIZUKU_AUTHORITY), ("exported", 0x12, 0xFFFFFFFF)])
     additions += element("provider", [("name", 3, "dev.beampro.adb.LocalBridgeProvider"),
                                        ("authorities", 3, AUTHORITY), ("exported", 0x12, 0xFFFFFFFF),
                                        ("process", 3, ":unbound_bridge")])
     output = bytearray(original[:8])
     inserted = False
     for kind, position, _, chunk_size in nodes:
+        if kind == 0x102 and strings[struct.unpack_from("<I", original, position + 20)[0]] == "application":
+            output += permission_additions
         if kind == 0x103 and strings[struct.unpack_from("<I", original, position + 20)[0]] == "application":
             output += additions
             inserted = True
-        output += pool if kind == 1 else original[position:position + chunk_size]
+        if kind == 1:
+            output += pool
+        elif kind == 0x180 and resources_modified:
+            output += struct.pack("<HHI" + "I" * len(resource_ids), 0x180, resource_header,
+                                  resource_header + 4 * len(resource_ids), *resource_ids)
+        else:
+            output += original[position:position + chunk_size]
     if not inserted:
         raise ValueError("Missing application node")
     struct.pack_into("<I", output, 4, len(output))

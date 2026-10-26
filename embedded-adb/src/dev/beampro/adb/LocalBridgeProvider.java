@@ -19,7 +19,7 @@ public final class LocalBridgeProvider extends ContentProvider {
     @Override public Bundle call(String method, String arg, Bundle extras) {
         int caller = Binder.getCallingUid();
         if ("publish".equals(method)) {
-            if (caller != 2000) throw new SecurityException("Only the user-started ADB shell may publish");
+            if (caller != 2000 && caller != 0) throw new SecurityException("Only the user-started ADB shell or root may publish");
             if (extras == null || extras.getBinder("binder") == null) throw new IllegalArgumentException("Missing binder");
             IBinder published = extras.getBinder("binder");
             synchronized (LOCK) {

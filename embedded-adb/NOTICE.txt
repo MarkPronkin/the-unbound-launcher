@@ -43,5 +43,9 @@ the upstream LICENSE file, reproduced in conscrypt-LICENSE.txt.
 AndroidX annotation 1.9.1, The Android Open Source Project, Apache License 2.0.
 Compile-time only; not added to the APK's runtime DEX.
 
+Shizuku API 13.1.5 protocol compatibility, Copyright RikkaW.
+https://github.com/RikkaApps/Shizuku-API
+Licensed under the MIT License.
+
 The original XREAL software remains the property of its respective owners.
 The licenses above describe the added ADB components, not the original software.

@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <application android:name="dev.beampro.adb.SetupApplication" android:label="Unbound ADB Test" android:debuggable="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name="dev.beampro.adb.AdbPairingActivity" android:exported="true" />
         <activity android:name="dev.beampro.adb.SetupEntryActivity" android:exported="true" android:launchMode="singleTask" android:taskAffinity="unbound.test.splash">
@@ -15,6 +16,8 @@
         <activity android:name="dev.beampro.settings.PermissionSetupActivity" android:exported="false" />
         <activity-alias android:name="ai.nreal.nebula.activity.splash.SplashActivity" android:targetActivity="dev.beampro.adb.SetupEntryActivity" android:exported="false" />
         <service android:name="dev.beampro.adb.PairingOverlayService" android:exported="false" />
+        <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
+        <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="dev.beampro.adbtest.shizuku" android:exported="true" />
         <provider android:name="dev.beampro.adb.LocalBridgeProvider" android:authorities="dev.beampro.adbtest.bridge" android:exported="true" android:process=":unbound_bridge" />
     </application>
     <instrumentation android:name="dev.beampro.adb.AdbDeviceChecks" android:targetPackage="dev.beampro.adbtest" />

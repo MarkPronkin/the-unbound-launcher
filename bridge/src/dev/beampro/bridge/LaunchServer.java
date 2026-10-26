@@ -36,7 +36,14 @@ public final class LaunchServer {
 
     private static void run() throws Exception {
         System.out.println("BEAM_LAUNCH_SERVER_START pid=" + android.os.Process.myPid());
-        if (android.os.Process.myUid() != 2000) throw new SecurityException("Start this helper through ADB shell");
+        int initialUid = android.os.Process.myUid();
+        if (initialUid != 2000 && initialUid != 0) throw new SecurityException("Start this helper through ADB shell or Shizuku");
+        if (initialUid == 0) {
+            try {
+                android.system.Os.setgid(2000);
+                android.system.Os.setuid(2000);
+            } catch (Throwable ignored) {}
+        }
         recentApps = new RecentAppsStore(new java.io.File("/data/local/tmp/beampro-recent-apps.bin"));
         Looper.prepareMainLooper();
         Context shell = createShellContext();
@@ -56,7 +63,7 @@ public final class LaunchServer {
         IBinder guarded = new Binder() {
             @Override protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
                 int caller = Binder.getCallingUid();
-                if (caller != 2000 && caller != probeUid && packages.checkSignatures(caller, probeUid) != PackageManager.SIGNATURE_MATCH) {
+                if (caller != 2000 && caller != 0 && caller != probeUid && packages.checkSignatures(caller, probeUid) != PackageManager.SIGNATURE_MATCH) {
                     throw new SecurityException("Caller does not share the local port signing certificate");
                 }
                 long identity = Binder.clearCallingIdentity();

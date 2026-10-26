@@ -14,7 +14,10 @@ from branding import _pool_strings
 from build_port_bootstrap import chunks
 from build_embedded_adb import BASE, BASE_SHA, sha256, VERSION
 from app_version import manifest_version
-from embedded_adb_manifest import AUTHORITY, patch_release_manifest, patch_usb_attach_manifest
+from embedded_adb_manifest import (
+    AUTHORITY, SHIZUKU_AUTHORITY, SHIZUKU_PERMISSION, SHIZUKU_V3_META,
+    patch_release_manifest, patch_usb_attach_manifest,
+)
 from adaptive_manifest import patch_adaptive_manifest
 from display_startup import patch_display_startup
 from app_color import APP_SHADER, LIBRARY, verify_app_shader, patch_color_dex, patch_color_native
@@ -78,11 +81,17 @@ def verify(apk):
         before = elements(patch_usb_attach_manifest(patch_release_manifest(patch_adaptive_manifest(base.read("AndroidManifest.xml")))))
         application = [attrs for tag, attrs in entries if tag == "application"]
         assert len(application) == 1 and application[0]["debuggable"] == 0
-        assert [e for e in entries if e[0] == "uses-permission"] == [e for e in before if e[0] == "uses-permission"]
+        assert [e for e in entries if e[0] == "uses-permission"] == (
+            [e for e in before if e[0] == "uses-permission"] + [("uses-permission", {"name": SHIZUKU_PERMISSION})]
+        )
         for tag, name, exported in [("activity", "AdbPairingActivity", 0), ("service", "PairingOverlayService", 0), ("provider", "LocalBridgeProvider", 0xFFFFFFFF)]:
             match = [a for t, a in entries if t == tag and a.get("name") == "dev.beampro.adb." + name]
             assert len(match) == 1 and match[0]["exported"] == exported
             if tag == "provider": assert match[0]["authorities"] == AUTHORITY and match[0]["process"] == ":unbound_bridge"
+        shizuku_provider = [a for t, a in entries if t == "provider" and a.get("name") == "rikka.shizuku.ShizukuProvider"]
+        assert len(shizuku_provider) == 1 and shizuku_provider[0]["exported"] == 0xFFFFFFFF and shizuku_provider[0]["authorities"] == SHIZUKU_AUTHORITY
+        shizuku_meta = [a for t, a in entries if t == "meta-data" and a.get("name") == SHIZUKU_V3_META]
+        assert len(shizuku_meta) == 1 and shizuku_meta[0]["value"] == 0xFFFFFFFF
         for entry in before:
             if entry[0] not in ("manifest",): assert entry in entries, entry
         backdrop=[a for t,a in entries if t=='activity' and a.get('name')=='dev.beampro.port.ArBackdropActivity']
@@ -94,7 +103,7 @@ def verify(apk):
                 if cls in definitions: duplicate.append(cls)
                 definitions[cls] = name
         assert not duplicate, duplicate
-        for required in ["dev/beampro/adb/LocalAdb", "dev/beampro/adb/AdbBootstrap", "dev/beampro/adb/LocalBridgeProvider", "dev/beampro/adb/PhoneSetupHelp", "io/github/muntashirakon/crypto/spake2/Spake2Context", "org/conscrypt/Conscrypt", "dev/beampro/settings/AdaptiveLayout", "dev/beampro/settings/AppVersion"]:
+        for required in ["dev/beampro/adb/LocalAdb", "dev/beampro/adb/AdbBootstrap", "dev/beampro/adb/LocalBridgeProvider", "dev/beampro/adb/PhoneSetupHelp", "dev/beampro/adb/ShizukuClient", "rikka/shizuku/ShizukuProvider", "moe/shizuku/api/BinderContainer", "io/github/muntashirakon/crypto/spake2/Spake2Context", "org/conscrypt/Conscrypt", "dev/beampro/settings/AdaptiveLayout", "dev/beampro/settings/AppVersion"]:
             assert "L" + required + ";" in definitions
         assert VERSION["version_name"].encode() in z.read(definitions["Ldev/beampro/settings/AppVersion;"])
         assert not any(test in c for c in definitions for test in ("AdbDeviceChecks", "AdbSetupChecks", "SetupEntryActivity", "SetupApplication", "PairingCryptoChecks", "PairingNotificationChecks"))

@@ -68,7 +68,8 @@ final class XrealUsbPermissions {
     public static final class Worker {
         public static void main(String[] args) {
             try {
-                if (android.os.Process.myUid()!=2000 || args.length!=5) throw new SecurityException("Shell USB worker only");
+                int callerUid=android.os.Process.myUid();
+                if ((callerUid!=2000 && callerUid!=0) || args.length!=5) throw new SecurityException("Shell USB worker only");
                 int uid=Integer.parseInt(args[0]),vendor=Integer.parseInt(args[2]);
                 if (vendor!=VENDOR) throw new SecurityException("Only XREAL USB devices are eligible");
                 Class<?> manager=Class.forName("android.content.pm.IPackageManager");
