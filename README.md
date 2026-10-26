@@ -398,6 +398,8 @@ XREAL's original code, software, artwork and other assets remain with XREAL,
 including XREAL code retained or modified by this project. XREAL, Beam Pro,
 NebulaOS and My Glasses are XREAL products.
 
+The project's original code is authored by [@MarkPronkin](https://github.com/MarkPronkin).
+
 **The original code written by this project's author is licensed under the
 MIT License.** See [LICENSE](LICENSE). That license applies only to the author's
 original contributions; it does not relicense or grant rights to XREAL code or
