@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.standalone" android:versionCode="1" android:versionName="0.1.0 standalone experiment">
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="34" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries>
+    <application android:label="Unbound Standalone" android:debuggable="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar" android:resizeableActivity="true" android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true" android:configChanges="screenSize|smallestScreenSize|orientation" android:launchMode="singleTask">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity>
+        <service android:name=".PointerService" android:exported="true" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/pointer_accessibility" />
+        </service>
+        <service android:name=".CaptureService" android:exported="false" android:foregroundServiceType="mediaProjection" />
+    </application>
+</manifest>

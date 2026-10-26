@@ -1,0 +1,10 @@
+{
+  "variant": "OLED white mark on black",
+  "created": "2026-10-26",
+  "source": "branding/archive/dot-portal-light-2026-10-26/app-icon.png",
+  "app_icon": "Color inversion of the approved light icon, neutralized to grayscale. Near-black background texture and near-white dot texture are flattened to exact black and white; dot layout retained.",
+  "adaptive_foreground": "Original symbol alpha with white RGB; no geometry changes.",
+  "adaptive_background": "#000000",
+  "legacy_resize": "Pillow Lanczos without color-profile conversion to retain exact black.",
+  "original_generation": "branding/generation.json"
+}

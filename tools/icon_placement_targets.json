@@ -1,0 +1,14 @@
+[
+  {
+    "name": "EPHViewManager.PickUpApp: initialize the instantiated icon",
+    "address": 53428900,
+    "original": "559a9a97",
+    "replacement": "d1577f97"
+  },
+  {
+    "name": "Clone initialization wrapper after disabled SetUserProperty collector RET",
+    "address": 19702248,
+    "original": "f55301a9f37b02a935b101f0a87a4d39f30302aaf60301aaf40300aa28010037a09801f0003445f9f457ea97209501d0008442f9f157ea9728008052",
+    "replacement": "f44fbea9fd7b01a9f30300aa81421b94f40300aac00000b4614640f9080040f909bd40f902c140f920013fd6e00314aafd7b41a9f44fc2a8c0035fd6"
+  }
+]

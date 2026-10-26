@@ -1,0 +1,3 @@
+<resources>
+    <string name="pointer_description">Lets the Unbound Standalone experiment identify the two apps you select and send test taps to them. It acts only during a test you start. You can turn it off in Accessibility settings at any time.</string>
+</resources>

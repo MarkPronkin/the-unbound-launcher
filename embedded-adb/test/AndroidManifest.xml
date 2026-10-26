@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.adbtest" android:versionCode="1" android:versionName="0.1">
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="33" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <application android:name="dev.beampro.adb.SetupApplication" android:label="Unbound ADB Test" android:debuggable="true" android:allowBackup="false" android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name="dev.beampro.adb.AdbPairingActivity" android:exported="true" />
+        <activity android:name="dev.beampro.adb.SetupEntryActivity" android:exported="true" android:launchMode="singleTask" android:taskAffinity="unbound.test.splash">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity>
+        <activity android:name="dev.beampro.settings.PermissionSetupActivity" android:exported="false" />
+        <activity-alias android:name="ai.nreal.nebula.activity.splash.SplashActivity" android:targetActivity="dev.beampro.adb.SetupEntryActivity" android:exported="false" />
+        <service android:name="dev.beampro.adb.PairingOverlayService" android:exported="false" />
+        <provider android:name="dev.beampro.adb.LocalBridgeProvider" android:authorities="dev.beampro.adbtest.bridge" android:exported="true" android:process=":unbound_bridge" />
+    </application>
+    <instrumentation android:name="dev.beampro.adb.AdbDeviceChecks" android:targetPackage="dev.beampro.adbtest" />
+    <instrumentation android:name="dev.beampro.adb.AdbSetupChecks" android:targetPackage="dev.beampro.adbtest" />
+    <instrumentation android:name="dev.beampro.adb.PairingNotificationChecks" android:targetPackage="dev.beampro.adbtest" />
+</manifest>

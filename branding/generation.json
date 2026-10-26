@@ -1,0 +1,24 @@
+{
+  "name": "The Unbound Launcher",
+  "default_concept": "Dot Portal",
+  "concept_reference": "branding/options/industrial-bw/01-dot-portal.png",
+  "mode": "built-in image_gen",
+  "approved": "2026-10-25",
+  "assets": {
+    "logo.png": {
+      "prompt": "Use case: logo-brand. The supplied image is the approved DOT PORTAL concept board for The Unbound Launcher. Treat it as the exact design reference. Extract and finish the large primary logo's identity for production, preserve its form and typography. The symbol is a black U made only of equal solid circular dots on a regular square grid, two-dot-thick strokes, squared bowl with chamfered lower corners, taller right arm ending in two single dots at the top. No added motif. Preserve the exact recognizable silhouette, dot count, relative spacing and rising right arm from the large primary symbol. Pure black artwork with smooth clean edges. No texture, gray, gradients, shadows, glow, perspective, labels, board, mockup or watermark.\nAsset requested: ONLY the primary horizontal logo lockup from the upper white region of the reference, now on genuinely transparent alpha. The exact dotted U at left; at right the solid black bold compact squared geometric UNBOUND wordmark, with small widely spaced THE above and LAUNCHER below. Text verbatim: \"THE\" \"UNBOUND\" \"LAUNCHER\". Preserve the approved primary type proportions and spacing, crisp readable letters. Wide horizontal canvas about 3:1, balanced artwork with small transparent margins on all sides. No white or black background strip. No concept label, inverse duplicate or app icon tile. Only one transparent black horizontal logo.",
+      "use": "Default transparent horizontal black logo for light backgrounds."
+    },
+    "symbol.png": {
+      "prompt": "Use case: logo-brand. The supplied image is the approved DOT PORTAL concept board for The Unbound Launcher. Treat it as the exact design reference. Extract and finish the large primary logo's identity for production, preserve its form and typography. The symbol is a black U made only of equal solid circular dots on a regular square grid, two-dot-thick strokes, squared bowl with chamfered lower corners, taller right arm ending in two single dots at the top. No added motif. Preserve the exact recognizable silhouette, dot count, relative spacing and rising right arm from the large primary symbol. Pure black artwork with smooth clean edges. No texture, gray, gradients, shadows, glow, perspective, labels, board, mockup or watermark.\nAsset requested: ONLY the standalone black dotted U symbol, isolated on genuinely transparent alpha. Match the large U at the upper left of the reference. Square canvas, symbol tightly contained within the central 90 percent, centered horizontally and vertically with a small even transparent margin on all sides. Do not include ANY lettering, rounded-square tile, background or other design. Every pixel outside the dots and inside the U is transparent. One symbol only.",
+      "use": "Default transparent black dotted U and Android adaptive foreground."
+    },
+    "app-icon.png": {
+      "prompt": "Use case: logo-brand. The first supplied image is the approved black circular-dot U symbol isolated on transparency. Use its exact dot layout, dot sizes, spacing and outline unchanged. The second supplied image is the approved Dot Portal concept board, showing the intended black-on-white app icon at bottom right. Create ONLY one production Android launcher icon: the first image's exact black dotted U centered on a perfectly solid pure white full-bleed square background. Match the reference symbol without redrawing, softening or adding dots. All existing transparent regions become white, and all black dots stay black. Place the entire symbol inside the central 58 percent of the square, with generous equal white margins and balanced optical centering so both rising dots are fully visible under circular Android icon masks. Output a square canvas, flat black and white, crisp clean dots, no tile boundary, NO baked rounded corners, no outline border, no shadow, no extra mark or text, no presentation board. Exactly one black dotted U on an opaque white square.",
+      "use": "Default full-bleed white square launcher icon with the black dotted U."
+    }
+  },
+  "adaptive_background": "#FFFFFF",
+  "previous_artwork": "branding/archive/blue-ribbon-2026-10-25",
+  "compatibility": "Application ID, original XREAL legal attribution, source namespaces and saved preferences are retained."
+}

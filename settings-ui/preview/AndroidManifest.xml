@@ -1,0 +1,38 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.settings.preview">
+    <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries>
+    <application android:label="The Unbound Launcher Preview" android:icon="@drawable/unbound_icon" android:debuggable="true" android:allowBackup="false" android:resizeableActivity="true" android:theme="@style/UnboundPreview">
+        <activity android:name=".SettingsPreviewActivity" android:exported="true" android:configChanges="uiMode|screenSize|orientation|fontScale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity android:name=".PermissionsPreviewActivity" android:exported="true" />
+        <activity android:name="dev.beampro.settings.PermissionSetupActivity" android:exported="false" />
+        <activity android:name="dev.beampro.settings.AppMenuActivity" android:exported="false" />
+    </application>
+    <instrumentation android:name=".SettingsUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".AboutPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".OledUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".GlassesArtworkChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".AppMenuChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".LauncherPreviewChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".LauncherIconChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".AppMenuMigrationChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".BulkVisibilityChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".DisclaimerChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+
+    <instrumentation android:name=".FoldableUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name=".LandscapeUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+</manifest>

@@ -1,0 +1,66 @@
+# Local builds, signing material, device captures and diagnostic evidence.
+/artifacts/
+/reports/devices/
+/.site-build/
+/DEVELOPMENT_LOG.md
+/reports/*.json
+
+# Historical snapshots contain device screenshots, logs and filesystem metadata.
+# Keep the archives locally; publish only the reviewed notes and manifests.
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+
+# Credentials and machine-local configuration, wherever they are generated.
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local
+local.properties
+key.properties
+keystore.properties
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+adbkey*
+adb_keys
+id_rsa*
+id_ed25519*
+.android/
+.aws/
+.ssh/
+.codex/
+.idea/
+.vscode/
+
+# Generated app packages, runtime logs and captures. Vendored JAR/AAR
+# dependencies in embedded-adb/vendor/deps/ remain part of the source project.
+*.apk
+*.aab
+*.apks
+*.idsig
+*.dex
+*.class
+*.log
+*.log.*
+*.dump
+*.hprof
+*.har
+*.pcap
+*.pcapng
+
+# Local caches and macOS file metadata.
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+.DS_Store
+._*
+__MACOSX/

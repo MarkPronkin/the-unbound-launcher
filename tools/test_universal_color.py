@@ -1,0 +1,139 @@
+"""Exercise GPU decisions, shader variants, DEX scope and native selector ABI."""
+import copy
+import hashlib
+import json
+from pathlib import Path
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+import zipfile
+
+from app_color import (APP_SHADER,SOFTWARE_SHADER,LIBRARY,automatic_app_shader,
+                       patch_color_native,patch_color_dex,native_spec)
+from build_embedded_adb import BASE,ROOT
+sys.path.insert(0,str(ROOT/'artifacts/tools/python'))
+import UnityPy
+from UnityPy.helpers import CompressionHelper
+from UnityPy.streams import EndianBinaryReader
+from UnityPy.export.ShaderConverter import ShaderProgram
+from capstone import Cs,CS_ARCH_ARM64,CS_MODE_ARM
+
+
+GL_STUB='''package android.opengl;
+public class GLES20 {
+ public static final int GL_TEXTURE_MIN_FILTER=10241,GL_TEXTURE_MAG_FILTER=10240,GL_TEXTURE_WRAP_S=10242,GL_TEXTURE_WRAP_T=10243,GL_LINEAR=9729,GL_CLAMP_TO_EDGE=33071,GL_NO_ERROR=0,GL_EXTENSIONS=7939,GL_RENDERER=7937;
+ public static int calls,bound,filters,override,overrides,error;static String extensions;static boolean accept,query;
+ public static void reset(String s,boolean a,boolean q){calls=bound=filters=override=overrides=error=0;extensions=s;accept=a;query=q;}
+ public static void glGenTextures(int n,int[] ids,int at){calls++;ids[at]=41;}
+ public static void glBindTexture(int target,int id){calls++;bound=target;if(id!=41)throw new AssertionError();}
+ public static void glTexParameteri(int target,int name,int value){calls++;if(target!=bound)throw new AssertionError();if(name==0x8fbf){overrides++;if(value==0||accept)override=value;else error=1280;}else filters++;}
+ public static int glGetError(){calls++;int result=error;error=0;return result;}
+ public static String glGetString(int name){calls++;return name==GL_EXTENSIONS?extensions:"Test GPU";}
+ public static void glGetTexParameteriv(int target,int name,int[] out,int at){calls++;if(query)out[at]=override;else error=1280;}
+}'''
+
+
+class Archive:
+    def __init__(self,values):self.values=values
+    def read(self,name):return self.values[name]
+
+
+def shader(raw):
+    obj=UnityPy.load(raw).objects[0];tree=obj.read_typetree()
+    blob=CompressionHelper.decompress_lz4(bytes(tree['compressedBlob']),tree['decompressedLengths'][0][0])
+    return tree,ShaderProgram(EndianBinaryReader(blob,endian='<'),obj.version).m_SubPrograms
+
+
+class UniversalColorTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        with zipfile.ZipFile(BASE) as archive:
+            cls.raw={name:archive.read(name) for name in (APP_SHADER,SOFTWARE_SHADER)}
+            cls.native=archive.read(LIBRARY)
+            cls.dex=archive.read('classes2.dex')
+        cls.auto=automatic_app_shader(Archive(cls.raw))
+
+    def test_gpu_capabilities_without_device_model_rules(self):
+        java=Path(subprocess.check_output(['/usr/libexec/java_home','-v','17'],text=True).strip())
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp);(p/'android/opengl').mkdir(parents=True);(p/'android/util').mkdir(parents=True)
+            (p/'android/opengl/GLES20.java').write_text(GL_STUB)
+            (p/'android/util/Log.java').write_text('package android.util; public class Log {public static int i(String a,String b){return 0;}public static int w(String a,String b){return 0;}}')
+            subprocess.run([str(java/'bin/javac'),'--release','8','-d',tmp,*map(str,p.rglob('*.java')),
+                str(ROOT/'port-client/src/dev/beampro/port/AppColorCompat.java'),str(ROOT/'tools/AppColorCompatTest.java')],check=True)
+            result=subprocess.check_output([str(java/'bin/java'),'-cp',tmp,'dev.beampro.port.AppColorCompatTest'],text=True)
+            self.assertIn('app-color capability assertions',result)
+            print(result.strip())
+
+    def test_shader_uses_exact_stock_hardware_and_software_programs(self):
+        before,hardware=shader(self.raw[APP_SHADER]);_,software=shader(self.raw[SOFTWARE_SHADER]);after,auto=shader(self.auto)
+        self.assertEqual(len(auto),49)
+        counts={False:0,True:0}
+        for index,(h,s,a) in enumerate(zip(hardware,software,auto)):
+            if index==0:continue # Unity China baked metadata, not a GPU program.
+            decode='GAMMA_TO_LINEAR' in h.m_Keywords
+            self.assertEqual(a.__dict__,(s if decode else h).__dict__)
+            if index:counts[decode]+=1
+        self.assertEqual(counts,{False:24,True:24})
+        for tree in (before,after):
+            for key in ('compressedBlob','compressedLengths','decompressedLengths'):tree.pop(key)
+            for sub in tree['m_ParsedForm']['m_SubShaders']:
+                for shader_pass in sub['m_Passes']:
+                    shader_pass.pop('m_EditorDataHash');shader_pass['m_State'].pop('gpuProgramID')
+        self.assertEqual(before,after)
+
+    def test_all_auto_shader_stages_compile(self):
+        _,programs=shader(self.auto)
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp);compiler=p/'glslangValidator'
+            shutil.copyfile(Path.home()/'Library/Android/sdk/emulator/lib64/vulkan/glslangValidator',compiler);compiler.chmod(0o755)
+            for index,program in enumerate(programs[1:],1):
+                version,rest=program.m_ProgramCode.decode().split('\n',1)
+                for stage,macro in [('vert','VERTEX'),('frag','FRAGMENT')]:
+                    source=p/f'{index}.{stage}';source.write_text(version+'\n#define '+macro+' 1\n'+rest)
+                    result=subprocess.run([str(compiler),'-S',stage,str(source)],text=True,capture_output=True)
+                    self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
+    def test_dex_factory_and_getter_restore_all_original_definitions(self):
+        java=Path(subprocess.check_output(['/usr/libexec/java_home','-v','17'],text=True).strip())
+        with tempfile.TemporaryDirectory() as tmp:
+            out=patch_color_dex(self.dex,Path(tmp)/'patch',java)
+            self.assertEqual(patch_color_dex(out,Path(tmp)/'restore',java,restore=True,baseline=self.dex),self.dex)
+            with self.assertRaises(subprocess.CalledProcessError):patch_color_dex(out,Path(tmp)/'twice',java)
+
+    def test_native_patch_is_reversible_and_does_not_reenable_analytics(self):
+        out=patch_color_native(self.native)
+        self.assertEqual(patch_color_native(out,restore=True),self.native)
+        self.assertEqual(out[0x12caf68:0x12caf6c],bytes.fromhex('c0035fd6'))
+        with self.assertRaises(ValueError):patch_color_native(out)
+        corrupt=bytearray(out);corrupt[-1]^=1
+        with self.assertRaises(ValueError):patch_color_native(corrupt,restore=True)
+
+    def test_native_source_assembles_to_the_pinned_selector(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp)/'selector.o'
+            subprocess.run(['clang','-target','aarch64-linux-android','-c',str(ROOT/'tools/app_color_select.S'),'-o',str(output)],check=True)
+            raw=output.read_bytes();offset=struct.unpack_from('<Q',raw,40)[0]
+            size,count,names_index=struct.unpack_from('<HHH',raw,58)
+            sections=[struct.unpack_from('<IIQQQQIIQQ',raw,offset+i*size) for i in range(count)]
+            names=sections[names_index];strings=raw[names[4]:names[4]+names[5]];text=None
+            for section in sections:
+                self.assertFalse(section[1] in (4,9) and section[5], 'Unresolved native relocation')
+                if strings[section[0]:strings.index(b'\0',section[0])]==b'.text':text=raw[section[4]:section[4]+section[5]]
+            self.assertEqual(text,bytes.fromhex(native_spec()['targets'][2]['replacement']))
+
+    def test_native_selector_branches_and_abi(self):
+        # Interpret the actual AArch64 instructions with mocked engine/JNI calls.
+        # This bounded selector uses no floating point or arithmetic on image data.
+        from color_selector_machine import exercise_selector
+        code=bytes.fromhex(native_spec()['targets'][2]['replacement'])
+        for mirror in (False,True):
+            for fallback in (False,True):
+                for present in (False,True):
+                    exercise_selector(self,code,mirror,fallback,present)
+
+
+if __name__=='__main__':unittest.main()

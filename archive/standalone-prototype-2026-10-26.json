@@ -1,0 +1,60 @@
+{
+  "date": "2026-10-26",
+  "status": "shelved prototype at owner request; continue ADB-assisted launcher",
+  "archive": "standalone-prototype-2026-10-26.tar.gz",
+  "archive_sha256": "3196ef71fad510631461770487a86a02d4881d08cec80519ee868a2d83da69ef",
+  "active_launcher": "com.xreal.evapro.nebula",
+  "active_launcher_unchanged": true,
+  "adb_helper": {
+    "running": true,
+    "pid": 19465,
+    "root": false
+  },
+  "phone_cleanup": {
+    "prototype_package_uninstalled": true,
+    "capture_stopped": true,
+    "prototype_displays_remaining": 0,
+    "original_launcher_reopened": true
+  },
+  "measured_results": {
+    "ordinary_uid": 10642,
+    "phone": "OnePlus 15 / CPH2747",
+    "android_sdk": 36,
+    "split_screen_two_real_apps_capture_and_control_passed": true,
+    "independent_virtual_app_windows_passed": false,
+    "completed_runtime_evidence": "artifacts/standalone/oneplus-runtime-results.json",
+    "latest_apk_full_runtime_validated": false,
+    "latest_run": "interrupted at owner request"
+  },
+  "on_device_adb_client_implemented": false,
+  "ar_space_integrated": false,
+  "files": {
+    "standalone/.DS_Store": "4d9f8f0711320417cf4e2139efe939f755bc4b6b0e90257f324112cf0f54b90d",
+    "standalone/AndroidManifest.xml": "10d9941ff3773f89581ecc92ddbae243fe0aa98d545d53dce665cf820862235b",
+    "standalone/README.md": "56769b428435480454d3be93a02e01bd185e4ebf4a2cf32ef3f38d413ef71aec",
+    "standalone/res/.DS_Store": "a22d55a55fea29ee7acd6927c718e7a24ec8849d41990a6cde3583dac80b134e",
+    "standalone/res/values/strings.xml": "b0d85bec9ee01f041e3712b43dc62e7a80320325f97f5fffee4747a5784116fb",
+    "standalone/res/xml/pointer_accessibility.xml": "073e03fbacf593b82b47024a57ef260bc4904dc0c0f31cbb005c542d8ef6a462",
+    "standalone/src/.DS_Store": "d5cf5365b71204737f3a0cf1c917a8795d97f567a0aba83790e82ea5e3e41891",
+    "standalone/src/dev/beampro/standalone/CaptureService.java": "f9155e214431b5bee8e4ea0ad8bcb18f6ceaa557aa64899fdad1c4eea40d0ced",
+    "standalone/src/dev/beampro/standalone/DisplayTests.java": "83ee8c59b095f366cd355cfab564ade7a2d25a5bc3934b603296f5f25236ec66",
+    "standalone/src/dev/beampro/standalone/FrameSink.java": "cc5f562e86f7715fa131d86c9531189e4ff68e2a307fd5e9ca884cafe7ad964d",
+    "standalone/src/dev/beampro/standalone/MainActivity.java": "55e7d3a45895ed05d3c5eb198b7bf05afe4ca73c74a391b8c8ab82585077488b",
+    "standalone/src/dev/beampro/standalone/PointerService.java": "64acecda11ebf8b750c9fbd854505c2efb62efdf4a9814d4206458ddcebae831",
+    "standalone/src/dev/beampro/standalone/Results.java": "2d38ed4f2706a87f28a6ae80b02d5e199faaa9ff3bef570360f4a637f1d79008",
+    "tools/build_standalone.py": "8c63b40178b64d81b29b7da06f185edb26d4769f43936378440b6136bc77118b",
+    "tools/verify_standalone_evidence.py": "cc7f3a4fe86da68897c528f1177b519c14ee1b300cc6a3b056c93c6b571a4365",
+    "reports/standalone-feasibility.md": "e1cf495715493fbdba0d23ffac36695617a5e9a0756718736e60ab6772454f43",
+    "artifacts/standalone/unbound-standalone.apk": "f37bec72045f87c58f573e13547a99cc23e672f4b442511a73bf5263df94143a",
+    "artifacts/standalone/build.json": "e5093bc4032c102d13782c4193b11c3647e4c548858e37682982a4d5b1c98a1c",
+    "artifacts/standalone/verification.json": "c03ad0184fe4e5ad3500de51556fca8425161ed4f8d6a050fb3faafc6c90d74f",
+    "artifacts/standalone/oneplus-runtime-results.json": "cbfb4c56821ff37d5a4b4385f4a6df3dc63385186bd9d19850cc0dbcac54fdf0",
+    "artifacts/standalone/oneplus-interrupted-final-run.json": "5904a2382431cc4b91b9679b8f90e07546c624c9a5b2433f1093972d856dc79f",
+    "artifacts/standalone/oneplus-virtual-results.json": "80291a09c1d46190609d120c9c072dc6852525db82ea95d5f78aaf5cbe03b1f6",
+    "artifacts/standalone/oneplus-own-content.png": "9221f39789db94a2310c61f7333ffa7bdfd77bcfd9c55233042d3f73ed35e6ba",
+    "artifacts/standalone/oneplus-split-initial.png": "c541a0268098890ee4171e2f38d079cb56f6d20057b1bc1ac70effcbb2524351",
+    "artifacts/standalone/oneplus-two-apps.png": "9634db31eb66762104c76cbe6c68b403eb10f40002dc5c4b4a9502566f00e962",
+    "artifacts/standalone/oneplus-aida64.png": "b475f0c19bb2fac65b522a1a78907212ba136c062408b39294777fce6db79cca",
+    "artifacts/standalone/oneplus-chrome.png": "f9ab8a4c55f9e445d8450d4a771703d549b5b79c6505f9e43073475f956d825d"
+  }
+}

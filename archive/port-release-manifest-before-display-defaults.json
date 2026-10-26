@@ -1,0 +1,81 @@
+{
+  "status": "experimental ADB-assisted port; persistent launcher history and real previews installed, device-tested and user-confirmed",
+  "date": "2026-10-25",
+  "production_ready": false,
+  "files": {
+    "myglasses_apk": {
+      "path": "artifacts/port-recent-app-previews/myglasses-startup-candidate.apk",
+      "sha256": "59182cae13558eb7ed14882cf20d912e4509048c29ccc1d5a3ac2db8081bbf65"
+    },
+    "companion_apk": {
+      "path": "artifacts/probe/beam-port-probe.apk",
+      "sha256": "81724a42ce52d138d178a3a8961dd858854e62d527d3175ad051f9b6a69b736f"
+    },
+    "helper_jar": {
+      "path": "artifacts/shell-probe/shell-probe.jar",
+      "sha256": "9ac7b1a35d4a58d7a1b3c456ea3f4f6e3c1718fb55792966b4942743bb6fa115"
+    },
+    "helper_tool": {
+      "path": "tools/helper.py",
+      "sha256": "bbf16707588a0ea57d459d6ba8fa9845e38e085954275c7ad2c3fdf599022113"
+    }
+  },
+  "validation_report": "reports/oneplus-user-validation.json",
+  "automated_regression": "reports/oneplus-15-close-regression.json",
+  "setup": "README.md",
+  "new_crash_records_after_final_helper_update": 0,
+  "telemetry_static_verification": "artifacts/port-recent-app-previews/verification.json",
+  "telemetry_device_verification": "artifacts/port-no-xreal-telemetry/runtime-verification.json",
+  "new_crashes_during_telemetry_smoke_test": 0,
+  "max_simultaneous_apps": 10,
+  "app_limit_static_verification": "artifacts/port-recent-app-previews/verification.json",
+  "app_limit_device_verification": "artifacts/port-ten-apps/runtime-verification.json",
+  "ten_app_runtime_test_performed": false,
+  "quick_access_static_verification": "artifacts/port-recent-app-previews/verification.json",
+  "quick_access_device_verification": "artifacts/port-quick-access/runtime-verification.json",
+  "quick_access": {
+    "game_mode_removed": true,
+    "connected_wifi_name_visible": true,
+    "wifi_settings_opened": true,
+    "bluetooth_settings_opened": true,
+    "wifi_to_bluetooth_existing_window_verified": true,
+    "bluetooth_to_wifi_existing_window_verified": true
+  },
+  "helper_recovery_verification": "artifacts/launch-recovery/runtime-verification.json",
+  "presentation_device_verification": "artifacts/port-buffered-presentation/runtime-verification.json",
+  "icon_placement_static_verification": "artifacts/port-recent-app-previews/verification.json",
+  "icon_placement_device_verification": "artifacts/icon-placement/runtime-verification.json",
+  "icon_placement_user_confirmed": true,
+  "presentation_static_verification": "artifacts/port-recent-app-previews/verification.json",
+  "recent_apps_static_verification": "artifacts/port-recent-app-previews/verification.json",
+  "recent_apps_device_verification": "artifacts/recent-apps/runtime-verification.json",
+  "pending_update": {
+    "feature": "Startup permission checklist, Material settings and optional OLED black, including pending M window default",
+    "path": "artifacts/port-permission-setup/myglasses-material-settings.apk",
+    "sha256": "0f2a2eaaa66e1b0c9e74da8793db565bac3f76754d528df18ee3ab9d5f79d63b",
+    "static_verification": "artifacts/port-permission-setup/build.json",
+    "emulator_verification": "artifacts/settings-interface/permission-runtime-verification.json",
+    "host_tests_passed": 36,
+    "preview_runtime_checks_passed": 35,
+    "theme": "follows device light/dark setting",
+    "default_window_size": "M",
+    "saved_user_sizes_preserved": true,
+    "installed": false,
+    "runtime_validation": "Fresh install, permission grants, live checks, optional denial, all-granted bypass and revocation verified on API 33 emulator; phone pending",
+    "previous_pending_candidate": "artifacts/port-oled-settings/myglasses-material-settings.apk",
+    "oled_black_option": true,
+    "permission_setup": true
+  },
+  "recent_apps": {
+    "launcher_only": true,
+    "max_entries": 32,
+    "tracking_starts_with_update": true,
+    "launch_recording_verified": true,
+    "newest_first_and_deduplication_verified": true,
+    "populated_panel_verified": true,
+    "real_previews_verified": true,
+    "previews_after_window_close_verified": true,
+    "preview_user_confirmed": true
+  },
+  "chrome_launch_verification": "artifacts/chrome-launch/runtime-verification.json"
+}
