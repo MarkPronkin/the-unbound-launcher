@@ -1,6 +1,7 @@
 # The Unbound Launcher
 
-![The Unbound Launcher logo](branding/logo.png)
+![The Unbound Launcher logo](branding/logo-dark.svg#gh-dark-mode-only)
+![The Unbound Launcher logo](branding/logo.png#gh-light-mode-only)
 
 **Bringing the XREAL Beam Pro's NebulaOS spatial desktop to Android phones with
 USB-C DisplayPort Alt Mode.**

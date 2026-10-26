@@ -1,6 +1,9 @@
 # The Unbound Launcher artwork
 
 - `logo.png`: default Dot Portal horizontal logo, black artwork on transparency.
+- `logo-dark.svg`: white horizontal logo for dark backgrounds; a self-contained
+  SVG embeds `logo.png` and recolors its artwork while preserving its exact alpha
+  and geometry. The root README selects it automatically for dark mode.
 - `app-icon.png`: default full square Android launcher icon, white dots on true black.
 - `symbol-white.png`: transparent white Dot Portal mark for the adaptive foreground.
 - `symbol.png`: original transparent black mark, also tinted white in the phone UI.
