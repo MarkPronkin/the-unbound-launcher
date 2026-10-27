@@ -4,7 +4,10 @@ import zipfile
 import struct
 
 from build_embedded_adb import BASE
-from embedded_adb_manifest import patch_manifest, patch_release_manifest, patch_usb_attach_manifest, AUTHORITY
+from embedded_adb_manifest import (
+    patch_manifest, patch_release_manifest, patch_usb_attach_manifest,
+    AUTHORITY, SHIZUKU_AUTHORITY, SHIZUKU_PERMISSION, SHIZUKU_V3_META,
+)
 from verify_embedded_adb import elements, verify_attribute_order
 
 
@@ -18,7 +21,18 @@ class EmbeddedAdbManifestTests(unittest.TestCase):
     def test_existing_components_and_permissions_preserved(self):
         for element in self.before:
             self.assertIn(element, self.after)
-        self.assertEqual(len(self.before) + 4, len(self.after))
+        self.assertEqual(len(self.before) + 7, len(self.after))
+
+    def test_shizuku_provider_and_metadata_registered(self):
+        perms = [attrs for tag, attrs in self.after if tag == "uses-permission" and attrs.get("name") == SHIZUKU_PERMISSION]
+        self.assertEqual(len(perms), 1)
+        meta = [attrs for tag, attrs in self.after if tag == "meta-data" and attrs.get("name") == SHIZUKU_V3_META]
+        self.assertEqual(len(meta), 1)
+        self.assertEqual(meta[0]["value"], 0xFFFFFFFF)
+        providers = [attrs for tag, attrs in self.after if tag == "provider" and attrs.get("name") == "rikka.shizuku.ShizukuProvider"]
+        self.assertEqual(len(providers), 1)
+        self.assertEqual(providers[0]["authorities"], SHIZUKU_AUTHORITY)
+        self.assertEqual(providers[0]["exported"], 0xFFFFFFFF)
 
     def test_pairing_and_overlay_cannot_be_launched_by_other_apps(self):
         for name in ("AdbPairingActivity", "PairingOverlayService"):

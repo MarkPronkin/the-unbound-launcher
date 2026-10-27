@@ -15,12 +15,17 @@ import dev.beampro.settings.SetupNavigation;
 /** Starts only the helper shipped in this APK, on this same device, after system pairing. */
 public final class AdbBootstrap {
     public static final String AUTHORITY = "com.xreal.evapro.nebula.unbound.bridge";
+    private static final String DEFAULT_STATUS = "Pair this phone to enable AR app windows.";
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final ScheduledExecutorService WATCHDOG = Executors.newSingleThreadScheduledExecutor();
     static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile boolean busy;
-    private static volatile String status = "Pair this phone to enable AR app windows.";
+    private static volatile String status = DEFAULT_STATUS;
     private static boolean attempted;
+
+    interface ShellRunner {
+        String run(String command) throws Exception;
+    }
 
     public static void open(Activity activity) { activity.startActivity(new Intent(activity, AdbPairingActivity.class)); }
     public static boolean needsSetup(Context context) {
@@ -35,9 +40,14 @@ public final class AdbBootstrap {
         open(activity); return false;
     }
     public static void install(Activity activity) {
-        if (attempted || Build.VERSION.SDK_INT < 30) return;
+        if (attempted) return;
         attempted = true;
-        if (paired(activity) && !ready(activity)) connect(activity, 0, null);
+        if (ready(activity)) return;
+        if (ShizukuClient.isBinderReady(activity) && ShizukuClient.hasPermission(activity)) {
+            connectShizuku(activity);
+        } else if (Build.VERSION.SDK_INT >= 30 && paired(activity)) {
+            connect(activity, 0, null);
+        }
     }
     static boolean paired(Context context) {
         return context.getSharedPreferences("unbound-adb", 0).getBoolean("paired", false);
@@ -52,7 +62,12 @@ public final class AdbBootstrap {
     static boolean busy() { return busy; }
     static String status(Context context) {
         if (ready(context)) return "Ready · AR app windows are enabled";
-        if (paired(context) && status.equals("Pair this phone to enable AR app windows.")) return "Paired · Enable Wireless debugging, then tap Connect and start.";
+        if (ShizukuClient.isBinderReady(context) && status.equals(DEFAULT_STATUS)) {
+            return ShizukuClient.hasPermission(context)
+                    ? "Shizuku ready · Tap Start with Shizuku to enable AR app windows."
+                    : "Shizuku detected · Tap Connect with Shizuku to authorize and start.";
+        }
+        if (paired(context) && status.equals(DEFAULT_STATUS)) return "Paired · Enable Wireless debugging, then tap Connect and start.";
         return status;
     }
     static synchronized void pair(Context source, String code, int pairPort, int connectPort, AdbDiscovery discovery, Runnable done) {
@@ -103,6 +118,44 @@ public final class AdbBootstrap {
             finally { disconnect(adb); if (own != null) own.close(); busy = false; }
         });
     }
+    static synchronized void requestAndConnectShizuku(Context source, Runnable onUpdated) {
+        if (busy) return;
+        final Context context = source.getApplicationContext();
+        if (!ShizukuClient.isBinderReady(context)) {
+            status = ShizukuClient.isInstalled(context)
+                    ? "Shizuku is installed, but its service is not running. Start Shizuku and try again."
+                    : "Shizuku is not running. Start Shizuku, or use Wireless debugging below.";
+            if (onUpdated != null) MAIN.post(onUpdated);
+            return;
+        }
+        if (ShizukuClient.hasPermission(context)) {
+            connectShizuku(context);
+            if (onUpdated != null) MAIN.post(onUpdated);
+            return;
+        }
+        status = "Allow Unbound in the Shizuku permission prompt…";
+        if (onUpdated != null) MAIN.post(onUpdated);
+        ShizukuClient.requestPermission(context, 7319, granted -> {
+            if (granted) {
+                connectShizuku(context);
+            } else {
+                status = "Shizuku permission was denied. Grant access in Shizuku, or use Wireless debugging below.";
+            }
+            if (onUpdated != null) MAIN.post(onUpdated);
+        });
+    }
+    static synchronized void connectShizuku(Context source) {
+        if (busy) return;
+        final Context context = source.getApplicationContext();
+        busy = true; status = "Connecting with Shizuku…";
+        WORK.execute(() -> {
+            try {
+                if (ready(context)) return;
+                startHelper(context, command -> ShizukuClient.exec(context, command), "Shizuku");
+            } catch (Throwable error) { failure(context, "Shizuku connection", error); }
+            finally { busy = false; }
+        });
+    }
     private static void start(Context context, LocalAdb adb, int manualPort, AdbDiscovery discovery) throws Exception {
         if (ready(context)) return;
         LinkedHashSet<Integer> ports = new LinkedHashSet<>();
@@ -125,31 +178,36 @@ public final class AdbBootstrap {
             } catch (Exception error) { last = error; adb.disconnect(); }
         }
         if (connectedPort == 0) throw new StartupFailure("ADB connection failed. Check Wireless debugging and its current connection port. Pair again if Android forgot this app.", last);
-        if (!"2000".equals(shell(adb, "id -u").trim())) throw new SecurityException("ADB did not provide Android shell access");
+        startHelper(context, command -> shell(adb, command), "ADB");
+        context.getSharedPreferences("unbound-adb", 0).edit().putInt("connect-port", connectedPort).apply();
+    }
+    static void startHelper(Context context, ShellRunner runner, String transport) throws Exception {
+        String uid = runner.run("id -u").trim();
+        if (!"2000".equals(uid) && !"0".equals(uid)) throw new SecurityException(transport + " did not provide Android shell access");
         String apk = quote(context.getApplicationInfo().sourceDir);
         String dir = "/data/local/tmp/unbound-launcher";
         String jar = dir + "/helper-" + HelperPayload.SHA256 + ".jar";
         String command = "mkdir -p " + dir + " && chmod 700 " + dir
-                + " && rm -f " + jar + ".new"
+                + " && rm -f " + jar + ".new " + dir + "/helper.log"
                 + " && unzip -p " + apk + " assets/unbound-shell.jar > " + jar + ".new"
                 + " && [ \"$(sha256sum " + jar + ".new | cut -d' ' -f1)\" = " + quote(HelperPayload.SHA256) + " ]"
                 + " && chmod 444 " + jar + ".new && mv -f " + jar + ".new " + jar
+                + " && (chown -R 2000:2000 " + dir + " /data/local/tmp/beampro-recent-apps.bin 2>/dev/null || true)"
                 + " && (CLASSPATH=" + jar + " /system/bin/nohup /system/bin/setsid /system/bin/app_process / dev.beampro.bridge.LaunchServer --embedded"
                 + " > " + dir + "/helper.log 2>&1 < /dev/null & sleep 0.3) && echo UNBOUND_HELPER_STARTED";
         status = "Starting the bundled launch helper…";
-        String output = shell(adb, command);
+        String output = runner.run(command);
         if (!output.contains("UNBOUND_HELPER_STARTED")) {
             android.util.Log.e("UnboundADB", "Helper extraction/start failed: " + output);
-            throw new StartupFailure("ADB connected, but the bundled helper could not be installed or started. Retry Connect and start. If it still fails, update Unbound.");
+            throw new StartupFailure(transport + " connected, but the bundled helper could not be installed or started. Retry Connect and start. If it still fails, update Unbound.");
         }
         long until = SystemClock.elapsedRealtime() + 12000;
         while (!ready(context) && SystemClock.elapsedRealtime() < until) Thread.sleep(200);
         if (!ready(context)) {
-            String log = shell(adb, "tail -c 3000 " + dir + "/helper.log");
+            String log = runner.run("tail -c 3000 " + dir + "/helper.log");
             android.util.Log.e("UnboundADB", "Bundled helper failed: " + log);
-            throw new StartupFailure("ADB connected, but the AR launch helper did not become ready. Retry Connect and start. If it still fails, update Unbound.");
+            throw new StartupFailure(transport + " connected, but the AR launch helper did not become ready. Retry Connect and start. If it still fails, update Unbound.");
         }
-        context.getSharedPreferences("unbound-adb", 0).edit().putInt("connect-port", connectedPort).apply();
         status = "Ready · AR app windows are enabled";
     }
     private static String shell(LocalAdb adb, String command) throws Exception {
@@ -171,6 +229,10 @@ public final class AdbBootstrap {
     private static void failure(Context context, String action, Throwable error) {
         android.util.Log.w("UnboundADB", action + " failed", error);
         if (error instanceof StartupFailure) { status = error.getMessage(); return; }
+        if (action.startsWith("Shizuku")) {
+            status = action + " failed. Ensure Shizuku is running and Unbound is authorized, or use Wireless debugging below.";
+            return;
+        }
         status = action + " failed. " + (paired(context)
                 ? "Enable Wireless debugging, then tap Connect and start. If Android forgot this app, pair again."
                 : "Keep Android's pairing-code dialog open, check the code and pairing port, and try again.");

@@ -22,11 +22,15 @@ public final class AdbDeviceChecks extends Instrumentation {
                         launcherApk, android.content.pm.PackageManager.GET_PROVIDERS);
                 check(parsed != null && parsed.providers != null, "Android parses the actual launcher APK");
                 android.content.pm.ProviderInfo bridge = null;
+                android.content.pm.ProviderInfo shizuku = null;
                 for (android.content.pm.ProviderInfo provider : parsed.providers) {
                     if (provider.name.equals(LocalBridgeProvider.class.getName())) bridge = provider;
+                    if (provider.name.equals(rikka.shizuku.ShizukuProvider.class.getName())) shizuku = provider;
                 }
                 check(bridge != null && bridge.exported, "Actual launcher provider is exported to shell");
                 check(bridge.processName.equals(parsed.packageName + ":unbound_bridge"), "Actual launcher provider has a separate process");
+                check(shizuku != null && shizuku.exported && !shizuku.multiprocess
+                        && shizuku.authority.equals(parsed.packageName + ".shizuku"), "Actual launcher ShizukuProvider is exported");
                 result.putBoolean("actual_launcher_manifest_parsed", true);
             }
             AdbIdentity first = AdbIdentity.load(context), second = AdbIdentity.load(context);

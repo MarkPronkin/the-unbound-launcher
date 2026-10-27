@@ -101,11 +101,12 @@ surrounding Android code supplies:
   phone gives that identity to ADB, so no root or bootloader unlock is needed.
   The one thing the shell user can't do is create secure displays for protected
   video.
-- **ADB without a computer.** The APK pairs with the phone's own Wireless
-  debugging over `127.0.0.1`, using the same SPAKE2 and TLS pairing as
-  `adb pair`. It then starts the helper and receives its Binder through a
-  signature-checked provider. You turn on Developer options once; no other
-  device is involved.
+- **ADB without a computer (or Shizuku).** The APK pairs with the phone's own
+  Wireless debugging over `127.0.0.1`, using the same SPAKE2 and TLS pairing as
+  `adb pair`, or connects directly through **Shizuku** (ADB shell or root mode)
+  when installed. It then starts the helper and receives its Binder through a
+  signature-checked provider. You turn on Developer options once (or authorize
+  in Shizuku); no other device is involved.
 - **Display fixes for each phone.** Some Android builds choose the wrong mode
   for XREAL's 3840 × 1080 side-by-side output. The helper remembers **Desktop**
   as the connection choice for XREAL displays and requests the native stereo
@@ -400,6 +401,7 @@ including XREAL code retained or modified by this project. XREAL, Beam Pro,
 NebulaOS and My Glasses are XREAL products.
 
 The project's original code is authored by [@MarkPronkin](https://github.com/MarkPronkin).
+Shizuku support was contributed by [@antnyhills](https://github.com/antnyhills) with Antigravity.
 
 **The original code written by this project's author is licensed under the
 MIT License.** See [LICENSE](LICENSE). That license applies only to the author's

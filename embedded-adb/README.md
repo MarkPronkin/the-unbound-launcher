@@ -9,10 +9,12 @@ physical phone/glasses combinations remain unverified. See
 [broader compatibility](../reports/multibrand-compatibility.md).
 
 
-This version packages the launcher, wireless-debugging client, pairing UI,
-signature-checked Binder provider, and shell launch helper in one APK. It needs
-no Beam Port Probe installation, desktop ADB command, separate companion, or root.
-Android's Developer options and wireless-debugging pairing are still required.
+This version packages the launcher, wireless-debugging client, Shizuku client,
+pairing UI, signature-checked Binder provider, and shell launch helper in one APK.
+It needs no Beam Port Probe installation, desktop ADB command, separate companion,
+or root. You can start the bundled helper either with **Shizuku** (running as
+ADB shell UID 2000 or root UID 0) or with Android's built-in **Wireless debugging**
+pairing on the phone.
 
 The candidate is `artifacts/unbound-launcher-adb-recovery/the-unbound-launcher.apk`,
 version **0.1.2 alpha · on-device ADB**, code **2876**. It uses the launcher's existing

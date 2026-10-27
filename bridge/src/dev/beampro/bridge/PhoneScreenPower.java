@@ -154,7 +154,8 @@ final class PhoneScreenPower {
     /** Separate process: restores on helper death (stdin EOF) or a stalled heartbeat. */
     public static final class Watchdog {
         public static void main(String[] args) throws Exception {
-            if (android.os.Process.myUid() != 2000 || args.length != 1) throw new SecurityException("Shell helper only");
+            int uid = android.os.Process.myUid();
+            if ((uid != 2000 && uid != 0) || args.length != 1) throw new SecurityException("Shell helper only");
             Class<?> surface = Class.forName("android.view.SurfaceControl");
             Class<?> control = surface;
             try { control.getMethod("getPhysicalDisplayToken", long.class); }
