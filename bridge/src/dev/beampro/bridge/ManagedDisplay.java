@@ -149,10 +149,9 @@ final class ManagedDisplay {
         final Class<?> api;
         Object windowService,thermalService;
         Class<?> windowApi,thermalApi;
-        final boolean temporaryModes,legacyEnable,desktopPreference,connectedEnable,respectModes;
+        final boolean temporaryModes,legacyEnable,routePreference,connectedEnable,respectModes;
         final Map<Integer,String> limitDumps=new HashMap<>();
         final Map<Integer,String> observedModes=new HashMap<>();
-        final java.util.Set<String> configured=new java.util.HashSet<>();
         AndroidPlatform() throws Exception {
             api=Class.forName("android.hardware.display.IDisplayManager");
             service=connectService("display",api);
@@ -160,18 +159,26 @@ final class ManagedDisplay {
             // independently; a getter alone is not evidence that its setter exists.
             temporaryModes=has("setUserPreferredDisplayMode",int.class,Display.Mode.class,boolean.class)
                     &&has("getUserPreferredDisplayMode",int.class);
-            desktopPreference=has("getConnectionPreference",String.class)
+            routePreference=has("getConnectionPreference",String.class)
                     &&has("setConnectionPreference",String.class,int.class);
             connectedEnable=has("enableConnectedDisplay",int.class);
             respectModes=has("shouldAlwaysRespectAppRequestedMode")
                     &&has("setShouldAlwaysRespectAppRequestedMode",boolean.class);
-            legacyEnable=connectedEnable&&!desktopPreference;
-            log("CAPABILITIES desktop="+desktopPreference+" enable="+connectedEnable
+            legacyEnable=connectedEnable&&!routePreference;
+            log("CAPABILITIES routing="+routePreference+" enable="+connectedEnable
                     +" temporaryModes="+temporaryModes+" appModePolicy="+respectModes);
         }
         private boolean has(String name,Class<?>... parameters) {
             try { api.getMethod(name,parameters);return true; }
             catch(NoSuchMethodException absent) { return false; }
+        }
+        public int connectionPreference(ManagedDisplayPolicy.Screen screen) throws Exception {
+            return routePreference?(Integer)call("getConnectionPreference",new Class<?>[]{String.class},screen.uniqueId):-1;
+        }
+        public void connectionPreference(ManagedDisplayPolicy.Screen screen,int value) throws Exception {
+            if(!routePreference||value<0||value>2)throw new IllegalArgumentException("Unsupported display connection preference");
+            call("setConnectionPreference",new Class<?>[]{String.class,int.class},screen.uniqueId,value);
+            if(connectionPreference(screen)!=value)throw new IllegalStateException("Android rejected display connection preference");
         }
         static Object connectService(String name,Class<?> contract) throws Exception {
             IBinder binder=(IBinder)Class.forName("android.os.ServiceManager").getMethod("getService",String.class).invoke(null,name);
@@ -212,16 +219,6 @@ final class ManagedDisplay {
             return (Integer)thermalApi.getMethod("getCurrentThermalStatus").invoke(thermalService)
                     <PowerManager.THERMAL_STATUS_SEVERE;
         }
-        public boolean desktop(ManagedDisplayPolicy.Screen screen) throws Exception {
-            if(!desktopPreference)return false;
-            try {
-                int preference=(Integer)call("getConnectionPreference",new Class<?>[]{String.class},screen.uniqueId);
-                if(preference!=1)call("setConnectionPreference",new Class<?>[]{String.class,int.class},screen.uniqueId,1);
-                boolean accepted=(Integer)call("getConnectionPreference",new Class<?>[]{String.class},screen.uniqueId)==1;
-                if(accepted&&configured.add(screen.uniqueId))log("AUTO_DESKTOP configured for "+screen.uniqueId);
-                return accepted;
-            } catch(NoSuchMethodException olderApi){return false;}
-        }
         public void enable(ManagedDisplayPolicy.Screen screen) throws Exception {
             if(!connectedEnable)return; // Older frameworks already expose active displays.
             call("enableConnectedDisplay",new Class<?>[]{int.class},screen.id);
@@ -232,7 +229,7 @@ final class ManagedDisplay {
             // Use Android's shell settings client, which acquires its provider as
             // an external shell caller instead of requiring an app-bound resolver.
             ShellCommand.Result result=ShellCommand.run(3000,"settings","get","secure","mirror_built_in_display");
-            if(!result.succeeded())throw new IllegalStateException("Cannot read Desktop content mode: "+result.output);
+            if(!result.succeeded())throw new IllegalStateException("Cannot read mirror content mode: "+result.output);
             String value=result.output.trim();
             if(value.equals("null"))return null;
             if(!value.equals("0")&&!value.equals("1"))throw new IllegalStateException("Unexpected mirror setting: "+value);
@@ -244,7 +241,7 @@ final class ManagedDisplay {
                     ?ShellCommand.run(3000,"settings","delete","secure","mirror_built_in_display")
                     :ShellCommand.run(3000,"settings","put","secure","mirror_built_in_display",value);
             if(!result.succeeded()||!java.util.Objects.equals(value,mirror()))
-                throw new IllegalStateException("Cannot select Desktop content mode: "+result.output);
+                throw new IllegalStateException("Cannot select mirror content mode: "+result.output);
         }
         public ManagedDisplayPolicy.Mode preferred(ManagedDisplayPolicy.Screen screen) throws Exception {
             return mode((Display.Mode)call("getUserPreferredDisplayMode",new Class<?>[]{int.class},screen.id));

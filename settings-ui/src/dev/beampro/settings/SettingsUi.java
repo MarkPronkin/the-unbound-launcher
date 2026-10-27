@@ -176,7 +176,7 @@ public final class SettingsUi {
         Row detectionRow;
         SignatureSwitch detectionToggle;
         boolean syncingDetection;
-        SignatureSwitch stereoToggle;
+        SignatureSwitch stereoToggle, mono60Toggle;
         boolean syncingStereo;
         Button launch;
         ImageView glasses;
@@ -504,6 +504,7 @@ public final class SettingsUi {
                 if (syncingStereo) return;
                 try {
                     ExperimentalStereo.save(activity, enabled);
+                    syncDisplayOverrides();
                     Toast.makeText(activity, "Reconnect your glasses to apply the change.", Toast.LENGTH_LONG).show();
                 } catch (Exception failure) {
                     syncingStereo = true;
@@ -518,6 +519,39 @@ public final class SettingsUi {
             row.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             section.card.addView(row);
+            String monoDescription = "Try this if the glasses go black when AR Space starts in 2D. "
+                    + "Uses 60 Hz and turns off Force 3D. Reconnect your glasses after changing.";
+            Row mono = new Row(activity, "mirror", "Use 60 Hz in 2D", monoDescription);
+            mono.setTag("experimental-mono-60");
+            mono60Toggle = new SignatureSwitch(activity);
+            mono60Toggle.setTag("force-2d-60");
+            mono60Toggle.setContentDescription("Use 60 Hz in 2D. " + monoDescription);
+            LinearLayout.LayoutParams monoParams = new LinearLayout.LayoutParams(dp(52), dp(48));
+            monoParams.setMarginStart(dp(12)); mono.addView(mono60Toggle, monoParams);
+            mono60Toggle.setChecked(ExperimentalStereo.mono60Enabled(activity));
+            mono60Toggle.setOnCheckedChangeListener((button, enabled) -> {
+                if (syncingStereo) return;
+                try {
+                    ExperimentalStereo.saveMono60(activity, enabled);
+                    Toast.makeText(activity, "Reconnect your glasses to apply the change.", Toast.LENGTH_LONG).show();
+                } catch (Exception failure) {
+                    Log.w(TAG, "Cannot save 2D refresh setting", failure);
+                    Toast.makeText(activity, "Could not save 2D refresh. " + failure.getMessage(), Toast.LENGTH_LONG).show();
+                } finally { syncDisplayOverrides(); }
+            });
+            mono.onClick(v -> mono60Toggle.toggle());
+            mono.title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            mono.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            mono.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            section.card.addView(mono);
+        }
+
+        void syncDisplayOverrides() {
+            syncingStereo = true;
+            try {
+                if (stereoToggle != null) stereoToggle.setChecked(ExperimentalStereo.enabled(activity));
+                if (mono60Toggle != null) mono60Toggle.setChecked(ExperimentalStereo.mono60Enabled(activity));
+            } finally { syncingStereo = false; }
         }
 
         void about(Section section) {

@@ -72,6 +72,8 @@ public final class HelpPageChecks extends Instrumentation {
                 Log.i("HelpPageChecks", marker); SystemClock.sleep(100);
             }
             require(logsContain(marker), "real app-UID logcat data captured");
+            DebugData.connectionFailure(activity, "test USB network disconnect");
+            data.files.submit(() -> {}).get(30, java.util.concurrent.TimeUnit.SECONDS);
             runOnMainSync(() -> {
                 toggle("debug-enabled").performClick();
                 require(!data.enabled() && !data.collecting(), "turning debug mode off stops collection");
@@ -86,7 +88,19 @@ public final class HelpPageChecks extends Instrumentation {
             try (ZipFile zip = new ZipFile(export)) {
                 require(read(zip.getInputStream(zip.getEntry("app.log"))).contains(marker), "export contains reproduced event");
                 require(read(zip.getInputStream(zip.getEntry("device-and-session.txt"))).contains("Android:"), "device details in report");
+                String network = read(zip.getInputStream(zip.getEntry("network-diagnostics.txt")));
+                require(network.contains("test USB network disconnect") && network.contains("app UID"), "failure network snapshot survives stopping collection");
+                require(network.contains("169.254.2.1") && network.contains("Helper diagnostics unavailable"), "missing or older helper preserves ping diagnostics and export");
             }
+            runOnMainSync(() -> data.setEnabled(true));
+            File fresh = data.files.submit(() -> data.export()).get(30, java.util.concurrent.TimeUnit.SECONDS);
+            try (ZipFile zip = new ZipFile(fresh)) {
+                String network = read(zip.getInputStream(zip.getEntry("network-diagnostics.txt")));
+                require(network.contains("Debug export requested") && network.contains("test USB network disconnect"), "fresh export keeps both failure and current network evidence");
+                require(read(zip.getInputStream(zip.getEntry("display.txt"))).contains("Helper display diagnostics unavailable"), "missing helper leaves an explanation in display.txt");
+                require(read(zip.getInputStream(zip.getEntry("surfaceflinger.txt"))).contains("Helper display diagnostics unavailable"), "missing helper leaves an explanation in surfaceflinger.txt");
+            }
+            runOnMainSync(() -> data.setEnabled(false));
             runOnMainSync(() -> page().findViewWithTag("debug-share").performClick());
             Intent share = activity.shareLaunch.getParcelableExtra(Intent.EXTRA_INTENT);
             require(Intent.ACTION_SEND.equals(share.getAction()) && "application/zip".equals(share.getType()), "Share opens Android share chooser with ZIP");

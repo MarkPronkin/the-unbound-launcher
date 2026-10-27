@@ -1,8 +1,14 @@
 """Patch and restore the port's connection recovery against a pinned SDK DEX."""
 from pathlib import Path
 import subprocess
+from startup_theme import patch_activity_theme_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
+CONNECTION_ACTIVITY = 'ai.nreal.nebula.activity.splash.ota.OTAActivity'
+
+
+def patch_connection_theme_manifest(manifest):
+    return patch_activity_theme_manifest(manifest, CONNECTION_ACTIVITY, unlock_orientation=True)
 
 
 def patch_connection_startup(original, build, java, env=None, *, restore=False, baseline=None):

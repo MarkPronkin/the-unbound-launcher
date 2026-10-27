@@ -63,7 +63,7 @@ final class HelpPage extends Dialog {
         LinearLayout options = group(activity);
         options.addView(toggle("Debug mode", "Enable extra app diagnostics to help investigate a problem.",
                 "debug-enabled", data.enabled(), true, data::setEnabled));
-        options.addView(toggle("Collect debug data", "Record app logs on this device while you reproduce the problem. Turn off to stop.",
+        options.addView(toggle("Collect debug data", "Record app logs and connection network diagnostics while you reproduce the problem. Turn off to stop.",
                 "debug-collecting", data.collecting(), data.enabled(), data::setCollecting));
         page.body.addView(options);
 
@@ -74,7 +74,7 @@ final class HelpPage extends Dialog {
                 : "Enable debug mode and collect data while you reproduce the problem.";
         if (data.error != null) description = data.error;
         add(page.body, text(activity, description, SUPPORTING, TEXT_SECONDARY), 4, 0);
-        add(page.body, text(activity, "Files stay on your device until you share them. App logs may contain personal information. Each ZIP is limited to 15 MB.",
+        add(page.body, text(activity, "Creating a debug file also captures display and SurfaceFlinger diagnostics. Keep the glasses connected until it is ready. Files stay on your device until you share them. Logs, network addresses, display identifiers and app/window names may contain personal information. Each ZIP is limited to 15 MB.",
                 SUPPORTING, TEXT_SECONDARY), 12, 0);
 
         Button create = button(activity, busy ? "Preparing debug file…" : export == null ? "Create debug file" : "Create new debug file", PRIMARY);
@@ -118,7 +118,7 @@ final class HelpPage extends Dialog {
     }
 
     private void prepare() {
-        busy = true; status = "Preparing a snapshot of your recorded data…"; render();
+        busy = true; status = "Preparing logs, display and network diagnostics. Keep the glasses connected until the file is ready…"; render();
         data.files.execute(() -> {
             File file = null; String error = null;
             try { file = data.export(); }

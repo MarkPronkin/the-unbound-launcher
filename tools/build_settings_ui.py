@@ -91,7 +91,9 @@ def main():
         run(TOOLS / "apksigner", "verify", "--verbose", apk)
         run(TOOLS / "zipalign", "-c", "-P", "16", "4", apk)
 
-    preview_jar = compile_sources(sources + sorted((ROOT / "settings-ui/preview/src").rglob("*.java")), build / "preview-classes")
+    preview_jar = compile_sources(sources + sorted((ROOT / "settings-ui/preview/src").rglob("*.java"))
+                                  + [ROOT / "port-client/src/dev/beampro/port/ConnectionAnimation.java",
+                                     ROOT / "bridge/src/dev/beampro/bridge/DisplayDumpPipe.java"], build / "preview-classes")
     preview_dex = build / "preview-dex"
     preview_dex.mkdir(exist_ok=True)
     run(TOOLS / "d8", "--min-api", "29", "--lib", PLATFORM, "--output", preview_dex, preview_jar)

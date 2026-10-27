@@ -43,9 +43,11 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         }
     }
     public interface Platform {
+        /** Android's per-display connection preference (2 = Mirror), or -1 without that API. */
+        default int connectionPreference(Screen screen) throws Exception { return -1; }
+        default void connectionPreference(Screen screen,int value) throws Exception { throw new UnsupportedOperationException(); }
         List<Screen> screens() throws Exception;
         boolean unlockedAndCool() throws Exception;
-        boolean desktop(Screen screen) throws Exception;
         default boolean enableWithoutDesktopPreference() { return false; }
         void enable(Screen screen) throws Exception;
         String mirror() throws Exception;
@@ -71,9 +73,15 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
     private final Platform platform;
     private Journal journal;
     private final Map<Integer,Owned> modes=new HashMap<>();
+    private final Map<String,Route> routes=new HashMap<>();
+    private static final class Route {
+        final Screen screen;
+        final int previous;
+        Route(Screen screen,int previous) { this.screen=screen;this.previous=previous; }
+    }
     private final Set<Integer> enabled=new HashSet<>();
     private boolean mirrorOwned,respectOwned;
-    private String previousMirror;
+    private String previousMirror,requestedMirror="0";
     private boolean previousRespect;
     private long absentSince=-1;
 
@@ -83,6 +91,7 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         Properties state=journal.load();
         mirrorOwned=Boolean.parseBoolean(state.getProperty("mirror.owned","false"));
         previousMirror=state.getProperty("mirror.previous");
+        requestedMirror=state.getProperty("mirror.requested","0");
         respectOwned=Boolean.parseBoolean(state.getProperty("respect.owned","false"));
         previousRespect=Boolean.parseBoolean(state.getProperty("respect.previous","false"));
         for(String key:state.stringPropertyNames()) if(key.startsWith("mode.")&&key.endsWith(".unique")) {
@@ -90,6 +99,13 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
             Mode previous=decode(state.getProperty("mode."+id+".previous"));
             Mode requested=decode(state.getProperty("mode."+id+".requested"));
             modes.put(id,new Owned(new Screen(id,state.getProperty(key),true,null,new ArrayList<Mode>()),previous,requested));
+        }
+        for(String key:state.stringPropertyNames()) if(key.startsWith("route.")&&key.endsWith(".unique")) {
+            String prefix=key.substring(0,key.length()-6),unique=state.getProperty(key);
+            int id=Integer.parseInt(state.getProperty(prefix+"id"));
+            int previous=Integer.parseInt(state.getProperty(prefix+"previous"));
+            if(previous<0||previous>2||!unique.startsWith("local:"))throw new IllegalStateException("Invalid routing recovery journal");
+            routes.put(unique,new Route(new Screen(id,unique,true,null,new ArrayList<Mode>()),previous));
         }
         if(!state.isEmpty()) {platform.log("RECOVERING_PREVIOUS_DISPLAY_SESSION");close();}
     }
@@ -103,6 +119,7 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         Properties state=new Properties();
         if(mirrorOwned) {
             state.setProperty("mirror.owned","true");
+            state.setProperty("mirror.requested",requestedMirror);
             if(previousMirror!=null)state.setProperty("mirror.previous",previousMirror);
         }
         if(respectOwned) {
@@ -113,6 +130,13 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
             state.setProperty(prefix+"unique",owned.screen.uniqueId);
             state.setProperty(prefix+"previous",encode(owned.previous));
             state.setProperty(prefix+"requested",encode(owned.requested));
+        }
+        int routeIndex=0;
+        for(Route route:routes.values()) {
+            String prefix="route."+(routeIndex++)+".";
+            state.setProperty(prefix+"unique",route.screen.uniqueId);
+            state.setProperty(prefix+"id",Integer.toString(route.screen.id));
+            state.setProperty(prefix+"previous",Integer.toString(route.previous));
         }
         journal.save(state);
     }
@@ -127,17 +151,32 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
             restoreModes(all);
             enabled.clear();
             if (absentSince<0) absentSince=now;
-            if (!screens.isEmpty() || now-absentSince>=2000) restoreMirror();
+            if (!screens.isEmpty() || now-absentSince>=2000) { restoreMirror();restoreRoutes(); }
             return;
         }
         absentSince=-1;
-        Set<Integer> desktops=new HashSet<>();
-        for (Screen screen:screens) if(platform.desktop(screen))desktops.add(screen.id);
-        if (!desktops.isEmpty() && "1".equals(platform.mirror())) {
+        // AR draws through the SDK's native Presentation, so XREAL glasses are routed to Mirror
+        // once per helper lifetime (never Desktop). A later manual choice is not reversed.
+        Set<Integer> presentations=new HashSet<>();
+        for(Screen screen:screens) {
+            int preference=platform.connectionPreference(screen);
+            if(preference<0)continue; // OEM without this API: retain its manual mirroring choice.
+            if(!routes.containsKey(screen.uniqueId)) {
+                routes.put(screen.uniqueId,new Route(screen,preference));
+                checkpoint();
+                if(preference!=2)platform.connectionPreference(screen,2);
+                platform.log("PRESENTATION_MIRROR_ROUTING display="+screen.id);
+            }
+            if(platform.connectionPreference(screen)==2)presentations.add(screen.id);
+        }
+        String mirrorTarget=!presentations.isEmpty()?"1":null;
+        if(mirrorTarget==null || (mirrorOwned&&!mirrorTarget.equals(requestedMirror)))restoreMirror();
+        if (mirrorTarget!=null && !mirrorTarget.equals(platform.mirror())) {
             if (!mirrorOwned) { previousMirror=platform.mirror(); mirrorOwned=true; }
+            requestedMirror=mirrorTarget;
             checkpoint();
-            platform.mirror("0");
-            platform.log("MIRROR_DISABLED_FOR_XREAL");
+            platform.mirror(mirrorTarget);
+            platform.log("PRESENTATION_MIRROR_ENABLED");
         }
         boolean needsRespect=false;
         Set<Integer> stereoIds=new HashSet<>();
@@ -191,7 +230,7 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         // pending display. Apply that same operation only to identified XREALs;
         // leave the phone's existing content mode and resolution policy intact.
         for (Screen screen:screens) if (!enabled.contains(screen.id)
-                && (desktops.contains(screen.id) || platform.enableWithoutDesktopPreference())) {
+                && (presentations.contains(screen.id) || platform.enableWithoutDesktopPreference())) {
             platform.enable(screen);
             enabled.add(screen.id);
         }
@@ -220,10 +259,18 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
     }
     private void restoreMirror() throws Exception {
         if (!mirrorOwned) return;
-        if ("0".equals(platform.mirror())) platform.mirror(previousMirror);
+        if (requestedMirror.equals(platform.mirror())) platform.mirror(previousMirror);
         mirrorOwned=false;
         checkpoint();
         platform.log("MIRROR_POLICY restored");
+    }
+    private void restoreRoutes() throws Exception {
+        for(String unique:new ArrayList<>(routes.keySet())) {
+            Route route=routes.get(unique);
+            if(platform.connectionPreference(route.screen)==2 && route.previous!=2)
+                platform.connectionPreference(route.screen,route.previous);
+            routes.remove(unique);checkpoint();
+        }
     }
     @Override public void close() throws Exception {
         Exception failure=null;
@@ -231,6 +278,7 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         // A failed display snapshot must not prevent restoration of global policy.
         try {restoreRespect();} catch(Exception e){failure=e;}
         try {restoreMirror();} catch(Exception e){failure=e;}
+        try {restoreRoutes();} catch(Exception e){failure=e;}
         if(failure!=null)throw failure;
     }
 

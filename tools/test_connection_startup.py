@@ -7,10 +7,20 @@ import zipfile
 
 from test_display_startup import ROOT, JAVA, STUBS as DISPLAY_STUBS
 from build_embedded_adb import BASE
-from connection_startup import patch_connection_startup
+from connection_startup import patch_connection_startup, patch_connection_theme_manifest, CONNECTION_ACTIVITY
 
 STUBS = dict(DISPLAY_STUBS)
 STUBS.update({
+    'dev/beampro/port/ConnectionAnimation.java': '''package dev.beampro.port;
+      public class ConnectionAnimation {
+        public static ConnectionAnimation last;public static boolean defer;public boolean disposed,failed,success,busy;public String phase;
+        public Runnable retry,close,completion;public ConnectionAnimation(android.app.Activity a,Runnable r,Runnable c){last=this;retry=r;close=c;}
+        public void show(android.app.Activity a){} public void stage(String s){phase=s;}
+        public void failure(String s,boolean b){failed=true;phase=s;busy=b;}
+        public void connected(){success=true;}public void connected(Runnable r){success=true;completion=r;if(!defer)complete();}
+        public void complete(){Runnable r=completion;completion=null;if(r!=null)r.run();}
+        public void dispose(){disposed=true;completion=null;}
+      }''',
     'android/os/Handler.java': '''package android.os;import java.util.*; public class Handler {
       static class Task {Handler h;Runnable r;long at;Task(Handler h,Runnable r,long at){this.h=h;this.r=r;this.at=at;}}
       static List<Task> tasks=new ArrayList<>();public Handler(Looper l){}public Handler(){}
@@ -48,6 +58,13 @@ STUBS.update({
     'com/xreal/basicfunc/BasicFuncManager.java': '''package com.xreal.basicfunc;public class BasicFuncManager {
       public static String type;public static void setGlassesType(String t){type=t;}}''',
     'ai/nreal/nebula/manager/callback/ISdkStartResult.java': '''package ai.nreal.nebula.manager.callback;public interface ISdkStartResult {void onResult(int result);}''',
+    'com/xreal/glasses/servicesdk/helper/PingGSeriesHelper.java': '''package com.xreal.glasses.servicesdk.helper;
+      public class PingGSeriesHelper {
+       public interface PingCallback {void onPingResult(boolean success);}
+       public android.os.Handler mSdkHandler=new android.os.Handler();public int polls;
+       public Runnable mRunnablePing=()->polls++;public PingCallback callback;
+       public void release(){mSdkHandler.removeCallbacks(mRunnablePing);dev.beampro.port.PingCallbackCompat.released(this);}
+      }''',
     'com/xreal/glassesdisplayplugevent/IGlassesEvent.java': '''package com.xreal.glassesdisplayplugevent;public interface IGlassesEvent {interface IDisplayEvent {}}''',
     'com/xreal/glassesdisplayplugevent/GlassesInitSetting.java': '''package com.xreal.glassesdisplayplugevent;public class GlassesInitSetting {
       static GlassesInitSetting instance=new GlassesInitSetting();public static GlassesInitSetting getInstance(){return instance;}
@@ -58,12 +75,17 @@ STUBS.update({
        public static XREALManager instance;public static XREALManager getInstance(){return instance;}
        public int mGlassesType=7,starts,launches,unregistered,nextResult=0,target=5;public boolean mUsbConnect=true,hasGoLauncher;
        public FakeOta mOtaManager=new FakeOta();public FakeSdk mNRServiceControl=new FakeSdk();public Object mDisplayEvent;
-       public ISdkStartResult callback;public boolean waitingDisplay;
+       public ISdkStartResult callback;public boolean waitingDisplay,networkWait;
        public static class Event implements com.xreal.glassesdisplayplugevent.IGlassesEvent.IDisplayEvent {}
        public static class FakeOta {public int skuCalls;public Runnable onSecondSku;public String getSku(){skuCalls++;if(skuCalls==2&&onSecondSku!=null)onSecondSku.run();return "L";}public int getOtaNum(String s){throw new AssertionError("firmware probe during AR startup");}}
-       public static class FakeSdk {public boolean started,isEthernetSeries=true;public int mode=5,stops;public boolean isStartSdk(){return started;}public int get2D3D(){return mode;}
+       public static class FakeSdk {public com.xreal.glasses.servicesdk.helper.PingGSeriesHelper mPingHelper=new com.xreal.glasses.servicesdk.helper.PingGSeriesHelper();
+         public boolean started,isEthernetSeries=true;public int mode=5,stops;public boolean isStartSdk(){return started;}public int get2D3D(){return mode;}
          public void stopSdk(){stops++;started=false;}}
        public void startSdk(ISdkStartResult cb){starts++;callback=cb;
+         if(networkWait){mNRServiceControl.mPingHelper.callback=(com.xreal.glasses.servicesdk.helper.PingGSeriesHelper.PingCallback)
+           dev.beampro.port.PingCallbackCompat.wrap(mNRServiceControl.mPingHelper,
+             (com.xreal.glasses.servicesdk.helper.PingGSeriesHelper.PingCallback)ok->{
+               if(GlassesConnectionCompat.acceptSdkCallback(cb)){if(ok){mNRServiceControl.started=true;GlassesConnectionCompat.launch(this);}cb.onResult(ok?0:1);}});return;}
          if(waitingDisplay){mNRServiceControl.started=true;mDisplayEvent=new Event();return;}
          if(nextResult<0)return;int r=nextResult;nextResult=0;
          if(r==0){mNRServiceControl.started=true;GlassesConnectionCompat.launch(this);}cb.onResult(r);}
@@ -75,6 +97,21 @@ STUBS.update({
 
 
 class ConnectionStartupTests(unittest.TestCase):
+    def test_only_connection_activity_changes_to_opaque_theme(self):
+        from verify_embedded_adb import elements
+        from startup_theme import STYLE_ID
+        with zipfile.ZipFile(BASE) as archive:
+            original = archive.read('AndroidManifest.xml')
+        patched = patch_connection_theme_manifest(original)
+        expected = elements(original)
+        for tag, attributes in expected:
+            if tag == 'activity' and attributes.get('name') == CONNECTION_ACTIVITY:
+                attributes['theme'] = STYLE_ID
+                attributes['screenOrientation'] = 0xFFFFFFFF
+        self.assertEqual(elements(patched), expected)
+        self.assertEqual(len(patched), len(original))
+        with self.assertRaises(ValueError): patch_connection_theme_manifest(patched)
+
     def test_real_adapter_recovers_usb_reenumeration_and_missing_display_events(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
@@ -85,7 +122,7 @@ class ConnectionStartupTests(unittest.TestCase):
                 target.write_text(code)
                 sources.append(target)
             sources += [ROOT / 'port-client/src/dev/beampro/port' / name for name in
-                        ('GlassesConnectionCompat.java', 'DisplayStartupCompat.java')]
+                        ('GlassesConnectionCompat.java', 'DisplayStartupCompat.java', 'PingCallbackCompat.java')]
             sources.append(ROOT / 'tools/GlassesConnectionCompatTest.java')
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', str(work), *map(str, sources)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work),

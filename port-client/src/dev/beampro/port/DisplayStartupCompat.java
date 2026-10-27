@@ -175,6 +175,7 @@ public final class DisplayStartupCompat implements Application.ActivityLifecycle
 
     /** Route both existing and newly connected displays through the same readiness check. */
     public static void startRenderer(Object xrApp) {
+        if(PresentationOnlyCompat.owns(xrApp))return;
         try {
             Activity context = (Activity) field(xrApp, "mContext").get(xrApp);
             Intent intent = new Intent();

@@ -26,7 +26,9 @@ def main():
     (BUILD / "classes").mkdir(parents=True)
     (BUILD / "dex").mkdir()
     run(JAVA / "bin/javac", "--release", "8", "-classpath", PLATFORM, "-d", BUILD / "classes",
-        *sorted((ROOT / "bridge/src").rglob("*.java")))
+        *sorted((ROOT / "bridge/src").rglob("*.java")),
+        ROOT / "settings-ui/src/dev/beampro/settings/NetworkDiagnostics.java",
+        ROOT / "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java")
     run(JAVA / "bin/jar", "cf", BUILD / "classes.jar", "-C", BUILD / "classes", ".")
     run(TOOLS / "d8", "--min-api", "29", "--lib", PLATFORM, "--output", BUILD / "dex", BUILD / "classes.jar")
     with zipfile.ZipFile(ROOT / "artifacts/beam-pro-system/myglasses-dex.zip") as archive:

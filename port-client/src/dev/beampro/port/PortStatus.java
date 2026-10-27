@@ -21,6 +21,7 @@ public final class PortStatus {
         UsbPermissionCompat.install(context);
         GlassesConnectionCompat.install(context);
         DisplayStartupCompat.install(context);
+        PresentationOnlyCompat.install(context);
         ArKeepAwake.install(context);
         PhoneScreenCompat.install(context);
         QuickAccessCompat.install(context);

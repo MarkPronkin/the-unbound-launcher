@@ -11,6 +11,11 @@ from display_startup import patch_display_startup
 ROOT = Path(__file__).resolve().parents[1]
 JAVA = Path(subprocess.check_output(['/usr/libexec/java_home', '-v', '17'], text=True).strip())
 STUBS = {
+    'dev/beampro/port/PresentationOnlyCompat.java': '''package dev.beampro.port;
+      public class PresentationOnlyCompat {public static boolean owns(Object app){return false;}
+      public static boolean direct;public static int displayId;
+      public static boolean isActive(android.app.Activity owner){return direct;}
+      public static boolean directDisplay(android.view.Display display){return direct&&display!=null&&display.getDisplayId()==displayId;}}''',
     'dev/beampro/port/StereoPresentationCompat.java': '''package dev.beampro.port;
       public class StereoPresentationCompat {public static void track(android.app.Activity owner){}}''',
     'android/os/Bundle.java': '''package android.os; public class Bundle extends java.util.HashMap<String,Integer> {

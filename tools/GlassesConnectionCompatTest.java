@@ -15,18 +15,18 @@ public final class GlassesConnectionCompatTest {
         public Activity mActivity=new Activity();
         public Handler mHandler=new Handler(),mMainHandler=new Handler();
         public HandlerThread mHandlerThread=new HandlerThread("test");
-        public boolean hasMTP;public int starts,mtpResumes,success;
+        public boolean hasMTP;public int starts,mtpResumes,success,launchesAtSuccess=-1;
         public String mOtaStatus="connecting";public Object iDisplayEvent=new XREALManager.Event();
         private void checkUsb(boolean mtp){starts++;hasMTP=false;if(mtp){mtpResumes++;_goToSdk();}else GlassesConnectionCompat.prepare(this);}
         private void _goToSdk(){GlassesConnectionCompat.startSdk(this);}
         public void onNewIntent(){GlassesConnectionCompat.newIntent(this);}
-        private void lambda$_goToSdk$4$test(int result){if(result==2)hasMTP=true;if(result==0)success++;}
+        private void lambda$_goToSdk$4$test(int result){if(result==2)hasMTP=true;if(result==0){success++;launchesAtSuccess=XREALManager.instance.launches;}}
     }
     public static class UsbDisplayListener {public Presenter this$0;UsbDisplayListener(Presenter p){this$0=p;}}
     static Presenter fixture() throws Exception {
         java.lang.reflect.Field active=GlassesConnectionCompat.class.getDeclaredField("current");active.setAccessible(true);
         if(active.get(null)!=null)throw new AssertionError("previous session was not cleaned up");
-        Handler.clear();SystemClock.now=0;
+        Handler.clear();SystemClock.now=0;ConnectionAnimation.defer=false;
         Context.app=new Application();Context.displays=new DisplayManager();Context.manager=new ActivityManager();Context.usb=new UsbManager();
         Context.usb.devices.put("glasses",new UsbDevice(13080));XREALManager.instance=new XREALManager();
         return new Presenter();
@@ -37,12 +37,28 @@ public final class GlassesConnectionCompatTest {
         GlassesConnectionCompat.begin(p);Handler.advance(0);
         check(p.hasMTP&&m.starts==1,"USB configuration change enters the original MTP wait");
         GlassesConnectionCompat.usbDisplayRemoved(new UsbDisplayListener(p));
+        GlassesConnectionCompat.status(p.mActivity,"sdkFail");Handler.advance(0);
+        check(!ConnectionAnimation.last.failed,"USB re-enumeration keeps the animation waiting instead of failing");
         check(p.hasMTP,"A DisplayPort detach during USB reconfiguration must not turn the reconnect wait into an SDK failure");
         Context.usb.permission=false;Handler.advance(3000);
         check(m.starts==1,"Do not resume until the re-enumerated USB device is authorized");
         Context.usb.permission=true;Handler.advance(250);
         check(p.mtpResumes==1&&m.starts==2&&p.success==1,"Resume USB startup without an Activity onNewIntent");
         check(m.launches==1,"USB recovery launches exactly once");close(p);
+        check(ConnectionAnimation.last.success&&ConnectionAnimation.last.disposed,"Successful startup settles and disposes the animation");
+
+        p=fixture();m=XREALManager.instance;ConnectionAnimation.defer=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);ConnectionAnimation pending=ConnectionAnimation.last;
+        check(pending.success&&m.launches==0&&p.success==0,"Success morph holds the controller and presenter completion");
+        GlassesConnectionCompat.launch(m);pending.complete();Handler.advance(0);
+        check(m.launches==1&&p.success==1&&p.launchesAtSuccess==1,"Handoff launches once before the original presenter callback");
+        pending.complete();m.lateSuccess();Handler.advance(0);
+        check(m.launches==1&&p.success==1,"Duplicate completion and stale native success cannot relaunch the controller");close(p);
+
+        p=fixture();m=XREALManager.instance;ConnectionAnimation.defer=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);pending=ConnectionAnimation.last;close(p);
+        pending.complete();m.lateSuccess();Handler.advance(0);
+        check(m.launches==0&&p.success==0,"Closing during the morph prevents a late controller launch");
 
         p=fixture();m=XREALManager.instance;m.waitingDisplay=true;
         Display.Mode stereo=new Display.Mode(8,3840,1080,60f),vga=new Display.Mode(9,640,480,60f);
@@ -87,7 +103,17 @@ public final class GlassesConnectionCompatTest {
         check(m.launches==0,"An unrelated monitor cannot satisfy display readiness");
         check(p.mActivity.mBtnConfirm.getVisibility()==View.VISIBLE,"Timeout exposes a recovery action");
         check(p.mActivity.mTvSubTitle.getText().toString().contains("timed out"),"Timeout explains which stage stalled");
+        check(ConnectionAnimation.last.failed&&ConnectionAnimation.last.phase.contains("timed out"),"Full-screen recovery shows the real timeout reason");
         m.lateSuccess();Handler.advance(0);check(m.launches==0&&p.success==0,"Discard success after timeout");close(p);
+
+        p=fixture();m=XREALManager.instance;m.nextResult=-1;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        ConnectionAnimation screen=ConnectionAnimation.last;
+        GlassesConnectionCompat.status(p.mActivity,"sdkFail");Handler.advance(0);
+        check(screen.failed,"A real USB failure reaches the full-screen recovery UI");
+        screen.close.run();Handler.advance(0);
+        check(screen.disposed&&p.mActivity.finishing,"The visible close control disposes the session");
+        m.lateSuccess();Handler.advance(0);check(m.launches==0,"Closing the animation blocks a late SDK launch");
 
         p=fixture();m=XREALManager.instance;m.nextResult=-1;
         GlassesConnectionCompat.begin(p);Handler.advance(0);close(p);
@@ -101,6 +127,34 @@ public final class GlassesConnectionCompatTest {
         check(m.starts==1,"Do not overlap a new native session with an unfinished cancelled request");
         m.lateSuccess();Handler.advance(0);
         check(m.launches==0,"The old native callback cannot launch into a replacement connection");close(replacement);
+
+        p=fixture();m=XREALManager.instance;m.networkWait=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        com.xreal.glasses.servicesdk.helper.PingGSeriesHelper ping=m.mNRServiceControl.mPingHelper;
+        ping.release();
+        // Simulate an in-flight ping scheduling another poll after USB cleanup.
+        ping.mSdkHandler.postDelayed(ping.mRunnablePing,200);
+        Handler.advance(0);
+        check(p.mActivity.mBtnConfirm.getText().equals("Try again"),"USB detach completes the ping instead of leaving startup busy forever");
+        ping.callback.onPingResult(true);Handler.advance(250);
+        check(ping.polls==0&&m.launches==0,"Cancelled in-flight ping cannot reschedule or report a late success");
+        ping.release();Handler.advance(0);
+        m.networkWait=false;GlassesConnectionCompat.confirm(p);Handler.advance(0);
+        check(m.starts==2&&p.success==1&&m.launches==1,"Retry after cancelled network check succeeds without restarting the app");close(p);
+
+        p=fixture();m=XREALManager.instance;m.networkWait=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);close(p);
+        replacement=new Presenter();GlassesConnectionCompat.begin(replacement);Handler.advance(0);
+        check(m.starts==1,"Replacement must wait for a pending network check to finish");
+        m.mNRServiceControl.mPingHelper.release();Handler.advance(0);
+        check(replacement.mActivity.mBtnConfirm.getText().equals("Try again"),"Completion refreshes the waiting replacement's visible recovery action");
+        m.networkWait=false;GlassesConnectionCompat.confirm(replacement);Handler.advance(0);
+        check(m.starts==2&&replacement.success==1,"Replacement no longer retains a copied busy flag after cancellation finishes");close(replacement);
+
+        p=fixture();m=XREALManager.instance;m.networkWait=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);ping=m.mNRServiceControl.mPingHelper;
+        ping.callback.onPingResult(true);ping.release();ping.callback.onPingResult(false);Handler.advance(0);
+        check(p.success==1&&m.launches==1&&!ConnectionAnimation.last.failed,"Normal ping success and cleanup complete once without a false failure");close(p);
 
         p=fixture();m=XREALManager.instance;m.nextResult=1;
         GlassesConnectionCompat.begin(p);Handler.advance(0);

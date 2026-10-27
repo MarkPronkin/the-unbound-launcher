@@ -52,12 +52,12 @@ public final class StereoPresentationCompat {
             HashSet<Integer> live=new HashSet<>();
             for(View root:WindowInspector.getGlobalWindowViews()) {
                 if(!root.isAttachedToWindow()||!DisplayStartupCompat.xreal(root.getDisplay())
-                        ||!DisplayStartupCompat.stereoEdid(root.getDisplay())
+                        ||(!DisplayStartupCompat.stereoEdid(root.getDisplay())&&!PresentationOnlyCompat.directDisplay(root.getDisplay()))
                         ||!(root.getLayoutParams() instanceof WindowManager.LayoutParams))continue;
                 int type=((WindowManager.LayoutParams)root.getLayoutParams()).type;
                 if(type==TYPE_PRESENTATION||type==WindowManager.LayoutParams.TYPE_PRIVATE_PRESENTATION){
                     watchView(root);
-                    if(Build.VERSION.SDK_INT<37){live.add(root.getDisplay().getDisplayId());ArBackdropActivity.ensure(activity,root);}}
+                    if(Build.VERSION.SDK_INT<37&&!PresentationOnlyCompat.isActive(activity)){live.add(root.getDisplay().getDisplayId());ArBackdropActivity.ensure(activity,root);}}
             }
             ArBackdropActivity.releaseMissing(activity,live);
             handler.postDelayed(this,500);
@@ -146,6 +146,12 @@ public final class StereoPresentationCompat {
             if (attrs.type != TYPE_PRESENTATION
                     && attrs.type != WindowManager.LayoutParams.TYPE_PRIVATE_PRESENTATION) return;
             int mode = DisplayStartupCompat.stereoEdid(display) ? DisplayStartupCompat.stereoMode(display) : 0;
+            boolean direct=PresentationOnlyCompat.directDisplay(display);
+            if(direct) {
+                Display.Mode current=display.getMode();
+                if(current.getPhysicalHeight()==1080&&(current.getPhysicalWidth()==1920||current.getPhysicalWidth()==3840))mode=current.getModeId();
+                else mode=0;
+            }
             if (mode == 0) { releaseMode(); return; }
             if (!registered) {
                 displays.registerDisplayListener(this, new Handler(Looper.getMainLooper()));
@@ -205,7 +211,7 @@ public final class StereoPresentationCompat {
                     }
                 }
                 if (changed) Log.i(TAG, "SDK Presentation display=" + display.getDisplayId()
-                        + " requests mode=" + attrs.preferredDisplayModeId + " (3840x1080@60), full display without insets"
+                        + " requests mode=" + attrs.preferredDisplayModeId + (direct?" (direct Presentation)":" (3840x1080@60)")+", full display without insets"
                         + "; root=" + root.getWidth() + "x" + root.getHeight());
             } catch (IllegalArgumentException failure) {
                 Log.w(TAG, "Presentation was removed during layout update", failure);

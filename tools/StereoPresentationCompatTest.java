@@ -114,6 +114,18 @@ public class StereoPresentationCompatTest {
                 &&(attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)!=0,"Recover a native flag rewrite without needing a display/layout event");
         check(attrs(primary).width==850&&attrs(overlay).width==850,"Modern focus policy still skips phone and unrelated overlay windows");
         modernRoot.detach();android.view.inspector.WindowInspector.windows.remove(modernRoot);modernOwner.destroyed=true;Handler.advance(500);
+        Build.VERSION.SDK_INT=36;
+        dev.beampro.port.PresentationOnlyCompat.direct=true;dev.beampro.port.PresentationOnlyCompat.displayId=16;
+        Display.Mode mono60=new Display.Mode(61,1920,1080,60);
+        Activity directOwner=new Activity();View directRoot=root(external,new Display(16,true,mono60,mono60),2037);
+        attrs(directRoot).flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+        android.view.inspector.WindowInspector.windows.add(directRoot);StereoPresentationCompat.track(directOwner);Handler.advance(500);
+        check(attrs(directRoot).preferredDisplayModeId==61,"Direct mono Presentation retains its actual 1080p mode");
+        check(attrs(directRoot).width==-1&&attrs(directRoot).height==-1,"Direct mono output fills the glasses");
+        check(directOwner.lastIntent==null,"Direct output never starts an external backdrop activity");
+        check((attrs(directRoot).flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)!=0,"Legacy direct output retains phone focus");
+        directRoot.detach();android.view.inspector.WindowInspector.windows.remove(directRoot);directOwner.destroyed=true;Handler.advance(500);
+        dev.beampro.port.PresentationOnlyCompat.direct=false;
         System.out.println("PASS "+count+" presentation assertions");
     }
 }

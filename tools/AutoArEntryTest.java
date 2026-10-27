@@ -17,6 +17,13 @@ public final class AutoArEntryTest {
     interface Action {void run()throws Exception;}
     static void rejected(Action action)throws Exception {try{action.run();throw new AssertionError("accepted invalid request");}catch(SecurityException expected){checks++;}}
     public static void main(String[] args)throws Exception {
+        for(int uid:new int[]{10123,1010123}) {
+            List<String> command=Arrays.asList(AutoArEntry.launchCommand(uid));
+            check(command.get(command.indexOf("--display")+1).equals("0"),"Connection UI targets the phone even if DeX has focus");
+            check(command.get(command.indexOf("--windowingMode")+1).equals("1"),"Do not reuse a freeform DeX window on the phone");
+            check(command.get(command.indexOf("--user")+1).equals(Integer.toString(uid/100000)),"Retain the installed app's Android user");
+            check(command.get(command.indexOf("-n")+1).equals("dev.markpronkin.unbound/ai.nreal.nebula.activity.splash.SplashActivity"),"Only the fixed connection entry can launch");
+        }
         AutoArEntry.Key one=new AutoArEntry.Key("/dev/bus/usb/001/002",13080,1080,2);
         Platform p=new Platform();AutoArEntry entry=new AutoArEntry(p,10123);
         entry.request(10123,one,true);entry.request(10123,one,true);p.advance(749);

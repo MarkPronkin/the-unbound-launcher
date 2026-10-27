@@ -27,7 +27,7 @@ class ManagedDisplayTests(unittest.TestCase):
             result=subprocess.run([str(JAVA/'bin/java'),'-cp',work,'ManagedDisplayPolicyTest',
                                    str(ROOT/'artifacts/pixel-display-014-live-20261026/display.txt')],
                                   text=True,capture_output=True,check=True)
-            self.assertIn('PASS 34 managed-display assertions',result.stdout)
+            self.assertIn('PASS 45 managed-display assertions',result.stdout)
 
     def test_helper_uses_non_persistent_mode_api_and_exact_pixel_preference_api(self):
         # These are API compatibility checks against the framework copied read-only

@@ -98,11 +98,12 @@ def main():
     cases = []
     try:
         for label, data in [('missing', None), ('enabled', b'\1'), ('disabled', b'\0'),
-                            ('invalid', b'\2'), ('empty', b''), ('multiple', b'\1\1')]:
+                            ('mono60', b'\2'), ('invalid', b'\3'), ('empty', b''), ('multiple', b'\1\1'), ('multiple-mono', b'\2\2')]:
             if data is None: assert adb('shell', 'rm', '-f', TEST_FILE).returncode == 0
             else: assert adb('shell', 'cat > ' + TEST_FILE, input=data).returncode == 0
             for mode in range(-1, 16):
                 expected = 3 if data == b'\1' and mode in (1, 5, 10, 11) else mode & 255
+                if data == b'\2' and mode in (1, 5, 10, 11): expected = 1
                 actual = adb('shell', TEST_BINARY, chr(65 + mode)).returncode
                 cases.append({'flag': label, 'original': mode, 'expected': expected, 'actual': actual})
                 assert actual == expected, cases[-1]

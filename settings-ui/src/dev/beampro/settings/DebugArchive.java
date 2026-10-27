@@ -6,6 +6,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FilterOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -24,6 +25,7 @@ final class DebugArchive {
     private final File logs, exports;
     private File current;
     private long sequence;
+    static final int MAX_NETWORK_BYTES = 64_000, MAX_NETWORK_SNAPSHOTS = 3;
 
     DebugArchive(File directory) throws IOException {
         logs = new File(directory, "logs"); exports = new File(directory, "exports");
@@ -67,7 +69,31 @@ final class DebugArchive {
         long size = 0; for (File file : chunks()) size += file.length(); return size;
     }
 
+    private File[] networks() {
+        File[] files = logs.listFiles((dir, name) -> name.matches("network-[0-9]{20}\\.txt"));
+        if (files == null) return new File[0];
+        Arrays.sort(files); return files;
+    }
+
+    synchronized void network(String report) throws IOException {
+        File[] previous = networks();
+        long sequence = previous.length == 0 ? 1
+                : Long.parseLong(previous[previous.length - 1].getName().substring(8, 28)) + 1;
+        File file = new File(logs, String.format(Locale.US, "network-%020d.txt", sequence));
+        byte[] bytes = report.getBytes(StandardCharsets.UTF_8);
+        try (OutputStream output = new FileOutputStream(file)) {
+            output.write(bytes, 0, Math.min(bytes.length, MAX_NETWORK_BYTES));
+        }
+        File[] files = networks();
+        for (int i = 0; i < files.length - MAX_NETWORK_SNAPSHOTS; i++)
+            if (!files[i].delete()) throw new IOException("Could not rotate network diagnostics.");
+    }
+
     synchronized File export(String report) throws IOException {
+        return export(report, null, null);
+    }
+
+    synchronized File export(String report, String display, String surfaceFlinger) throws IOException {
         // Retain the latest three immutable exports so already granted URIs stay usable.
         File[] previous = exports.listFiles((dir, name) -> validName(name));
         if (previous != null) {
@@ -91,6 +117,28 @@ final class DebugArchive {
                     int count; while ((count = input.read(buffer)) != -1) zip.write(buffer, 0, count);
                 }
                 zip.closeEntry();
+                File[] networks = networks();
+                if (networks.length > 0) {
+                    zip.putNextEntry(new ZipEntry("network-diagnostics.txt"));
+                    for (File snapshot : networks) {
+                        zip.write("\n--- Network snapshot ---\n".getBytes(StandardCharsets.UTF_8));
+                        try (InputStream input = new FileInputStream(snapshot)) {
+                            int remaining = MAX_NETWORK_BYTES, count;
+                            while (remaining > 0 && (count = input.read(buffer, 0, Math.min(buffer.length, remaining))) != -1) {
+                                zip.write(buffer, 0, count); remaining -= count;
+                            }
+                        }
+                    }
+                    zip.closeEntry();
+                }
+                if (display != null) {
+                    zip.putNextEntry(new ZipEntry("display.txt"));
+                    zip.write(DisplayDiagnostics.encode(display)); zip.closeEntry();
+                }
+                if (surfaceFlinger != null) {
+                    zip.putNextEntry(new ZipEntry("surfaceflinger.txt"));
+                    zip.write(DisplayDiagnostics.encode(surfaceFlinger)); zip.closeEntry();
+                }
             }
             if (temporary.length() > MAX_EXPORT_BYTES || !temporary.renameTo(file))
                 throw new IOException("Could not finish the debug file within 15 MB.");

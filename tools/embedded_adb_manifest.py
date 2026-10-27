@@ -135,6 +135,10 @@ def patch_manifest(original):
         return begin + end
 
     additions = element("activity", [("name", 3, "dev.beampro.adb.AdbPairingActivity"), ("exported", 0x12, 0)])
+    # Samsung's documented opt-in preserves the process when moving between
+    # phone and DeX displays. Existing SDK activities handle configuration changes.
+    additions += element("meta-data", [("name", 3, "com.samsung.android.multidisplay.keep_process_alive"),
+                                       ("value", 0x12, 0xFFFFFFFF)])
     # The lease registry is created by the :space renderer, so the backdrop must
     # share that process rather than starting with an empty registry in the UI.
     additions += element("activity", [("name", 3, "dev.beampro.port.ArBackdropActivity"), ("exported", 0x12, 0),

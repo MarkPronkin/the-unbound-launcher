@@ -1,7 +1,8 @@
 """Add an opaque black launch theme without renumbering existing resources.
 
-Only SplashActivity uses this theme. The original transparent theme and every
-other activity retain their behavior, including the glasses controller windows.
+SplashActivity uses this theme; the connection builder also applies it to the
+phone connection screen. The original transparent theme and the glasses
+controller windows retain their behavior.
 """
 import struct
 from branding import _append_pool_string, _chunks, _pool_strings
@@ -80,6 +81,11 @@ def add_startup_theme(resources):
 
 
 def patch_splash_theme_manifest(manifest):
+    return patch_activity_theme_manifest(manifest, SPLASH)
+
+
+def patch_activity_theme_manifest(manifest, activity, *, unlock_orientation=False):
+    """Reuse the opaque startup theme for an explicitly selected original translucent activity."""
     header = struct.unpack_from("<H", manifest, 2)[0]
     nodes = list(_chunks(manifest, header, len(manifest)))
     _, at, _, size = next(n for n in nodes if n[0] == 1)
@@ -100,12 +106,17 @@ def patch_splash_theme_manifest(manifest):
             name = struct.unpack_from("<I", manifest, position + 4)[0]
             if name < len(ids): attrs[ids[name]] = position
         name = attrs.get(0x01010003)
-        if name is None or manifest[name + 15] != 3 or strings[struct.unpack_from("<I", manifest, name + 16)[0]] != SPLASH:
+        if name is None or manifest[name + 15] != 3 or strings[struct.unpack_from("<I", manifest, name + 16)[0]] != activity:
             continue
         theme = attrs.get(0x01010000)
         if theme is None or manifest[theme + 15] != 1 or struct.unpack_from("<I", manifest, theme + 16)[0] != 0x7F1101DA:
-            raise ValueError("Unexpected original SplashActivity theme")
+            raise ValueError(f"Unexpected original {activity} theme")
         struct.pack_into("<I", output, theme + 16, STYLE_ID); edits += 1
+        if unlock_orientation:
+            orientation = attrs.get(0x0101001E)
+            if orientation is None or manifest[orientation + 15] != 0x10 or struct.unpack_from("<I", manifest, orientation + 16)[0] != 1:
+                raise ValueError(f"Unexpected original {activity} orientation")
+            struct.pack_into("<I", output, orientation + 16, 0xFFFFFFFF)
     if edits != 1:
-        raise ValueError("Expected exactly one SplashActivity theme replacement")
+        raise ValueError(f"Expected exactly one {activity} theme replacement")
     return bytes(output)

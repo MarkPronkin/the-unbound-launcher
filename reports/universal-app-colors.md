@@ -67,3 +67,41 @@ the [Khronos EXT_texture_format_sRGB_override specification](https://registry.kh
 It converts RGB during sampling; alpha is unaffected. The fallback retains
 XREAL's original inexpensive software approximation rather than introducing
 a new transfer curve.
+
+## Protected native overlays
+
+YouTube and other protected windows do not use the Unity copy material. The
+Pixel log shows `CreateQuadSurfaceLayer` / `UseProtectContent`,
+`mIsOverlayWindow = True`, then `RenderTextureGL::Create` reporting
+`GL_INVALID_ENUM`. `libnr_api.so` asks `GL_TEXTURE_FORMAT_SRGB_OVERRIDE_EXT`
+to treat the external image as sRGB. Mali does not implement that extension.
+Calendar and Files stay on the Unity path this report already covers.
+
+Build 2922 removed the two external override calls and rewrote the static
+318-byte `samplerExternalOES` shader with the IEC 61966-2-1 decode
+(`<= 0.04045` uses `c/12.92`, otherwise `((c+0.055)/1.055)^2.4`). That shader
+is the blit shader. On the Pixel, YouTube stayed washed out. The picture is
+produced by `RenderCompositionOpenGL::GetComposeShader`, which assembles a
+fragment shader at runtime. External layers (type 2, and type 3 with a texel
+size) sample with a pass-through `texture` / `textureProj` into a surface the
+compositor labels sRGB, so encoded pixels are encoded again.
+
+Build 2923 appended that decode after type-2 and type-3 samples only. The
+installed library contained the cave, and YouTube stayed washed out. A capture
+of YouTube's virtual display is an ordinary RGBA window, and the glasses scan
+out one protected surface. The layer that reaches that surface is the
+sampler2D fall-through, which 2923 did not decode.
+
+Build 2924 keeps the type-2 and type-3 caves. The first instruction of the
+shared sample now enters a separate cave, repeats the sample, and appends the
+same IEC decode of `color_top.rgb`. sampler2DArray and the warp passes are not
+decoded. The blit rewrite and the two override removals stay, so a GPU that
+implements the override still decodes once. Alpha is unchanged. The
+protected-texture parameter stays; a remaining `GL_INVALID_ENUM` from that
+parameter is not the color path.
+
+Host checks pin the blit shader, both override calls, the three composition
+branches, both caves, and an exact restore, including on top of the Display.Mode
+edit. Wearer confirmation on YouTube and on an ordinary window is still
+required. If YouTube goes dark, this sampler2D decode and an earlier decode
+both ran. If it is unchanged, the visible pixels are still outside this shader.

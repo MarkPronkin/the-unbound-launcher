@@ -8,17 +8,19 @@ import java.util.*;
 /** Verify the fixed background-entry endpoint and on-phone trigger are actually packaged. */
 public final class VerifyAutoArEntryDex {
     public static void main(String[] args)throws Exception {
-        var server=DexFileFactory.loadDexFile(args[0],Opcodes.forApi(33));int requests=0,constructs=0;
+        var server=DexFileFactory.loadDexFile(args[0],Opcodes.forApi(33));int requests=0,constructs=0,routes=0;
         Set<String> serverStrings=new HashSet<>();
         for(ClassDef cls:server.getClasses())for(Method m:cls.getMethods())if(m.getImplementation()!=null)
             for(Instruction instruction:m.getImplementation().getInstructions())if(instruction instanceof ReferenceInstruction ref){
                 if(ref.getReference() instanceof StringReference s&&cls.getType().startsWith("Ldev/beampro/bridge/AutoArEntry"))serverStrings.add(s.getString());
+                if(ref.getReference() instanceof MethodReference call&&cls.getType().startsWith("Ldev/beampro/bridge/AutoArEntry")
+                        &&call.getDefiningClass().equals("Ldev/beampro/bridge/AutoArEntry;")&&call.getName().equals("launchCommand"))routes++;
                 if(ref.getReference() instanceof MethodReference call&&cls.getType().startsWith("Ldev/beampro/bridge/LaunchServer")
                         &&call.getDefiningClass().equals("Ldev/beampro/bridge/AutoArEntry;")){
                     if(call.getName().equals("request"))requests++;if(call.getName().equals("<init>"))constructs++;
                 }
             }
-        if(requests!=1||constructs!=1||!serverStrings.containsAll(List.of("isKeyguardLocked",
+        if(requests!=1||constructs!=1||routes!=1||!serverStrings.containsAll(List.of("isKeyguardLocked","--display","--windowingMode",
             "dev.markpronkin.unbound/ai.nreal.nebula.activity.splash.SplashActivity","android.hardware.usb.action.USB_DEVICE_ATTACHED")))
             throw new IllegalStateException("Automatic AR shell endpoint is not wired");
         var apk=DexFileFactory.loadDexContainer(new File(args[1]),Opcodes.forApi(33));int helperReady=0,transacts=0;boolean token=false,setup=false;

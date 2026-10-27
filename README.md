@@ -15,7 +15,7 @@ you smoothly.
 > XREAL. It builds on XREAL's original Beam Pro software. All rights to that
 > software remain with XREAL.
 
-[Download 0.1.1 alpha](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.1.1-alpha)
+[Download 0.1.2 alpha](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.1.2-alpha)
 · [Website](https://markpronkin.github.io/the-unbound-launcher/)
 · [Discord community](https://discord.gg/J7t64xupfQ)
 
@@ -107,11 +107,12 @@ surrounding Android code supplies:
   `adb pair`. It then starts the helper and receives its Binder through a
   signature-checked provider. You turn on Developer options once; no other
   device is involved.
-- **Display fixes for each phone.** Some Android builds choose the wrong mode
-  for XREAL's 3840 × 1080 side-by-side output. The helper remembers **Desktop**
-  as the connection choice for XREAL displays and requests the native stereo
-  mode. Any temporary display-policy change is undone by a watchdog on
-  disconnect, screen lock or failure.
+- **Direct glasses display.** AR runs in the SDK's native glasses Presentation
+  from the phone, without a Desktop/DeX task on the glasses. The helper routes
+  XREAL displays to **Mirror**, remembers the previous connection choice, and
+  requests the native stereo mode when a model needs it. Any temporary
+  display-policy change is undone by a watchdog on disconnect, screen lock or
+  failure.
 
 See the [embedded ADB notes](embedded-adb/README.md) and the
 [porting assessment](reports/porting-assessment.md) for details.
@@ -141,20 +142,23 @@ an ordinary app creates. That prototype is shelved for now. See the
 
 ## Install and set up
 
-The current GitHub release is **0.1.1 alpha** (Android build **2908**). Download
-`the-unbound-launcher-0.1.1-alpha.apk` from this repository's GitHub Releases.
-It includes automatic glasses entry and connection recovery, the skip-OTA fix,
-direct glasses-launcher startup, inline setup agreement, GitHub app updates,
-experimental app/game detection and optional 3D SBS, and Help with debug exports,
-alongside all features from the first alpha.
+The current GitHub release is **0.1.2 alpha** (Android build **2924**). Download
+`the-unbound-launcher-0.1.2-alpha.apk` from this repository's GitHub Releases.
+It adds direct glasses display without a Desktop or DeX task, a phone connection
+screen, startup fixes for more phones, richer debug exports, and a further
+app-window color path, alongside everything in 0.1.1 alpha.
 
-**A clean install is recommended:** completely uninstall all previous Unbound
-Launcher builds before installing 0.1.1 alpha, including development builds and
-older ports shown as My Glasses. Uninstalling clears their local data. Grant
-permissions, pair Wireless debugging and complete setup again, then reconfigure
-preferences and the app menu. This release uses the registered package name
-`dev.markpronkin.unbound`; Android does not automatically replace the public
-0.1.0 alpha's old package or transfer its data. Removing previous builds avoids
+**Update in place from 0.1.1 alpha.** This release keeps the package
+`dev.markpronkin.unbound` and the same signing certificate, with a higher
+Android version code, so it installs over the public 0.1.1 alpha and later
+development builds. App data, pairing and settings stay in place. After this
+release is on GitHub, **Settings → About → Check for updates** can download it.
+
+**A clean install is still required from 0.1.0 alpha** or any build that used
+`com.xreal.evapro.nebula`, including older ports shown as My Glasses. Uninstall
+those first. Android does not replace the old package or transfer its data.
+Grant permissions, pair Wireless debugging and complete setup again, then
+reconfigure preferences and the app menu. Removing those older builds avoids
 having two launchers and helpers installed together.
 See the [release notes](RELEASE_NOTES.md) for all changes, validation and known
 limitations.
@@ -172,7 +176,7 @@ limitations.
 6. Wait for **Ready**, then tap **Continue**. Review the **Terms of service**
    and **Privacy policy** on the next setup screen, then tap **Agree and finish**.
 7. Plug in the glasses. If Android asks how to use the display, choose
-   **Desktop**, not Mirror. Then enter AR Space.
+   **Mirror**; the helper normally selects it automatically. Then enter AR Space.
 
 After a reboot, turn Wireless debugging back on and tap **Connect and start**
 under **Settings → On-device ADB**. Android may ask you to pair again. To revoke
@@ -187,14 +191,20 @@ Both debug switches are off by default. Turning debug mode off also stops
 collection; recorded data remains available to export. Collection resumes on
 app startup if you left it enabled. The app keeps at most 12 MB of recent app
 logs; every exported ZIP is capped at **15 MB (15,000,000 bytes)**, including ZIP
-overhead. The report adds app, Android, phone-model and display information.
-Logs may contain personal information, so review them before sharing. Nothing
+overhead. With Debug mode enabled, creating a file also captures fresh
+`display.txt` and `surfaceflinger.txt` dumps through the on-device ADB helper.
+Keep the glasses connected until the file is ready. Each dump retains up to
+1 MB of command output and records timeouts, permission errors and truncation.
+An unavailable or older helper adds an explanation to each file; restart the
+updated helper under **On-device ADB** and create another export.
+The report adds app, Android, phone-model and display information. Logs and dumps
+may contain network addresses, display identifiers and app/window names, so review them before sharing. Nothing
 is uploaded automatically. The latest three private exports are retained;
 copies saved to Downloads remain until you delete them.
 
 ### App updates
 
-Release **0.1.1 alpha** and development builds from version code **2906** use Unbound's own Android package
+Releases **0.1.1 alpha** and **0.1.2 alpha**, and development builds from version code **2906**, use Unbound's own Android package
 name, **`dev.markpronkin.unbound`**, for developer registration. The original
 XREAL Java/JNI class names remain intact. This is a separate installation from
 the earlier `com.xreal.evapro.nebula` builds: grant permissions, pair Wireless
@@ -320,7 +330,7 @@ report:
 - Phone model and Android version
 - Glasses model and firmware version
 - Launcher version, from **Settings → About**
-- What happened at each step: setup, Ready, the Desktop/Mirror prompt, AR Space,
+- What happened at each step: setup, Ready, the Mirror/Desktop prompt, AR Space,
   app windows and pointer input
 
 Post reports in the [Discord community](https://discord.gg/J7t64xupfQ). The
@@ -373,26 +383,26 @@ force-add ignored files. Ignore rules do not remove files already tracked by Git
 
 ### Launch package
 
-The local upload package is in `artifacts/releases/v0.1.1-alpha/`. Upload the
+The local upload package is in `artifacts/releases/v0.1.2-alpha/`. Upload the
 versioned APK and its SHA-256 checksum as GitHub Release assets under tag
-`v0.1.1-alpha`, marked as a prerelease. Use the [release notes](RELEASE_NOTES.md)
+`v0.1.2-alpha`, marked as a prerelease. Use the [release notes](RELEASE_NOTES.md)
 for the description. APKs and signing keys stay outside Git history.
 
-The public name is **0.1.1 alpha**, with Android version code **2908**, including
-[connection startup recovery](reports/connection-startup-recovery.md) and a
-[permanent skip-OTA bypass](reports/skip-ota-updates.md) for the stuck-at-0%
-glasses update screen, plus [disabled automatic startup tutorials](reports/startup-tutorial.md)
-in the glasses launcher, and an [inline terms agreement](reports/inline-terms-setup.md)
-after on-device ADB setup, plus a [GitHub app updater](reports/app-updater.md)
-in About, [experimental app/game detection](reports/experimental-app-detection.md),
-and [optional 3D SBS for glasses that default to 2D](reports/experimental-stereo.md).
-The release uses the registered package `dev.markpronkin.unbound`
-and can update builds from 2906 onward signed with the same key. Earlier builds
-use a different package and remain a separate installation. Both the app
-manifest and About screen read their version from `version.json`. The release
-also enters AR Space automatically when recognized glasses are attached after
-setup, including while Unbound is in the background. It waits for the phone to
-be unlocked and uses the paired helper.
+The public name is **0.1.2 alpha**, with Android version code **2924**. It keeps
+the 0.1.1 alpha package `dev.markpronkin.unbound` and signing certificate, so it
+updates that release and later development builds in place. Earlier
+`com.xreal.evapro.nebula` builds remain a separate installation. Both the app
+manifest and About screen read their version from `version.json`.
+
+This release draws AR through the SDK's native glasses Presentation from the
+phone, with no Desktop or DeX task on the glasses. See
+[direct glasses display](reports/direct-glasses-display.md). The helper routes
+XREAL displays to Mirror and restores the previous connection choice when the
+glasses leave. It also includes the phone connection screen, startup recovery
+for USB type 11 glasses and Android 12 renderers, helper-side glasses ping
+readiness, display and network debug exports, and a further software color path
+for app windows. YouTube washout on that color path is not yet confirmed on
+glasses. See the [release notes](RELEASE_NOTES.md).
 
 ### Building
 
@@ -418,10 +428,10 @@ python3 tools/build_port_bootstrap.py --allow-network --buffered-presentation \
   --source reports/devices/beam-pro-TIMESTAMP/apks/com.xreal.evapro.nebula/0-base.apk \
   --output artifacts/port-default-m
 python3 tools/build_settings_ui.py    # phone interface: artifacts/unbound-launcher-help
-python3 tools/build_embedded_adb.py   # one APK: artifacts/unbound-launcher-0.1.1-alpha
+python3 tools/build_embedded_adb.py   # one APK: artifacts/unbound-launcher-0.1.2-alpha
 
 # Verify and test
-python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-0.1.1-alpha/the-unbound-launcher.apk
+python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-0.1.2-alpha/the-unbound-launcher.apk
 python3 -m unittest discover -s tools -p 'test_app_updater.py' -v
 python3 -m unittest discover -s tools -p 'test_*.py' -v
 ```
@@ -429,7 +439,7 @@ python3 -m unittest discover -s tools -p 'test_*.py' -v
 Tests of the native patches execute ARM64 code with Unicorn. Install it with
 `python3 -m pip install --target artifacts/tools/python unicorn`. Run native tests
 in an environment that permits Unicorn's JIT; a restricted sandbox can cause
-SIGILL. All 145 host regressions pass for 0.1.1 alpha outside that sandbox.
+SIGILL. All 171 host regressions pass for 0.1.2 alpha outside that sandbox.
 
 To verify the adaptive phone interface on an isolated Android emulator:
 

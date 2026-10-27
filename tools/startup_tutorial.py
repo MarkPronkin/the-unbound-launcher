@@ -4,7 +4,7 @@ import hashlib
 from xreal_telemetry import file_offset
 
 # Pinned launcher library after patch_color_native, including prior native fixes.
-BASELINE_SHA256 = "b0a34196d50604f1a1c95bbc3128ea468ebf49cf38d20c203c45a48f56b92fa6"
+BASELINE_SHA256 = "fd1b5def17de85e53b2c4fb87dcbb461a71b508e5233f859d80b4cb27ccb5e9c"
 NEED_OPEN_BASIC_TUTORIAL = 0x29A0D20
 ORIGINAL = bytes.fromhex("ff8301d1f96302a9")
 REPLACEMENT = bytes.fromhex("e0031f2ac0035fd6")  # mov w0, wzr; ret

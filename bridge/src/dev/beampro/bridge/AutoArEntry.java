@@ -41,14 +41,20 @@ final class AutoArEntry {
             }
             public boolean grant(Key key) throws Exception { return usb.grant(uid,key.name,key.vendor,key.product,key.id); }
             public void launch() throws Exception {
-                ShellCommand.Result result=ShellCommand.run(10000,"/system/bin/am","start","-W","--user",Integer.toString(uid/100000),
-                    "-n","dev.markpronkin.unbound/ai.nreal.nebula.activity.splash.SplashActivity",
-                    "-a","android.hardware.usb.action.USB_DEVICE_ATTACHED");
+                ShellCommand.Result result=ShellCommand.run(10000,launchCommand(uid));
                 if(!result.succeeded())throw new IllegalStateException("Automatic AR entry failed: "+result.output);
             }
             public void later(Runnable runnable,long delay) { worker.schedule(runnable,delay,TimeUnit.MILLISECONDS); }
             public void log(String message) { System.out.println("BEAM_AUTO_AR "+message); }
         },uid);
+    }
+    static String[] launchCommand(int uid) {
+        // DeX may be the focused display when USB attaches. Connection setup
+        // belongs on the phone; the SDK launches its glasses renderer separately.
+        return new String[]{"/system/bin/am","start","-W","--user",Integer.toString(uid/100000),
+                "--display","0","--windowingMode","1",
+                "-n","dev.markpronkin.unbound/ai.nreal.nebula.activity.splash.SplashActivity",
+                "-a","android.hardware.usb.action.USB_DEVICE_ATTACHED"};
     }
     synchronized void request(int caller, Key key, boolean attached) throws Exception {
         if(caller!=uid || platform.installedUid()!=uid)throw new SecurityException("Automatic entry is restricted to the installed launcher");

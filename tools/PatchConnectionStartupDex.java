@@ -30,6 +30,10 @@ public final class PatchConnectionStartupDex {
             || (m.getDefiningClass().equals(MANAGER.substring(0,MANAGER.length()-1)+"$4;")
                 && Set.of("onDisplayAdd","onDisplayRemove").contains(m.getName()));
     }
+    static boolean screenTarget(Method m) {
+        return m.getDefiningClass().equals(OTA) && (key(m).equals(OTA+"->isHalfWindow()Z")
+            || key(m).equals(OTA+"->showUsbStatus(Lai/nreal/nebula/activity/splash/ota/status/OtaStatus;I)V"));
+    }
     static String key(Method m) {
         StringBuilder b=new StringBuilder(m.getDefiningClass()+"->"+m.getName()+"(");
         for(CharSequence p:m.getParameterTypes())b.append(p);
@@ -45,7 +49,18 @@ public final class PatchConnectionStartupDex {
         var impl=m.getImplementation();List<Instruction> code=new ArrayList<>();
         String wrapper=WRAPPERS.get(key(m));
         int registers=impl.getRegisterCount();
-        if(wrapper!=null) {
+        if(screenTarget(m)) {
+            if(m.getName().equals("isHalfWindow")) {
+                registers=1;
+                code.add(new ImmutableInstruction11n(Opcode.CONST_4,0,0));
+                code.add(new ImmutableInstruction11x(Opcode.RETURN,0));
+            } else {
+                registers=3;
+                code.add(new ImmutableInstruction35c(Opcode.INVOKE_STATIC,2,0,1,0,0,0,
+                    new ImmutableMethodReference(COMPAT,"status",List.of("Landroid/app/Activity;","Ljava/lang/Object;"),"V")));
+                code.add(new ImmutableInstruction10x(Opcode.RETURN_VOID));
+            }
+        } else if(wrapper!=null) {
             registers=wrapper.equals("usbDisplayRemoved")?4:1;
             code.add(new ImmutableInstruction35c(Opcode.INVOKE_STATIC,1,0,0,0,0,0,
                 new ImmutableMethodReference(COMPAT,wrapper,List.of(wrapper.equals("cancel")?"Landroid/app/Activity;":"Ljava/lang/Object;"),"V")));
@@ -67,7 +82,7 @@ public final class PatchConnectionStartupDex {
             if(count!=1)throw new IllegalStateException("Expected one asynchronous launch in "+key(m));
         }
         MethodImplementation result=new ImmutableMethodImplementation(registers,code,
-            wrapper==null?impl.getTryBlocks():List.of(),wrapper==null?impl.getDebugItems():List.of());
+            wrapper==null&&!screenTarget(m)?impl.getTryBlocks():List.of(),wrapper==null&&!screenTarget(m)?impl.getDebugItems():List.of());
         if(m.getDefiningClass().equals(MANAGER)&&m.getName().startsWith("lambda$startSdk$12$")) {
             if(!m.getParameterTypes().equals(List.of("Lai/nreal/nebula/manager/callback/ISdkStartResult;","Z"))||registers<4)
                 throw new IllegalStateException("Unexpected SDK result callback parameters");
@@ -90,11 +105,11 @@ public final class PatchConnectionStartupDex {
         boolean restore=args[0].equals("restore");var baseline=DexFileFactory.loadDexFile(args[3],Opcodes.forApi(33));
         var input=DexFileFactory.loadDexFile(args[1],Opcodes.forApi(33));Map<String,Method> originals=new HashMap<>();
         int launches=0;
-        for(ClassDef cls:baseline.getClasses())for(Method m:cls.getMethods())if(WRAPPERS.containsKey(key(m))||launchTarget(m)) {
+        for(ClassDef cls:baseline.getClasses())for(Method m:cls.getMethods())if(WRAPPERS.containsKey(key(m))||launchTarget(m)||screenTarget(m)) {
             if(launchTarget(m))launches++;
             originals.put(key(m),m);
         }
-        if(originals.size()!=10||launches!=3)throw new IllegalStateException("Missing connection baseline methods: "+originals.keySet());
+        if(originals.size()!=12||launches!=3)throw new IllegalStateException("Missing connection baseline methods: "+originals.keySet());
         List<ClassDef> classes=new ArrayList<>();Set<String> edits=new HashSet<>();
         for(ClassDef cls:input.getClasses()) {
             List<Method> methods=new ArrayList<>();boolean changed=false;
@@ -115,6 +130,6 @@ public final class PatchConnectionStartupDex {
             if(!originalClasses.isEmpty())throw new IllegalStateException("Missing unrelated classes");
             Files.write(Path.of(args[2]),Files.readAllBytes(Path.of(args[3])));
         } else DexPool.writeTo(args[2],new ImmutableDexFile(input.getOpcodes(),classes));
-        System.out.println(args[0]+": verified ten connection-recovery hooks; native SDK and model selector preserved");
+        System.out.println(args[0]+": verified twelve connection and full-screen UI hooks; native SDK and model selector preserved");
     }
 }

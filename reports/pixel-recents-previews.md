@@ -57,3 +57,21 @@ no device settings, caches or logs were changed or cleared. The capture fix
 still requires a wearer test with an ordinary app opened in AR Space, followed
 by Recents. Apps closed before any successful capture can only show the icon
 fallback until reopened.
+
+## Live 2919 check — 2026-10-27
+
+On the installed 0.1.1 alpha / 2919 build, capture itself is working. The helper
+uses the Android 17 path (`BEAM_RECENT_CAPTURE_API android.window.ScreenCaptureInternal`)
+and wrote real 300×400 previews for Keep and LocalSend, with valid cached
+previews for Calendar and eBay as well. Calling the launcher's `RecentAppsCompat`
+against the running helper returned those tasks, each with a 300×400 hardware
+snapshot. The Java handoff is fine.
+
+The break is the next step. XREAL's `libHardwareBufferTexture.so` turns that
+hardware bitmap into a Unity texture on a GL-only path. On this Pixel that path
+fails, so Recents cards fall back to app icons. A replacement library with a
+CPU-upload fallback was installed only as a device test. It is not in the repo.
+That test build was removed and the original 2919 APK, including the original
+64,296-byte `libHardwareBufferTexture.so`, was installed again. Whether a
+CPU-upload fallback can show the previews still needs a wearer test, and that
+library change has not been kept.

@@ -2,7 +2,9 @@
 
 The original software payload remains available for auditing older Pixel builds.
 Universal builds pair a GL-state probe, per-material selection, and the existing
-GAMMA_TO_LINEAR variants. No manufacturer or model names participate.
+GAMMA_TO_LINEAR variants. Direct-OES windows use the same decision through a
+_DecodeGamma uniform that stays 0 when hardware conversion is active.
+No manufacturer or model names participate.
 """
 import hashlib
 import json
@@ -17,8 +19,16 @@ LIBRARY='lib/arm64-v8a/libil2cpp.so'
 
 APP_SHADER = 'assets/bin/Data/49c045fd3d4b4ce45b97f3111d8a0ed8'
 SOFTWARE_SHADER = 'assets/bin/Data/1296c2c63c9cea8469aa31beb05d3a93'
+OES_UI_SHADER = 'assets/bin/Data/730d726c150041e4e8e3037c55cff702'
+OES_STEREO_SHADER = 'assets/bin/Data/a2ffe183bace106478f0a6845e217612'
 APP_SHA256 = '753801c2eced5d1cf391937f0c94e8371038bcebe934bace68089924e3ebfbd7'
 SOFTWARE_SHA256 = 'fe9da9474cd6881db846df540f959184d618219b6df543cf8e99c7b76f58f851'
+OES_UI_SHA256 = 'f3e3498ad5b10203f3f046d97f3a9bfff973eea3097d014b9952bd3aef4b03b3'
+OES_STEREO_SHA256 = 'a249300b36f6ed32433f3a0c64c0cd8fcad320c117610474c5d589b297142710'
+OES_SHADERS = {OES_UI_SHADER: OES_UI_SHA256, OES_STEREO_SHADER: OES_STEREO_SHA256}
+_OES_COMMENT = b'//\t\t\t\t\tcol.xyz = gammaToLinear(col.xyz);'
+_OES_ACTIVE = b'\t\t\t\t\tcol.xyz = mix(col.xyz, gammaToLinear(col.xyz), _DecodeGamma);'
+_OES_UNIFORM = b'uniform float _AlphaEdge;'
 
 
 def software_app_shader(base):
@@ -79,6 +89,78 @@ def _automatic_shader(original,software):
             shader_pass['m_State']['gpuProgramID']=10003
     obj.save_typetree(tree)
     return env.file.save()
+
+
+def _patch_oes_source(code):
+    if code.count(_OES_COMMENT)!=1 or code.count(_OES_UNIFORM)!=1:
+        raise ValueError('Direct-OES fragment does not contain the stock gamma comment')
+    return code.replace(_OES_UNIFORM,_OES_UNIFORM+b'\n\t\t\t\tuniform float _DecodeGamma;',1).replace(_OES_COMMENT,_OES_ACTIVE,1)
+
+
+def _rewrite_oes_blob(blob):
+    count=struct.unpack_from('<I',blob,0)[0]
+    entries=[struct.unpack_from('<III',blob,4+index*12) for index in range(count)]
+    base=4+count*12
+    if entries[0][0]!=base:raise ValueError('Unexpected direct-OES program table')
+    segments=[];patched=0
+    for offset,length,segment in entries:
+        if segment!=0 or offset+length>len(blob):raise ValueError('Unexpected direct-OES program span')
+        raw=blob[offset:offset+length]
+        version=raw.find(b'#version')
+        if version<4 or _OES_COMMENT not in raw:
+            segments.append(raw);continue
+        old_len=struct.unpack_from('<I',raw,version-4)[0]
+        if version+old_len>len(raw) or raw[version+old_len:].strip(b'\x00'):
+            raise ValueError('Direct-OES program is not length-prefixed GLSL')
+        code=_patch_oes_source(raw[version:version+old_len])
+        body=raw[:version-4]+struct.pack('<I',len(code))+code
+        segments.append(body+b'\x00'*((4-len(body)%4)%4));patched+=1
+    if patched!=6:raise ValueError('Expected six direct-OES fragments')
+    result=bytearray(blob[:base])
+    for index,segment in enumerate(segments):
+        struct.pack_into('<III',result,4+index*12,len(result),len(segment),0)
+        result.extend(segment)
+    return bytes(result)
+
+
+@lru_cache(maxsize=2)
+def direct_oes_shader(original):
+    digest=hashlib.sha256(original).hexdigest()
+    if digest not in OES_SHADERS.values():
+        raise ValueError('Unexpected direct-OES shader; refusing an unpinned color edit')
+    sys.path.insert(0,str(ROOT/'artifacts/tools/python'))
+    import UnityPy
+    from UnityPy.helpers import CompressionHelper
+    env=UnityPy.load(original);obj=env.objects[0];tree=obj.read_typetree()
+    assert tree['platforms']==[9]
+    blob=CompressionHelper.decompress_lz4(bytes(tree['compressedBlob']),tree['decompressedLengths'][0][0])
+    rewritten=_rewrite_oes_blob(blob)
+    tree['compressedBlob']=list(CompressionHelper.compress_lz4(rewritten))
+    tree['compressedLengths']=[[len(tree['compressedBlob'])]];tree['decompressedLengths']=[[len(rewritten)]]
+    props=tree['m_ParsedForm']['m_PropInfo']['m_Props']
+    if any(prop['m_Name']=='_DecodeGamma' for prop in props):raise ValueError('Decode uniform already exists')
+    uniform=dict(props[-1]);uniform.update({'m_Name':'_DecodeGamma','m_Description':'Software decode','m_Type':2,
+        'm_DefValue[0]':0.0,'m_DefValue[1]':0.0,'m_DefValue[2]':0.0,'m_DefValue[3]':0.0})
+    props.append(uniform)
+    program_id=10011 if digest==OES_UI_SHA256 else 10012
+    for sub in tree['m_ParsedForm']['m_SubShaders']:
+        for shader_pass in sub['m_Passes']:
+            digest_bytes=hashlib.md5(rewritten).digest()
+            shader_pass['m_EditorDataHash']=[{f'bytes[{i}]':value for i,value in enumerate(digest_bytes)}]
+            shader_pass['m_State']['gpuProgramID']=program_id
+    obj.save_typetree(tree)
+    return env.file.save()
+
+
+def verify_direct_oes_shaders(candidate,base):
+    selected=[]
+    for name,digest in OES_SHADERS.items():
+        original=base.read(name)
+        if hashlib.sha256(original).hexdigest()!=digest:raise ValueError('Unexpected direct-OES shader '+name)
+        actual=candidate.read(name);patched=direct_oes_shader(original)
+        if actual not in (original,patched):raise ValueError('Unexpected direct-OES shader changes '+name)
+        selected.append(actual==patched)
+    return {'direct_oes_software_uniform':all(selected),'resources':list(OES_SHADERS)}
 
 
 def native_spec():return json.loads(Path(__file__).with_name('app_color_native.json').read_text())

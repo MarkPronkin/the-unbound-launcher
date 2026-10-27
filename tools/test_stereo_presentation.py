@@ -99,7 +99,7 @@ class StereoPresentationTests(unittest.TestCase):
                             str(ROOT / 'tools/StereoPresentationCompatTest.java')], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work)+':'+str(sdk), 'StereoPresentationCompatTest'],
                                     text=True, capture_output=True, check=True)
-            self.assertIn('PASS 46 presentation assertions', result.stdout)
+            self.assertIn('PASS 50 presentation assertions', result.stdout)
 
     def test_constructor_hook_exact_scope_and_reject_double_patch(self):
         with zipfile.ZipFile(BASE) as z:

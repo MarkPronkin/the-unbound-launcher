@@ -51,6 +51,36 @@ public class DebugArchiveChecks {
   archive.append(new byte[]{42},1);check(archive.bytes()==11_000_001,"restart rotates oldest chunk");
   for(int i=0;i<4;i++)archive.export("another snapshot");
   check(new File(root,"exports").listFiles().length==3,"export retention bounded");
+  for(int i=0;i<6;i++)archive.network("snapshot-"+i+"\\n"+new String(new char[70_000]).replace('\0','z'));
+  archive=new DebugArchive(root);file=archive.export("network snapshot export");
+  try(ZipFile zip=new ZipFile(file)){
+   String network=new String(zip.getInputStream(zip.getEntry("network-diagnostics.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(zip.size()==3,"network diagnostics added alongside existing logs and metadata");
+   check(!network.contains("snapshot-2")&&network.contains("snapshot-3")&&network.contains("snapshot-5"),"retain the latest three snapshots across restarts");
+   check(network.indexOf("snapshot-3")<network.indexOf("snapshot-5"),"failure snapshots precede later export snapshots");
+   check(network.length()<193_000,"network history bounded independently of app log ring");
+  }
+  check(file.length()<=15_000_000,"network data and incompressible app logs fit the hard ZIP limit");
+  for(int i=0;i<12;i++){random.nextBytes(chunk);archive.append(chunk,chunk.length);}
+  check(archive.bytes()==12_000_000,"fill the complete app log budget for dump export stress test");
+  byte[] dumpBytes=new byte[DisplayDiagnostics.MAX_BYTES];random.nextBytes(dumpBytes);
+  for(int i=0;i<dumpBytes.length;i++)dumpBytes[i]=(byte)(32+(dumpBytes[i]&255)%95);
+  String display=new String(dumpBytes,java.nio.charset.StandardCharsets.UTF_8);
+  random.nextBytes(dumpBytes);for(int i=0;i<dumpBytes.length;i++)dumpBytes[i]=(byte)(32+(dumpBytes[i]&255)%95);
+  String surface=new String(dumpBytes,java.nio.charset.StandardCharsets.UTF_8);
+  file=archive.export("display snapshot export",display,surface);
+  try(ZipFile zip=new ZipFile(file)){
+   check(zip.size()==5,"both dumps alongside logs, metadata and network history");
+   check(new String(zip.getInputStream(zip.getEntry("display.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).equals(display),"display dump preserved in full at its budget");
+   check(new String(zip.getInputStream(zip.getEntry("surfaceflinger.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).equals(surface),"SurfaceFlinger dump preserved in full at its budget");
+  }
+  check(file.length()<=15_000_000,"maximum dumps plus network history and app ring fit ZIP cap");
+  file=archive.export("oversized dump",display+display,"Helper unavailable: restart updated helper");
+  try(ZipFile zip=new ZipFile(file)){
+   byte[] dump=zip.getInputStream(zip.getEntry("display.txt")).readAllBytes();
+   check(dump.length<=DisplayDiagnostics.MAX_BYTES&&new String(dump,java.nio.charset.StandardCharsets.UTF_8).contains("truncated"),"oversized dumps have an explicit bounded truncation notice");
+   check(new String(zip.getInputStream(zip.getEntry("surfaceflinger.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).contains("Helper unavailable"),"diagnostic failure remains in usable ZIP");
+  }
   try{archive.export(new String(new char[64_001]).replace('\0','a'));throw new AssertionError("accepted oversize report");}catch(IOException expectedError){}
   check(new File(root,"exports").listFiles((d,n)->n.endsWith(".tmp")).length==0,"failed exports cleaned up");
   ByteArrayOutputStream output=new ByteArrayOutputStream();
@@ -68,9 +98,11 @@ public class DebugArchiveChecks {
             test = work / 'DebugArchiveChecks.java'
             test.write_text(source)
             subprocess.run([str(JAVA / 'bin/javac'), '-d', tmp,
-                str(ROOT / 'settings-ui/src/dev/beampro/settings/DebugArchive.java'), str(test)], check=True)
+                *[str(ROOT / 'settings-ui/src/dev/beampro/settings' / name) for name in
+                  ('DebugArchive.java', 'DisplayDiagnostics.java', 'NetworkDiagnostics.java')], str(test)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp,
-                'dev.beampro.settings.DebugArchiveChecks', str(work / 'data')], capture_output=True, text=True, check=True)
+                'dev.beampro.settings.DebugArchiveChecks', str(work / 'data')], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn('PASS debug archive checks', result.stdout)
             print(result.stdout.strip())
 

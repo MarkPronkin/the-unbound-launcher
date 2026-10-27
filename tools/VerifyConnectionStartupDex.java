@@ -10,15 +10,29 @@ public final class VerifyConnectionStartupDex {
     public static void main(String[] args)throws Exception {
         var container=DexFileFactory.loadDexContainer(new File(args[0]),Opcodes.forApi(33));
         Map<String,Integer> calls=new HashMap<>();
+        Map<String,Integer> pingCalls=new HashMap<>();
+        int ethernetCalls=0;
         for(String entry:container.getDexEntryNames())for(ClassDef cls:container.getEntry(entry).getDexFile().getClasses()) {
             if(cls.getType().startsWith("Ldev/beampro/port/GlassesConnectionCompat"))continue;
+            if(cls.getType().startsWith("Ldev/beampro/port/PingCallbackCompat"))continue;
+            if(cls.getType().startsWith("Ldev/beampro/port/EthernetReadinessCompat"))continue;
             for(Method m:cls.getMethods())if(m.getImplementation()!=null)for(var instruction:m.getImplementation().getInstructions())
-                if(instruction instanceof ReferenceInstruction ref&&ref.getReference() instanceof MethodReference call
-                        &&call.getDefiningClass().equals("Ldev/beampro/port/GlassesConnectionCompat;"))calls.merge(call.getName(),1,Integer::sum);
+                if(instruction instanceof ReferenceInstruction ref&&ref.getReference() instanceof MethodReference call) {
+                    if(call.getDefiningClass().equals("Ldev/beampro/port/GlassesConnectionCompat;"))calls.merge(call.getName(),1,Integer::sum);
+                    if(call.getDefiningClass().equals("Ldev/beampro/port/PingCallbackCompat;"))pingCalls.merge(call.getName(),1,Integer::sum);
+                    if(call.getDefiningClass().equals("Ldev/beampro/port/EthernetReadinessCompat;")&&call.getName().equals("ping")) {
+                        if(!cls.getType().equals("Lcom/xreal/glasses/servicesdk/helper/PingGSeriesHelper$2;")||!m.getName().equals("run"))
+                            throw new IllegalStateException("Unexpected Ethernet readiness caller");
+                        ethernetCalls++;
+                    }
+                }
         }
-        Map<String,Integer> expected=Map.of("install",1,"begin",1,"prepare",1,"startSdk",1,"confirm",1,
-            "cancel",1,"newIntent",1,"usbDisplayRemoved",1,"launch",3,"acceptSdkCallback",1);
+        Map<String,Integer> expected=Map.ofEntries(Map.entry("install",1),Map.entry("begin",1),Map.entry("prepare",1),
+            Map.entry("startSdk",1),Map.entry("confirm",1),Map.entry("cancel",1),Map.entry("newIntent",1),
+            Map.entry("usbDisplayRemoved",1),Map.entry("launch",3),Map.entry("acceptSdkCallback",1),Map.entry("status",1));
         if(!calls.equals(expected))throw new IllegalStateException("Incomplete production connection recovery: "+calls);
+        if(!pingCalls.equals(Map.of("wrap",1,"released",1)))throw new IllegalStateException("Incomplete SDK ping cancellation guard: "+pingCalls);
+        if(ethernetCalls!=1)throw new IllegalStateException("Missing SDK Ethernet readiness delegation");
         System.out.println("Connection lifecycle, USB/display recovery and stale native callback guard are wired in the production APK");
     }
 }

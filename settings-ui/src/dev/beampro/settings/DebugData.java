@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-/** Opt-in app-UID log capture; no shell privileges, network uploads or screenshots. */
+/** Opt-in app logs and bounded, read-only network/display diagnostics; no uploads or screenshots. */
 final class DebugData {
     private static DebugData instance;
     final Context context;
@@ -42,6 +42,7 @@ final class DebugData {
     private Process logcat;
     private volatile int session;
     private boolean lifecycleInstalled;
+    private boolean networkPending;
     volatile String error;
 
     static synchronized DebugData get(Context context) {
@@ -160,11 +161,15 @@ final class DebugData {
         StringBuilder report = new StringBuilder("The Unbound Launcher debug report\n");
         report.append("Created: ").append(new Date()).append('\n');
         report.append("App: ").append(AppVersion.NAME).append(" (base ").append(AppVersion.BASE_NAME).append(")\n");
+        try { report.append("Build: ").append(context.getPackageManager().getPackageInfo(context.getPackageName(), 0).getLongVersionCode()).append('\n'); }
+        catch (Exception unavailable) { report.append("Build: unavailable\n"); }
         report.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
         report.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
         report.append("Debug mode: ").append(enabled()).append("; collecting: ").append(collecting()).append('\n');
         report.append("Logs cover this app's UID only. Oldest data rotates at 12 MB. ZIP is limited to 15 MB.\n");
-        report.append("No pairing codes, app preferences, screenshots or device serial numbers are added by this report.\n");
+        report.append("No pairing codes, app preferences or screenshots are added by this report.\n");
+        report.append("Network diagnostics include interface IP addresses, routes, Ethernet status and glasses ping output.\n");
+        report.append("Display and SurfaceFlinger dumps may include display identifiers and app/window names.\n");
         try {
             DisplayManager manager = context.getSystemService(DisplayManager.class);
             for (Display display : manager.getDisplays()) {
@@ -175,7 +180,29 @@ final class DebugData {
         return report.toString();
     }
 
-    File export() throws IOException { return archive().export(report()); }
+    /** Called reflectively by the connection adapter, without coupling the renderer to settings. */
+    public static void connectionFailure(Context context, String reason) {
+        DebugData data = get(context);
+        synchronized (data) {
+            if (!data.enabled() || !data.collecting() || data.networkPending) return;
+            data.networkPending = true;
+        }
+        data.files.execute(() -> {
+            try { if (data.enabled() && data.collecting()) data.captureNetwork("Connection failure: " + reason); }
+            catch (IOException error) { Log.w("UnboundDebug", "Cannot retain network diagnostics", error); }
+            finally { synchronized (data) { data.networkPending = false; } }
+        });
+    }
+
+    private void captureNetwork(String reason) throws IOException {
+        archive().network(reason + "\n" + DebugNetwork.capture(context));
+    }
+
+    File export() throws IOException {
+        String[] displays = enabled() ? DebugDisplay.capture(context) : null;
+        if (enabled()) captureNetwork("Debug export requested; keep the glasses connected until this finishes.");
+        return archive().export(report(), displays == null ? null : displays[0], displays == null ? null : displays[1]);
+    }
 
     static Intent share(Context context, File file) throws IOException {
         validate(file);

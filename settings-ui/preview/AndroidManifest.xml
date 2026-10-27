@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries>
     <application android:label="The Unbound Launcher Preview" android:icon="@drawable/unbound_icon" android:debuggable="true" android:allowBackup="false" android:resizeableActivity="true" android:theme="@style/UnboundPreview">
+        <activity android:name="dev.beampro.port.ConnectionPreviewActivity" android:exported="true" />
         <activity android:name=".SettingsPreviewActivity" android:exported="true" android:configChanges="uiMode|screenSize|orientation|fontScale">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -28,6 +29,8 @@
             android:authorities="dev.beampro.settings.preview.unbound.updates" android:grantUriPermissions="true" />
         <provider android:name="dev.beampro.settings.DebugFileProvider" android:exported="false"
             android:authorities="dev.beampro.settings.preview.unbound.debug" android:grantUriPermissions="true" />
+        <provider android:name="dev.beampro.settings.DisplayDiagnosticsChecks$FixtureProvider" android:exported="false"
+            android:process=":displaychecks" android:authorities="dev.beampro.settings.preview.unbound.bridge" />
         <provider android:name=".ClassificationProvider" android:exported="true" android:authorities="dev.beampro.settings.preview.unbound.bridge" />
     </application>
     <instrumentation android:name="dev.beampro.settings.HelpPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
@@ -47,4 +50,6 @@
 
     <instrumentation android:name=".FoldableUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".LandscapeUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.port.ConnectionAnimationChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.settings.DisplayDiagnosticsChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
 </manifest>

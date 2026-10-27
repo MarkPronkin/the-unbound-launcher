@@ -16,7 +16,7 @@ class AppVersionTests(unittest.TestCase):
         base = manifest_version(self.original)
         self.assertEqual(base, {"version_name": "2.2.2", "version_code": 2873})
         version = load_version()
-        self.assertEqual(version["version_name"], "0.1.1 alpha")
+        self.assertEqual(version["version_name"], "0.1.2 alpha")
         self.assertGreater(version["version_code"], base["version_code"])
         updated = patch_manifest_version(self.original, version)
         self.assertEqual(manifest_version(updated), version)
