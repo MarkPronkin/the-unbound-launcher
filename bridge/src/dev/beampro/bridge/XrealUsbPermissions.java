@@ -11,7 +11,7 @@ import java.io.IOException;
 final class XrealUsbPermissions {
     static final int TRANSACTION = 0x00FFFFF8;
     static final String TOKEN = "dev.beampro.bridge.XREAL_USB";
-    static final String PACKAGE = "com.xreal.evapro.nebula";
+    static final String PACKAGE = "dev.markpronkin.unbound";
     static final int VENDOR = 13080;
     private final PackageManager packages;
     private final int launcherUid;

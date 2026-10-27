@@ -517,28 +517,26 @@ public final class Signature {
         }
     }
 
-    /** First-run progress shared by the permission and connection steps. */
+    /** First-run progress shared by permissions, connection and agreement. */
     public static LinearLayout stepper(Context context, int current) {
-        LinearLayout row = row(context);
-        row.setGravity(Gravity.TOP);
-        String[] steps = {"01  Permissions", "02  Connection"};
+        LinearLayout progress = column(context);
+        LinearLayout bars = row(context);
+        String[] steps = {"01  Permissions", "02  Connection", "03  Terms"};
         for (int i = 1; i <= steps.length; i++) {
-            // Equal halves let each label wrap under its own bar at any text size.
-            LinearLayout step = column(context);
             View bar = new View(context);
             bar.setBackground(shape(i <= current ? TEXT : OUTLINE, dp(context, 1)));
-            step.addView(bar, new LinearLayout.LayoutParams(-1, dp(context, 2)));
-            TextView label = overline(context, steps[i - 1] + (i < current ? "  ✓" : ""),
-                    i == current ? TEXT : i < current ? TEXT_SECONDARY : TEXT_TERTIARY);
-            label.setLetterSpacing(.12f); label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            add(step, label, 10, 0);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(context, 2), 1);
             if (i > 1) params.setMarginStart(dp(context, 8));
-            row.addView(step, params);
+            bars.addView(bar, params);
         }
-        row.setContentDescription("Setup step " + current + " of 2, " + (current > 1 ? "connection" : "app permissions"));
-        row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-        return row;
+        progress.addView(bars);
+        // One full-width label stays readable on cover screens and at large text sizes.
+        TextView label = overline(context, steps[current - 1], TEXT);
+        label.setLetterSpacing(.12f); label.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        add(progress, label, 10, 0);
+        progress.setContentDescription("Setup step " + current + " of 3, " + (current == 3 ? "terms of service" : current == 2 ? "connection" : "app permissions"));
+        progress.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        return progress;
     }
 
     // ---- Dialogs ----
@@ -612,6 +610,10 @@ public final class Signature {
                 case "mirror":
                     c.drawRoundRect(3, 3, 21, 17, 2, 2, paint); line(c, 8, 21, 16, 21); line(c, 12, 17, 12, 21);
                     path(c, 9, 10, 12, 7, 15, 10); line(c, 12, 7, 12, 13); break;
+                case "hdcp":
+                    c.drawRoundRect(2, 3, 22, 18, 2, 2, paint); line(c, 8, 22, 16, 22); line(c, 12, 18, 12, 22);
+                    c.drawRoundRect(8.5f, 10, 15.5f, 15, 1, 1, paint); c.drawArc(9.5f, 6, 14.5f, 12, 180, 180, false, paint);
+                    break;
                 case "privacy": case "permissions": case "capture":
                     path(c, 12, 2, 20, 5, 20, 12, 18, 17, 12, 22, 6, 17, 4, 12, 4, 5, 12, 2);
                     if (glyph.equals("privacy")) { c.drawRoundRect(9, 10, 15, 15, 1, 1, paint); c.drawArc(10, 6, 14, 12, 180, 180, false, paint); }
@@ -639,6 +641,10 @@ public final class Signature {
                 case "update":
                     c.drawArc(3, 3, 21, 21, 35, 290, false, paint); path(c, 21, 3, 21, 9, 15, 9);
                     path(c, 12, 17, 12, 8, 9, 11); line(c, 12, 8, 15, 11); break;
+                case "game":
+                    c.drawRoundRect(2, 6, 22, 19, 5, 5, paint);
+                    line(c, 6, 12, 12, 12); line(c, 9, 9, 9, 15);
+                    c.drawCircle(16, 11, .8f, paint); c.drawCircle(19, 14, .8f, paint); break;
                 case "code": path(c, 7, 6, 1, 12, 7, 18); path(c, 17, 6, 23, 12, 17, 18); line(c, 14, 4, 10, 20); break;
                 case "camera": c.drawRoundRect(2, 6, 22, 20, 3, 3, paint); c.drawCircle(12, 13, 4, paint); path(c, 7, 6, 9, 3, 15, 3, 17, 6); break;
                 case "back": path(c, 11, 5, 4, 12, 11, 19); line(c, 4, 12, 20, 12); break;

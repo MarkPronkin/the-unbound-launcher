@@ -63,7 +63,8 @@ python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-adb-recovery/the
    as soon as Android confirms pairing, while the helper starts. Its result replaces
    the code-entry notification, clears on tap, and expires after 30 seconds.
    Invalid or rejected codes retain code entry for another attempt.
-7. Wait for **Ready**, then tap **Finish setup** to enter the launcher. Optional
+7. Wait for **Ready**, then tap **Continue**. Review the inline **Terms of service**
+   and **Privacy policy**, then tap **Agree and finish** to enter the launcher. Optional
    permissions skipped earlier do not appear again at this transition. After a reboot,
    enable Wireless debugging and use **Connect and start**. Android may require
    pairing again after the identity is revoked, expires, or the app is uninstalled.
@@ -260,7 +261,13 @@ test APK with the same implementation and different package/provider constants.
 Notification UI validation and final artifact results are recorded in the
 candidate's verification files.
 
-The revised setup has 43 isolated Android 13 emulator assertions covering
+Build 2902 adds the inline terms step with 157 emulator assertions covering
+setup ordering, the live-helper handoff, document routing, saved acceptance,
+interruption/recreation, and portrait/landscape layouts up to 200% text. The full
+launcher also passes fresh setup using its real agreement callbacks. See the
+[inline terms report](../reports/inline-terms-setup.md).
+
+The earlier two-step setup has 43 isolated Android 13 emulator assertions covering
 disclaimer → permissions → ADB ordering, the required overlay grant, a disabled
 Finish setup without the helper, Ready and continuation with the actual shell helper, notification entry without
 an onboarding extra, incoming connection intent preservation, recreation, manual

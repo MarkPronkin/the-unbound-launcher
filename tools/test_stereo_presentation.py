@@ -48,7 +48,7 @@ VIEW_STUBS = {
  'android/view/WindowManager.java': '''package android.view; public class WindowManager {
   public int updates;public View lastView;public void updateViewLayout(View v,ViewGroup.LayoutParams p){updates++;lastView=v;v.params=p;v.observer.layout();}
   public static class LayoutParams extends ViewGroup.LayoutParams {public static final int TYPE_PRIVATE_PRESENTATION=2030;
-  public static final int FLAG_FULLSCREEN=1024,FLAG_LAYOUT_IN_SCREEN=256,FLAG_FORCE_NOT_FULLSCREEN=2048,FLAG_NOT_FOCUSABLE=8,FLAG_NOT_TOUCHABLE=16;
+  public static final int FLAG_FULLSCREEN=1024,FLAG_LAYOUT_IN_SCREEN=256,FLAG_FORCE_NOT_FULLSCREEN=2048,FLAG_NOT_FOCUSABLE=8,FLAG_NOT_TOUCHABLE=16,FLAG_ALT_FOCUSABLE_IM=131072;
   public int preferredDisplayModeId,type,flags,x,y,gravity,fit=7;public LayoutParams(){super(850,480);}
   public int getFitInsetsTypes(){return fit;}public void setFitInsetsTypes(int f){fit=f;}}}''',
  'android/view/WindowInsets.java': 'package android.view; public class WindowInsets {public static class Type {public static int systemBars(){return 7;}}}',
@@ -99,7 +99,7 @@ class StereoPresentationTests(unittest.TestCase):
                             str(ROOT / 'tools/StereoPresentationCompatTest.java')], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work)+':'+str(sdk), 'StereoPresentationCompatTest'],
                                     text=True, capture_output=True, check=True)
-            self.assertIn('PASS 39 presentation assertions', result.stdout)
+            self.assertIn('PASS 46 presentation assertions', result.stdout)
 
     def test_constructor_hook_exact_scope_and_reject_double_patch(self):
         with zipfile.ZipFile(BASE) as z:

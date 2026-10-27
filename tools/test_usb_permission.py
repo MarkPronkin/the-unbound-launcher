@@ -32,7 +32,7 @@ STUBS = {
         if(!uri.text.equals("content://dev.beampro.portprobe.bridge")||!method.equals("get"))throw new AssertionError("provider");
         calls++;android.os.Bundle b=new android.os.Bundle();b.putBinder("binder",remote);return b;}}''',
     'android/content/Context.java': '''package android.content;public class Context {
-      public String name="com.xreal.evapro.nebula";public ContentResolver resolver=new ContentResolver();
+      public String name="dev.markpronkin.unbound";public ContentResolver resolver=new ContentResolver();
       public Context getApplicationContext(){return this;}public String getPackageName(){return name;}
       public ContentResolver getContentResolver(){return resolver;}}''',
     'android/content/Intent.java': '''package android.content;public class Intent {
@@ -40,7 +40,7 @@ STUBS = {
       public Intent putExtra(String k,Object v){extras.put(k,v);return this;}
       public Intent putExtra(String k,boolean v){extras.put(k,v);return this;}}''',
     'android/app/PendingIntent.java': '''package android.app;public class PendingIntent {
-      public String creator="com.xreal.evapro.nebula";public int responses;public boolean granted,canceled;
+      public String creator="dev.markpronkin.unbound";public int responses;public boolean granted,canceled;
       public String getCreatorPackage(){return creator;}
       public void send(android.content.Context c,int code,android.content.Intent i)throws CanceledException {
         if(canceled)throw new CanceledException();responses++;granted=(Boolean)i.extras.get("permission");}
@@ -57,7 +57,7 @@ STUBS = {
     'android/content/pm/ApplicationInfo.java': 'package android.content.pm;public class ApplicationInfo {public int uid;}',
     'android/content/pm/PackageManager.java': '''package android.content.pm;public class PackageManager {
       public int uid=10123;public ApplicationInfo getApplicationInfo(String name,int flags){
-      if(!name.equals("com.xreal.evapro.nebula"))throw new AssertionError("target package");ApplicationInfo a=new ApplicationInfo();a.uid=uid;return a;}}''',
+      if(!name.equals("dev.markpronkin.unbound"))throw new AssertionError("target package");ApplicationInfo a=new ApplicationInfo();a.uid=uid;return a;}}''',
     'android/util/Log.java': '''package android.util;public class Log {
       public static int i(String t,String m){return 0;}public static int e(String t,String m,Throwable e){return 0;}}''',
 }
@@ -89,7 +89,7 @@ public class XrealUsbPermissionsTest {
     Modern modern=new Modern();modern.devices.put("one",one);
     XrealUsbPermissions pixel=new XrealUsbPermissions(pm,10123,modern,Modern.class);
     check(pixel.grant(10123,"one",13080,1080,12));check(modern.calls==1&&!modern.persistent);
-    check(modern.name.equals("com.xreal.evapro.nebula")&&modern.uid==10123);
+    check(modern.name.equals("dev.markpronkin.unbound")&&modern.uid==10123);
     modern.reject=true;try{pixel.grant(10123,"one",13080,1080,12);throw new AssertionError("accepted rejection");}
     catch(java.lang.reflect.InvocationTargetException expected){check(expected.getCause() instanceof SecurityException);}
     check(modern.calls==1); // A modern failure must never fall back to the legacy overload.

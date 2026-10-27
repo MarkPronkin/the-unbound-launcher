@@ -7,6 +7,7 @@ import android.os.*;
 import android.view.*;
 import android.widget.*;
 import dev.beampro.settings.PermissionSetupActivity;
+import dev.beampro.settings.TermsConsent;
 
 /** First-run ordering and UI checks in an isolated APK. Ready checks use a real shell Binder. */
 public final class AdbSetupChecks extends Instrumentation {
@@ -19,6 +20,12 @@ public final class AdbSetupChecks extends Instrumentation {
         try {
             if ("ready".equals(args.getString("phase"))) ready();
             else if ("launcher".equals(args.getString("phase"))) launcher();
+            else if ("terms".equals(args.getString("phase"))) terms();
+            else if ("capture-terms".equals(args.getString("phase"))) {
+                prepareTerms();
+                current = startActivitySync(incoming(PermissionSetupActivity.class)); waitForIdleSync();
+                captureScreen(); current = null;
+            }
             else if ("capture".equals(args.getString("phase")) || "capture-help".equals(args.getString("phase"))
                     || "landscape".equals(args.getString("phase"))) {
                 shell("appops set dev.beampro.adbtest SYSTEM_ALERT_WINDOW allow");
@@ -65,10 +72,10 @@ public final class AdbSetupChecks extends Instrumentation {
         }
         View footer = root.findViewWithTag("landscape-page-actions");
         android.graphics.Rect visible = new android.graphics.Rect();
-        require(footer.getGlobalVisibleRect(visible) && visible.height() == footer.getHeight(), "Finish setup fits the landscape window");
+        require(footer.getGlobalVisibleRect(visible) && visible.height() == footer.getHeight(), "Continue fits the landscape window");
         details.scrollTo(0, 10000);
-        require(footer.getGlobalVisibleRect(visible) && visible.height() == footer.getHeight(), "Finish setup remains visible while instructions scroll");
-        require(!buttonStarting("Finish setup").isEnabled(), "layout cannot bypass the live-helper requirement");
+        require(footer.getGlobalVisibleRect(visible) && visible.height() == footer.getHeight(), "Continue remains visible while instructions scroll");
+        require(!buttonStarting("Continue").isEnabled(), "layout cannot bypass the live-helper requirement");
     }
     private void captureScreen() throws Exception {
         waitForIdleSync(); SystemClock.sleep(250);
@@ -101,7 +108,7 @@ public final class AdbSetupChecks extends Instrumentation {
         waitForIdleSync();
         runOnMainSync(() -> {
             require(text("App permissions") != null && text("Display over other apps") != null, "permissions follow disclaimer");
-            require(text("01  PERMISSIONS") != null && text("02  CONNECTION") != null && text("Connect this phone") == null, "permissions are step one");
+            require(text("01  PERMISSIONS") != null && text("Connect this phone") == null, "permissions are step one");
             require(!buttonStarting("Continue to ADB").isEnabled(), "overlay access required before ADB");
             buttonStarting("Continue to ADB").performClick();
             require(!PermissionSetupActivity.hasReviewedPermissions(current), "programmatic click cannot bypass overlay access");
@@ -118,11 +125,11 @@ public final class AdbSetupChecks extends Instrumentation {
         require(current != null, "permissions continue to on-device ADB"); waitForIdleSync();
         runOnMainSync(() -> {
             require(text("Connect this phone") != null, "guided ADB screen displayed");
-            require(text("01  PERMISSIONS  ✓") != null && text("02  CONNECTION") != null, "ADB is step two after permissions");
+            require(text("02  CONNECTION") != null, "ADB is step two after permissions");
             require(PermissionSetupActivity.hasReviewedPermissions(current), "permission review is saved");
             require(current.getWindow().getStatusBarColor() == Color.BLACK && current.getWindow().getNavigationBarColor() == Color.BLACK, "OLED system bars");
-            require(!buttonStarting("Finish setup").isEnabled(), "cannot continue without a live helper");
-            buttonStarting("Finish setup").performClick();
+            require(!buttonStarting("Continue").isEnabled(), "cannot continue without a live helper");
+            buttonStarting("Continue").performClick();
             require(AdbBootstrap.needsSetup(current), "programmatic click cannot complete disconnected setup");
             require(!field("code").isShown(), "manual options start collapsed");
             current.findViewById(android.R.id.content).findViewWithTag("adb-advanced-toggle").performClick();
@@ -141,7 +148,7 @@ public final class AdbSetupChecks extends Instrumentation {
 
         // Notification entry with no SETUP extra still offers the onboarding continuation.
         current = startActivitySync(incoming(AdbPairingActivity.class)); waitForIdleSync();
-        runOnMainSync(() -> require(buttonStarting("Finish setup") != null, "notification return retains first-run flow"));
+        runOnMainSync(() -> require(buttonStarting("Continue") != null, "notification return retains first-run flow"));
         runOnMainSync(current::finish); current = null;
         // Reviewing permissions later is an explicit action independent of the first-run gate.
         current = startActivitySync(incoming(PermissionSetupActivity.class).putExtra("dev.beampro.settings.REVIEW_PERMISSIONS", true));
@@ -182,7 +189,7 @@ public final class AdbSetupChecks extends Instrumentation {
             require(!Intent.ACTION_MAIN.equals(intent.getAction()),"home-screen action is not forwarded");
             require(!intent.hasCategory(Intent.CATEGORY_LAUNCHER),"home-screen category is not forwarded");
             require(intent.getIntExtra("connection_marker",0)==73,"connection extras survive the handoff");
-            require(!buttonStarting("Finish setup").isEnabled(),"onboarding still requires a live helper");
+            require(!buttonStarting("Continue").isEnabled(),"onboarding still requires a live helper");
         });
     }
     private void ready() throws Exception {
@@ -194,21 +201,96 @@ public final class AdbSetupChecks extends Instrumentation {
         require(AdbBootstrap.ready(getTargetContext()), "real shell helper Binder is alive");
         getTargetContext().getSharedPreferences("unbound-adb", 0).edit().remove("setup-complete").commit();
         current = startActivitySync(incoming(AdbPairingActivity.class)); waitForIdleSync();
-        ActivityMonitor launcher = addMonitor(SetupEntryActivity.class.getName(), null, false);
+        getTargetContext().getSharedPreferences("nebula_app", 0).edit().clear().commit();
+        ActivityMonitor terms = addMonitor(PermissionSetupActivity.class.getName(), null, false);
         runOnMainSync(() -> {
             require(text("READY FOR AR SPACE") != null, "live helper produces Ready state");
-            require(buttonStarting("Finish setup").isEnabled(), "live helper enables continuation");
-            buttonStarting("Finish setup").performClick();
+            require(buttonStarting("Continue").isEnabled(), "live helper enables continuation");
+            buttonStarting("Continue").performClick();
         });
+        current = waitForMonitorWithTimeout(terms, 4000); removeMonitor(terms);
+        require(current != null, "Ready continues directly to terms"); waitForIdleSync();
+        runOnMainSync(() -> {
+            require(text("Terms of service") != null && buttonStarting("Agree and finish") != null, "terms follow ADB inline");
+            require(!TermsConsent.hasAccepted(current), "ADB completion does not accept terms"); verifyIntent();
+        });
+        ActivityMonitor launcher = addMonitor(SetupEntryActivity.class.getName(), null, false);
+        runOnMainSync(() -> buttonStarting("Agree and finish").performClick());
         current = waitForMonitorWithTimeout(launcher, 4000); removeMonitor(launcher);
-        require(current != null, "Ready finishes setup and enters launcher"); waitForIdleSync();
+        require(current != null, "agreement enters launcher without reopening the icon"); waitForIdleSync();
         runOnMainSync(() -> {
             require(text("Launcher ready") != null && text("App permissions") == null, "optional permissions do not repeat after ADB");
             require(!AdbBootstrap.needsSetup(current), "completion is saved durably"); verifyIntent();
         });
         runOnMainSync(current::finish); current = null;
         current = startActivitySync(incoming(AdbPairingActivity.class)); waitForIdleSync();
-        runOnMainSync(() -> { require(text("Done") != null, "later settings entry uses recovery UI"); require(text("Finish setup  →") == null, "later recovery does not repeat onboarding"); });
+        runOnMainSync(() -> { require(text("Done") != null, "later settings entry uses recovery UI"); require(text("Continue  →") == null, "later recovery does not repeat onboarding"); });
+    }
+    private void prepareTerms() throws Exception {
+        shell("appops set dev.beampro.adbtest SYSTEM_ALERT_WINDOW allow");
+        consent(true);
+        getTargetContext().getSharedPreferences("unbound-adb", 0).edit().putBoolean("setup-complete", true).commit();
+        getTargetContext().getSharedPreferences("beampro_settings_ui", 0).edit().putBoolean("permissions_reviewed", true).commit();
+        getTargetContext().getSharedPreferences("nebula_app", 0).edit().clear().putInt("PpTosConstant_VERSION_TOS", 17).commit();
+    }
+    private void terms() throws Exception {
+        prepareTerms();
+        ActivityMonitor terms = addMonitor(PermissionSetupActivity.class.getName(), null, false);
+        startActivitySync(incoming(SetupEntryActivity.class));
+        current = waitForMonitorWithTimeout(terms, 4000); removeMonitor(terms);
+        require(current != null, "relaunch resumes unfinished agreement"); waitForIdleSync();
+        runOnMainSync(() -> {
+            require(text("03  TERMS") != null, "terms are the third setup step");
+            require(!TermsConsent.hasAccepted(current), "displaying terms does not accept them");
+            View root = current.findViewById(android.R.id.content);
+            View footer = root.findViewWithTag("landscape-page-actions");
+            android.graphics.Rect visible = new android.graphics.Rect();
+            require(footer.getGlobalVisibleRect(visible) && visible.height() == footer.getHeight(), "agreement action fits the window");
+            ((ScrollView) root.findViewWithTag("landscape-page-details")).scrollTo(0, 10000);
+            require(footer.getGlobalVisibleRect(visible) && visible.height() == footer.getHeight(), "agreement stays visible while scrolling");
+            clickRow(root, "Terms of service"); clickRow(root, "Privacy policy");
+            require(ai.nreal.nebula.activity.splash.pptos.PpTosWebHelper.termsOpened == 1
+                    && ai.nreal.nebula.activity.splash.pptos.PpTosWebHelper.privacyOpened == 1, "legal rows route to the original documents");
+            require(!TermsConsent.hasAccepted(current), "opening documents does not accept terms");
+        });
+        terms = addMonitor(PermissionSetupActivity.class.getName(), null, false);
+        runOnMainSync(current::recreate);
+        current = waitForMonitorWithTimeout(terms, 4000); removeMonitor(terms);
+        require(current != null, "agreement survives recreation"); waitForIdleSync();
+        runOnMainSync(() -> require(buttonStarting("Agree and finish") != null && !TermsConsent.hasAccepted(current), "recreation does not skip agreement"));
+        runOnMainSync(current::finish); current = null;
+        terms = addMonitor(PermissionSetupActivity.class.getName(), null, false);
+        startActivitySync(new Intent(getTargetContext(), SetupEntryActivity.class).setAction(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_LAUNCHER).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED));
+        current = waitForMonitorWithTimeout(terms, 4000); removeMonitor(terms);
+        require(current != null, "leaving without agreement resumes terms from icon"); waitForIdleSync();
+        ActivityMonitor launcher = addMonitor(SetupEntryActivity.class.getName(), null, false);
+        runOnMainSync(() -> buttonStarting("Agree and finish").performClick());
+        current = waitForMonitorWithTimeout(launcher, 4000); removeMonitor(launcher);
+        require(current != null, "agreement opens launcher in the same flow"); waitForIdleSync();
+        runOnMainSync(() -> {
+            require(text("Launcher ready") != null && TermsConsent.hasAccepted(current), "agreement is saved before launcher entry");
+            require(Intent.ACTION_MAIN.equals(current.getIntent().getAction()), "final icon-origin handoff restores the phone launch action");
+            require(getTargetContext().getSharedPreferences("nebula_app", 0).getInt("PpTosConstant_VERSION_TOS", 0) == 17, "existing policy version retained");
+            require(ai.nreal.nebula.features.pp_tos.PPToSHelper.getInstance().agreements == 1, "original first-agreement callback runs once");
+        });
+        runOnMainSync(current::finish); current = null;
+        current = startActivitySync(incoming(SetupEntryActivity.class)); waitForIdleSync();
+        runOnMainSync(() -> require(text("Launcher ready") != null && text("Terms of service") == null,
+                "original acceptance record prevents repeat agreement"));
+        runOnMainSync(current::finish); current = null;
+        current = startActivitySync(incoming(PermissionSetupActivity.class).putExtra("dev.beampro.settings.REVIEW_PERMISSIONS", true));
+        waitForIdleSync(); runOnMainSync(() -> require(text("App permissions") != null, "later permission reviews remain available"));
+    }
+    private void clickRow(View view, String title) {
+        if (view instanceof dev.beampro.settings.Signature.Row) {
+            dev.beampro.settings.Signature.Row row = (dev.beampro.settings.Signature.Row) view;
+            if (row.title.getText().toString().equals(title)) { row.performClick(); return; }
+        }
+        if (view instanceof android.view.ViewGroup) {
+            android.view.ViewGroup group = (android.view.ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) clickRow(group.getChildAt(i), title);
+        }
     }
     private void shell(String command) throws Exception {
         try (java.io.InputStream stream = new android.os.ParcelFileDescriptor.AutoCloseInputStream(getUiAutomation().executeShellCommand(command))) {

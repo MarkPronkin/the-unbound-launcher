@@ -56,9 +56,7 @@ public final class SettingsUiChecks extends Instrumentation {
                 require(helpRow.getParent() == appRows && appRows.indexOfChild(helpRow) == appRows.indexOfChild(aboutRow) + 1,
                         "Help immediately below About");
                 helpRow.performClick();
-                require(activity.externalLaunch != null && Intent.ACTION_VIEW.equals(activity.externalLaunch.getAction()),
-                        "Help hands off to an external app");
-                require("https://discord.gg/J7t64xupfQ".equals(activity.externalLaunch.getDataString()), "exact Discord invite");
+                require(activity.externalLaunch == null, "Help opens its menu before external support");
                 require(findText(content, "Privacy policy") == null && findText(content, "Terms of service") == null,
                         "legal links moved out of main settings");
             });

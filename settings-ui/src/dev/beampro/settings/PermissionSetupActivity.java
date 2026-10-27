@@ -38,7 +38,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-/** First-launch disclaimer followed by a checklist backed by Android's current permission state. */
+/** First-launch disclaimer, permission checklist and final terms agreement. */
 public class PermissionSetupActivity extends Activity {
     static final String PASSED = "dev.beampro.settings.SETUP_PASSED";
     static final String REVIEW = "dev.beampro.settings.REVIEW_PERMISSIONS";
@@ -65,6 +65,8 @@ public class PermissionSetupActivity extends Activity {
 
     /** The original application initialization creates an overlay before any Activity exists. */
     public static synchronized void initialize(Application application) {
+        DebugData.initialize(application);
+        AppUpdater.initialize(application);
         if (initialized) return;
         boolean main = application.getPackageName().equals(Application.getProcessName());
         if (main) {
@@ -90,7 +92,7 @@ public class PermissionSetupActivity extends Activity {
     public static boolean guard(Activity activity) {
         boolean acknowledged = activity.getIntent().getBooleanExtra(PASSED, false);
         if (activity.getClass().getName().endsWith(".SplashActivity") && !acknowledged) acknowledgedSession = false;
-        if (!hasAcceptedDisclaimer(activity) || AdbEntry.needsSetup(activity) || !Settings.canDrawOverlays(activity)
+        if (!hasAcceptedDisclaimer(activity) || AdbEntry.needsSetup(activity) || TermsConsent.required(activity) || !Settings.canDrawOverlays(activity)
                 || (!acknowledged && !acknowledgedSession && hasMissing(activity))) {
             Intent intent = SetupNavigation.forward(activity, PermissionSetupActivity.class);
             intent.removeExtra(PASSED);
@@ -111,7 +113,11 @@ public class PermissionSetupActivity extends Activity {
         setTheme(android.R.style.Theme_Material_NoActionBar);
         super.onCreate(state);
         if (state != null) acceptAfter = state.getLong(COUNTDOWN_DEADLINE, 0);
+        // Initialize while this Activity is being created so the original legal-link
+        // loader receives onResume and has a live owner before either link is tapped.
+        if (hasAcceptedDisclaimer(this) && !AdbEntry.needsSetup(this) && Settings.canDrawOverlays(this)) initialize(getApplication());
         if (hasAcceptedDisclaimer(this) && !AdbEntry.needsSetup(this) && !getIntent().getBooleanExtra(REVIEW, false)
+                && !TermsConsent.required(this)
                 && (!hasMissing(this) || (getIntent().getBooleanExtra(PASSED, false) && hasReviewedPermissions(this)))) { proceed(); return; }
         render();
     }
@@ -137,16 +143,16 @@ public class PermissionSetupActivity extends Activity {
             if (AdbEntry.setup(this)) { leaving = true; finish(); }
             return;
         }
+        if (!getIntent().getBooleanExtra(REVIEW, false) && TermsConsent.required(this)) { render(); return; }
         initialize(getApplication());
         acknowledgedSession = true;
         leaving = true;
         if (!getIntent().getBooleanExtra(REVIEW, false)) {
-            String target = getPackageName().equals("dev.beampro.settings.preview")
-                    ? "dev.beampro.settings.preview.SettingsPreviewActivity" : "ai.nreal.nebula.activity.splash.SplashActivity";
-            Intent intent = SetupNavigation.forward(this, target);
+            Intent intent = SetupNavigation.launcher(this);
             intent.removeExtra(REVIEW);
             intent.putExtra(PASSED, true);
             startActivity(intent);
+            AdbEntry.completed(this);
         }
         finish();
     }
@@ -261,6 +267,9 @@ public class PermissionSetupActivity extends Activity {
         scroll = page.scroll;
         body = page.body;
         if (!hasAcceptedDisclaimer(this)) { renderDisclaimer(page); return; }
+        if (!review && !AdbEntry.needsSetup(this) && Settings.canDrawOverlays(this) && TermsConsent.required(this)) {
+            renderTerms(page); return;
+        }
         boolean needsAdb = !review && AdbEntry.needsSetup(this);
         if (AdbEntry.available() && !review) add(page.intro, stepper(this, 1), 8, 16);
         add(page.intro, display(this, "App permissions"), 8, 0);
@@ -300,12 +309,41 @@ public class PermissionSetupActivity extends Activity {
         ScrollView current = scroll; scroll.post(() -> current.scrollTo(0, previous));
     }
 
+    void renderTerms(AdaptiveLayout.DetailPage page) {
+        initialize(getApplication());
+        add(page.intro, stepper(this, 3), 8, 16);
+        add(page.intro, display(this, "Terms of service"), 8, 0);
+        add(page.intro, text(this, "One last step. Review the terms and privacy policy before opening your glasses workspace.", BODY, TEXT_SECONDARY), 8, 0);
+        Status ready = new Status(this, SUPPORTING);
+        ready.set("Phone setup complete", POSITIVE, TEXT);
+        add(page.intro, ready, 24, 0);
+        page.body.addView(heading(this, "Review the documents"));
+        LinearLayout legal = group(this);
+        legal.addView(new Row(this, "document", "Terms of service", "Read XREAL's terms for the original software")
+                .chevron().onClick(v -> TermsConsent.openDocument(this, false)));
+        legal.addView(new Row(this, "privacy", "Privacy policy", "Read XREAL's privacy policy")
+                .chevron().onClick(v -> TermsConsent.openDocument(this, true)));
+        page.body.addView(legal);
+        add(page.body, text(this, "The Unbound Launcher is an independent, fan-made project built on XREAL's MyGlasses software. These are the original software's terms and privacy policy.", SUPPORTING, TEXT_SECONDARY), 20, 0);
+        LinearLayout footer = page.footer();
+        TextView agreement = text(this, "By tapping Agree and finish, you agree to the Terms of service and Privacy policy.", CAPTION, TEXT_SECONDARY);
+        agreement.setGravity(Gravity.CENTER); add(footer, agreement, 0, 12);
+        Button agree = button(this, "Agree and finish  →", PRIMARY);
+        agree.setOnClickListener(v -> {
+            if (leaving || AdbEntry.needsSetup(this) || !hasAcceptedDisclaimer(this) || !Settings.canDrawOverlays(this)) return;
+            if (TermsConsent.accept(this)) proceed();
+        });
+        add(footer, agree, 0, 0);
+        setContentView(page.root);
+    }
+
     void renderDisclaimer(AdaptiveLayout.DetailPage page) {
         if (acceptAfter == 0) acceptAfter = SystemClock.elapsedRealtime() + ACCEPT_DELAY_MS;
         add(page.intro, display(this, "Before you begin"), 8, 0);
         add(page.intro, text(this, "Please read and accept this disclaimer before setting up the app.", BODY, TEXT_SECONDARY), 8, 0);
         LinearLayout notes = group(this);
         notes.addView(note("phone", "Phone compatibility", "This app requires a phone with USB-C DisplayPort Alt Mode support. It will not work on phones without DisplayPort Alt Mode."));
+        notes.addView(note("hdcp", "HDCP not supported", "HDCP is not supported. Protected video from streaming apps such as Netflix and HBO will not play in the glasses."));
         Row update = note("update", "Update your glasses", "Update your glasses to the latest firmware using the XREAL update website. The app may not work with older firmware versions.");
         String updater = "XREAL firmware updater ↗\nxreal.com/ota";
         SpannableString label = new SpannableString(updater);

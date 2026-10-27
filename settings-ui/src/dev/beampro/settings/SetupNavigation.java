@@ -26,4 +26,15 @@ public final class SetupNavigation {
         next.setSelector(null);
         return next.setComponent(new ComponentName(source, target));
     }
+
+    public static Intent launcher(Activity source) {
+        String target = source.getPackageName().equals("dev.beampro.settings.preview")
+                ? "dev.beampro.settings.preview.SettingsPreviewActivity" : "ai.nreal.nebula.activity.splash.SplashActivity";
+        Intent intent = forward(source, target);
+        // A setup return is a normal phone launch. Preserve actual USB actions and
+        // payloads, but restore MAIN after stripping it from the intermediate steps.
+        if (intent.getAction() == null) intent.setAction(Intent.ACTION_MAIN);
+        intent.removeExtra("dev.beampro.adb.SETUP");
+        return intent;
+    }
 }

@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
 /** Keep the SDK callback, but obtain XREAL access before Android can open its USB dialog. */
 public final class UsbPermissionCompat {
     private static final String TAG="UnboundUSB";
-    private static final String PACKAGE="com.xreal.evapro.nebula";
+    private static final String PACKAGE="dev.markpronkin.unbound";
     private static final Map<Key,Request> pending=new HashMap<>();
     private static volatile Context application;
     static ScheduledExecutorService worker=Executors.newSingleThreadScheduledExecutor();

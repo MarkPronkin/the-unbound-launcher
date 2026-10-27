@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ADB = Path.home() / 'Library/Android/sdk/platform-tools/adb'
-PKG = 'com.xreal.evapro.nebula'
+PKG = 'dev.markpronkin.unbound'
 LAYOUT = f'/sdcard/Android/data/{PKG}/files/AppDetails/EPHInfoConfig/LayoutConfig.json'
 
 

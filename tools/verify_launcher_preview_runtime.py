@@ -10,7 +10,7 @@ from pathlib import Path
 
 ADB = Path.home()/'Library/Android/sdk/platform-tools/adb'
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGE = 'com.xreal.evapro.nebula'
+PACKAGE = 'dev.markpronkin.unbound'
 
 
 def main():

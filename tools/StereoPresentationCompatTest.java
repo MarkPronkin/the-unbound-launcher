@@ -25,6 +25,7 @@ public class StereoPresentationCompatTest {
         java.lang.reflect.Method create=ArBackdropActivity.class.getDeclaredMethod("onCreate",Bundle.class);create.setAccessible(true);create.invoke(activity,new Object[]{null});return activity;
     }
     public static void main(String[] args)throws Exception{
+        Build.VERSION.SDK_INT=36;
         DisplayManager displays=new DisplayManager();Context.displays=displays;Context.manager=new ActivityManager();
         Display.Mode vga=new Display.Mode(45,640,480,59.94f),stereo=new Display.Mode(44,3840,1080,60);
         Display xr=new Display(15,true,vga,stereo,vga);displays.displays=new Display[]{xr};
@@ -96,6 +97,23 @@ public class StereoPresentationCompatTest {
         owner.destroyed=true;Handler.advance(500);int scans=android.view.inspector.WindowInspector.scans;Handler.advance(5000);
         check(android.view.inspector.WindowInspector.scans==scans&&background.isFinishing(),"Stop scanning and backdrop when AR owner is destroyed");
         check(backdrop(owner.lastIntent,xr).isFinishing(),"Restored activity cannot leave a black display after its AR owner ends");
+        Build.VERSION.SDK_INT=37;
+        Activity modernOwner=new Activity();View modernRoot=root(external,xr,2037);
+        attrs(modernRoot).flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        android.view.inspector.WindowInspector.windows.add(modernRoot);
+        StereoPresentationCompat.track(modernOwner);Handler.advance(500);
+        check((attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)==0,"Android 17 Presentation owns its display's bar focus");
+        check((attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)!=0,"Renderer cannot intercept phone-controller touches");
+        check((attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)!=0,"Renderer is excluded from app IME targeting");
+        check(modernOwner.lastIntent==null,"Do not enqueue an Activity that PresentationController prevents from running");
+        int modernUpdates=external.windows.updates;Handler.advance(2000);
+        check(external.windows.updates==modernUpdates,"Healthy modern Presentation is not repeatedly relaid out");
+        attrs(modernRoot).flags|=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
+        attrs(modernRoot).flags&=~WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM;Handler.advance(500);
+        check((attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)==0
+                &&(attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)!=0,"Recover a native flag rewrite without needing a display/layout event");
+        check(attrs(primary).width==850&&attrs(overlay).width==850,"Modern focus policy still skips phone and unrelated overlay windows");
+        modernRoot.detach();android.view.inspector.WindowInspector.windows.remove(modernRoot);modernOwner.destroyed=true;Handler.advance(500);
         System.out.println("PASS "+count+" presentation assertions");
     }
 }

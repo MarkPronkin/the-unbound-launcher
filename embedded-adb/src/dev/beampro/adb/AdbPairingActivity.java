@@ -139,7 +139,7 @@ public final class AdbPairingActivity extends Activity {
 
         LinearLayout footer = page.footer();
         footerHint = text(this, "", CAPTION, TEXT_SECONDARY); footerHint.setGravity(Gravity.CENTER); add(footer, footerHint, 0, 12);
-        next = button(this, onboarding ? "Finish setup  →" : "Done", PRIMARY);
+        next = button(this, onboarding ? "Continue  →" : "Done", PRIMARY);
         next.setOnClickListener(v -> complete());
         add(footer, next, 0, 0);
         setContentView(page.root); updateState();
@@ -158,7 +158,7 @@ public final class AdbPairingActivity extends Activity {
         setText(connect, ready ? "Connected" : "Connect and start");
         badge(pairNumber, "2", paired); badge(startNumber, "3", ready);
         next.setEnabled(!onboarding || ready);
-        setText(footerHint, onboarding ? ready ? "Connected. You're ready to use your glasses." : "Connect this phone to finish setup." : "Reconnect here whenever AR app windows need it.");
+        setText(footerHint, onboarding ? ready ? "Connected. Continue to finish setting up Unbound." : "Connect this phone to continue." : "Reconnect here whenever AR app windows need it.");
         String pairs = discovery == null ? "" : discovery.ports(true).toString();
         String connections = discovery == null ? "" : discovery.ports(false).toString();
         setText(discovered, "Detected pairing ports: " + (pairs.isEmpty() || "[]".equals(pairs) ? "none yet" : pairs)

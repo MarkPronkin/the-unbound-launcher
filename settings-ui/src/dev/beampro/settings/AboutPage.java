@@ -19,12 +19,16 @@ public final class AboutPage extends Dialog {
     private final Runnable privacy, terms;
     private ScrollView scroll;
     private LinearLayout body;
+    private final AppUpdater updater;
+    private Row checkUpdate, updateAction;
+    private final Runnable updateChanged = this::refreshUpdates;
 
     AboutPage(Activity activity, Runnable privacy, Runnable terms) {
         super(activity, android.R.style.Theme_Material_NoActionBar);
         this.activity = activity;
         this.privacy = privacy;
         this.terms = terms;
+        updater = AppUpdater.get(activity);
         setOwnerActivity(activity);
         setTitle("About");
     }
@@ -40,6 +44,13 @@ public final class AboutPage extends Dialog {
         window.setLayout(-1, -1);
         window.setBackgroundDrawable(new ColorDrawable(BACKGROUND));
         window(window);
+        updater.observe(updateChanged);
+        refreshUpdates();
+    }
+
+    @Override protected void onStop() {
+        updater.remove(updateChanged);
+        super.onStop();
     }
 
     void render() {
@@ -74,13 +85,56 @@ public final class AboutPage extends Dialog {
         versions.addView(version("App version", AppVersion.NAME));
         versions.addView(version("Base app version", "MyGlasses " + AppVersion.BASE_NAME));
         body.addView(versions);
+        body.addView(heading(activity, "App updates"));
+        LinearLayout updates = group(activity);
+        updates.addView(toggle("App updates", "Check releases on GitHub and install app updates.",
+                "updates-enabled", updater.enabled(), true, updater::setEnabled));
+        updates.addView(toggle("Check on startup", "Look for updates when you open the app. Downloads require your approval.",
+                "updates-startup", updater.onStartup(), updater.enabled(), updater::setOnStartup));
+        checkUpdate = new Row(activity, null, "Check for updates", null).chevron().onClick(v -> updater.check(activity, false));
+        checkUpdate.setTag("updates-check");
+        updates.addView(checkUpdate);
+        updateAction = new Row(activity, null, "Download and install", null).chevron().onClick(v -> {
+            if (updater.phase == AppUpdater.Phase.DOWNLOADING) updater.cancel();
+            else updater.prompt(activity);
+        });
+        updateAction.setTag("updates-action");
+        updates.addView(updateAction);
+        body.addView(updates);
         body.addView(heading(activity, "Legal"));
         LinearLayout legal = group(activity);
         legal.addView(new Row(activity, "privacy", "Privacy policy", null).chevron().onClick(v -> privacy.run()));
         legal.addView(new Row(activity, "document", "Terms of service", null).chevron().onClick(v -> terms.run()));
         body.addView(legal);
         setContentView(page.root);
+        refreshUpdates();
         scroll.post(() -> scroll.scrollTo(0, previousScroll));
+    }
+
+    private Row toggle(String title, String description, String tag, boolean checked, boolean enabled, java.util.function.Consumer<Boolean> change) {
+        Row row = new Row(activity, null, title, description);
+        SettingsUi.SignatureSwitch toggle = new SettingsUi.SignatureSwitch(activity);
+        toggle.setTag(tag); toggle.setContentDescription(title); toggle.setChecked(checked); toggle.setEnabled(enabled);
+        row.setAlpha(enabled ? 1f : .45f);
+        row.addView(toggle, new LinearLayout.LayoutParams(dp(activity, 52), dp(activity, 48)));
+        toggle.setOnCheckedChangeListener((button, value) -> { change.accept(value); render(); });
+        row.onClick(v -> { if (toggle.isEnabled()) toggle.toggle(); });
+        return row;
+    }
+
+    private void refreshUpdates() {
+        if (checkUpdate == null) return;
+        boolean enabled = updater.enabled();
+        checkUpdate.setEnabled(enabled && !updater.busy() && updater.phase != AppUpdater.Phase.READY);
+        checkUpdate.setAlpha(checkUpdate.isEnabled() ? 1f : .45f);
+        String last = updater.lastChecked();
+        checkUpdate.subtitle.setText((enabled ? updater.message : "App update checks are turned off.") + (last.isEmpty() ? "" : "\n" + last));
+        checkUpdate.subtitle.setVisibility(View.VISIBLE);
+        boolean downloading = updater.phase == AppUpdater.Phase.DOWNLOADING;
+        boolean ready = updater.phase == AppUpdater.Phase.READY;
+        updateAction.setVisibility(enabled && (downloading || ready || updater.release != null) ? View.VISIBLE : View.GONE);
+        updateAction.setEnabled(enabled && updater.phase != AppUpdater.Phase.CHECKING);
+        updateAction.title.setText(downloading ? "Cancel download" : ready ? "Install update" : "Download and install " + (updater.release == null ? "" : updater.release.tag));
     }
 
     private Row version(String title, String value) {

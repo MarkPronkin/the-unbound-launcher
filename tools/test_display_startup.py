@@ -41,7 +41,7 @@ STUBS = {
       public Intent setComponent(ComponentName c){this.c=c;return this;} public ComponentName getComponent(){return c;}}''',
     'android/content/Context.java': '''package android.content; import android.app.*; import android.hardware.display.*;
       public class Context { public static Application app; public static DisplayManager displays; public static ActivityManager manager;
-      public Context getApplicationContext(){return app;} public String getPackageName(){return "com.xreal.evapro.nebula";}
+      public Context getApplicationContext(){return app;} public String getPackageName(){return "dev.markpronkin.unbound";}
       public <T>T getSystemService(Class<T> c){return c.cast(c==DisplayManager.class?displays:manager);}}''',
     'android/app/Application.java': '''package android.app; import android.os.Bundle; public class Application extends android.content.Context {
       public java.util.List<ActivityLifecycleCallbacks> callbacks=new java.util.ArrayList<>();

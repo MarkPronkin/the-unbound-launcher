@@ -52,7 +52,10 @@ public final class LaunchServer {
         PackageManager packages = shell.getPackageManager();
         int probeUid = packages.getApplicationInfo("dev.beampro.portprobe", 0).uid;
         XrealUsbPermissions usb = ENABLE_DISPLAY_MANAGEMENT ? new XrealUsbPermissions(packages, probeUid) : null;
+        AutoArEntry autoEntry = ENABLE_DISPLAY_MANAGEMENT ? new AutoArEntry(packages, probeUid, usb) : null;
         PhoneScreenPower phoneScreen = new PhoneScreenPower(shell);
+        AppClassification classification = new AppClassification(packages, probeUid,
+                new java.io.File("/data/local/tmp/unbound-category-" + probeUid + ".bin"));
         IBinder guarded = new Binder() {
             @Override protected boolean onTransact(int code, Parcel data, Parcel reply, int flags) throws RemoteException {
                 int caller = Binder.getCallingUid();
@@ -61,6 +64,25 @@ public final class LaunchServer {
                 }
                 long identity = Binder.clearCallingIdentity();
                 try {
+                    if (code == AppClassification.TRANSACTION) {
+                        data.enforceInterface(AppClassification.TOKEN);
+                        int category = -1;
+                        String error = null;
+                        try { category = classification.request(caller, data.readInt()); }
+                        catch (Exception failure) { error = failure.getMessage() == null ? failure.toString() : failure.getMessage(); }
+                        reply.writeNoException(); reply.writeString(error); reply.writeInt(category);
+                        return true;
+                    }
+                    if (code == AutoArEntry.TRANSACTION && autoEntry != null) {
+                        data.enforceInterface(AutoArEntry.TOKEN);
+                        boolean attached=data.readInt()!=0;
+                        AutoArEntry.Key key=new AutoArEntry.Key(data.readString(),data.readInt(),data.readInt(),data.readInt());
+                        String error=null;
+                        try { autoEntry.request(caller,key,attached); }
+                        catch(Exception failure) { error=failure.toString(); }
+                        reply.writeNoException();reply.writeString(error);
+                        return true;
+                    }
                     if (code == XrealUsbPermissions.TRANSACTION && usb != null) {
                         data.enforceInterface(XrealUsbPermissions.TOKEN);
                         String name=data.readString();
@@ -254,7 +276,7 @@ public final class LaunchServer {
 
     private static final class WindowContext extends ContextWrapper {
         WindowContext(Context shell) { super(shell); }
-        @Override public String getPackageName() { return "com.xreal.evapro.nebula"; }
+        @Override public String getPackageName() { return "dev.markpronkin.unbound"; }
         @Override public String getOpPackageName() { return "com.android.shell"; }
         @Override public Context getApplicationContext() { return this; }
 
@@ -289,7 +311,7 @@ public final class LaunchServer {
                 android.content.ComponentName component = launch.resolveActivity(getPackageManager());
                 if (component == null) return;
                 String name = component.getPackageName();
-                if (name.equals("com.xreal.evapro.nebula") || name.equals("dev.beampro.portprobe")
+                if (name.equals("dev.markpronkin.unbound") || name.equals("dev.beampro.portprobe")
                         || getPackageManager().getLaunchIntentForPackage(name) == null) return;
                 recentApps.record(name, System.currentTimeMillis());
                 recentPreviews.prune();

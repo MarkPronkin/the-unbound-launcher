@@ -13,7 +13,7 @@ import java.util.List;
 
 /** Restart the app's own AR process through the existing glasses launch action. */
 final class LauncherReload {
-    private static final String PACKAGE = "com.xreal.evapro.nebula";
+    private static final String PACKAGE = "dev.markpronkin.unbound";
     static boolean canApply(Context context) {
         if (!PACKAGE.equals(context.getPackageName())) return false;
         try {

@@ -3,7 +3,6 @@ package dev.beampro.settings;
 import static dev.beampro.settings.Signature.*;
 
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.ComponentCallbacks;
 import android.content.Context;
 import android.content.Intent;
@@ -11,7 +10,6 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Parcelable;
 import android.util.Log;
@@ -39,11 +37,11 @@ public final class SettingsUi {
     private static final int GLASSES_IMAGE_ID = 0x00bea003;
     private static final int GLASSES_TYPE_TAG = 0x7fbea003;
     private static final String PREFERENCES = "beampro_settings_ui";
-    private static final String DISCORD_INVITE = "https://discord.gg/J7t64xupfQ";
 
     private SettingsUi() {}
 
     public static void install(Activity activity) {
+        DebugData.initialize(activity.getApplication());
         if (activity.findViewById(PAGE_ID) instanceof Page) return;
         try {
             State state = new State(activity);
@@ -74,11 +72,13 @@ public final class SettingsUi {
         activity.runOnUiThread(() -> {
             State state = ((Page) view).state;
             state.sync();
+            if (!state.permissions) state.detection.refresh();
         });
     }
 
     /** The callback's model ID is authoritative even while the SDK getter is stale. */
     public static void glassesConnected(Activity activity, int type) {
+        DebugData.get(activity).event("Glasses connected: type=" + type);
         activity.runOnUiThread(() -> {
             activity.getWindow().getDecorView().setTag(GLASSES_TYPE_TAG, Integer.valueOf(type));
             refresh(activity);
@@ -86,6 +86,7 @@ public final class SettingsUi {
     }
 
     public static void glassesDisconnected(Activity activity) {
+        DebugData.get(activity).event("Glasses disconnected");
         activity.runOnUiThread(() -> {
             activity.getWindow().getDecorView().setTag(GLASSES_TYPE_TAG, Integer.valueOf(0));
             refresh(activity);
@@ -169,6 +170,14 @@ public final class SettingsUi {
         TextView connectionTitle, connectionDescription;
         Status status;
         AboutPage aboutPage;
+        HelpPage helpPage;
+        final AppDetection detection;
+        final Runnable detectionChanged = this::syncDetection;
+        Row detectionRow;
+        SignatureSwitch detectionToggle;
+        boolean syncingDetection;
+        SignatureSwitch stereoToggle;
+        boolean syncingStereo;
         Button launch;
         ImageView glasses;
         FrameLayout hero;
@@ -177,12 +186,14 @@ public final class SettingsUi {
         final Runnable rebuild = () -> {
             build();
             if (aboutPage != null && aboutPage.isShowing()) aboutPage.render();
+            if (helpPage != null && helpPage.isShowing()) helpPage.render();
         };
 
         State(Activity activity) {
             this.activity = activity;
             preferences = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
             permissions = field(activity, "mLlRoot") == null;
+            detection = AppDetection.get(activity);
             originalRows = (ViewGroup) field(activity, "mLlRoot");
             originalInfo = view(activity, "mLlGlassesInfo");
             originalLaunch = view(activity, "mBtnGoLauncher");
@@ -213,10 +224,13 @@ public final class SettingsUi {
             observing = enabled;
             if (enabled) {
                 activity.getApplication().registerComponentCallbacks(this);
+                if (!permissions) detection.observe(detectionChanged);
             } else {
                 activity.getApplication().unregisterComponentCallbacks(this);
+                detection.remove(detectionChanged);
                 page.removeCallbacks(rebuild);
                 if (aboutPage != null) aboutPage.dismiss();
+                if (helpPage != null) helpPage.dismiss();
             }
         }
 
@@ -294,6 +308,7 @@ public final class SettingsUi {
                 Section experience = section("Experience");
                 Section app = section("App");
                 Section advanced = section("Advanced");
+                Section experimental = section("Experimental");
                 Section support = section("Support");
                 appMenu(app);
                 appPermissions(app);
@@ -301,6 +316,8 @@ public final class SettingsUi {
                 int related = app.card.getChildCount();
                 if (AdbEntry.available()) adbSetup(app);
                 appearance(app);
+                appDetection(experimental);
+                experimentalStereo(experimental);
                 about(support);
                 help(support);
                 for (int i = 0; i < originalRows.getChildCount(); i++) {
@@ -438,6 +455,71 @@ public final class SettingsUi {
             link(section, "code", "On-device ADB", "Pair this phone and start AR Space", v -> AdbEntry.open(activity));
         }
 
+        void appDetection(Section section) {
+            detectionRow = new Row(activity, "game", "Detect as game", "Checking app detection…");
+            detectionRow.setTag("experimental-app-detection");
+            detectionToggle = new SignatureSwitch(activity);
+            detectionToggle.setTag("detect-as-game");
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(52), dp(48));
+            params.setMarginStart(dp(12)); detectionRow.addView(detectionToggle, params);
+            detectionToggle.setOnCheckedChangeListener((button, enabled) -> {
+                if (!syncingDetection) detection.setGame(enabled);
+            });
+            detectionRow.onClick(v -> { if (detectionToggle.isEnabled()) detectionToggle.toggle(); });
+            detectionRow.title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            detectionRow.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            detectionRow.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            section.card.addView(detectionRow);
+            syncDetection();
+        }
+
+        void syncDetection() {
+            if (detectionToggle == null) return;
+            syncingDetection = true;
+            try {
+                detectionToggle.setChecked(detection.game);
+                detectionToggle.setEnabled(detection.known && !detection.busy);
+                String status = detection.busy ? "Applying…" : !detection.known ? "Checking app detection…"
+                        : detection.game ? "Game" : "Normal app";
+                String description = status + " · Classify Unbound as a game for Android. Gaming features vary by phone. Reopen the app after changing.";
+                if (detection.error != null) description += "\n" + detection.error;
+                detectionRow.subtitle.setText(description);
+                detectionToggle.setContentDescription("Detect as game. " + description);
+                detectionRow.setAlpha(detection.busy ? .6f : 1f);
+            } finally { syncingDetection = false; }
+        }
+
+        void experimentalStereo(Section section) {
+            String description = "Try 3D side-by-side (SBS) on glasses that default to 2D. "
+                    + "Glasses already using 3D keep their current mode. Reconnect your glasses after changing.";
+            Row row = new Row(activity, "mirror", "Force 3D on unsupported glasses", description);
+            row.setTag("experimental-stereo");
+            stereoToggle = new SignatureSwitch(activity);
+            stereoToggle.setTag("force-3d-sbs");
+            stereoToggle.setContentDescription("Force 3D on unsupported glasses. " + description);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(52), dp(48));
+            params.setMarginStart(dp(12)); row.addView(stereoToggle, params);
+            stereoToggle.setChecked(ExperimentalStereo.enabled(activity));
+            stereoToggle.setOnCheckedChangeListener((button, enabled) -> {
+                if (syncingStereo) return;
+                try {
+                    ExperimentalStereo.save(activity, enabled);
+                    Toast.makeText(activity, "Reconnect your glasses to apply the change.", Toast.LENGTH_LONG).show();
+                } catch (Exception failure) {
+                    syncingStereo = true;
+                    try { stereoToggle.setChecked(ExperimentalStereo.enabled(activity)); }
+                    finally { syncingStereo = false; }
+                    Log.w(TAG, "Cannot save experimental 3D setting", failure);
+                    Toast.makeText(activity, "Could not save experimental 3D. " + failure.getMessage(), Toast.LENGTH_LONG).show();
+                }
+            });
+            row.onClick(v -> stereoToggle.toggle());
+            row.title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            section.card.addView(row);
+        }
+
         void about(Section section) {
             link(section, "info", "About", "Project information and legal", v -> {
                 if (aboutPage == null) {
@@ -449,13 +531,9 @@ public final class SettingsUi {
         }
 
         void help(Section section) {
-            link(section, "help", "Help", "Join our Discord community", v -> {
-                try {
-                    activity.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(DISCORD_INVITE))
-                            .addCategory(Intent.CATEGORY_BROWSABLE));
-                } catch (ActivityNotFoundException error) {
-                    Toast.makeText(activity, "Install a browser or Discord to open help.", Toast.LENGTH_LONG).show();
-                }
+            link(section, "help", "Help", "Support and debugging", v -> {
+                if (helpPage == null) helpPage = new HelpPage(activity);
+                helpPage.show();
             });
         }
 
@@ -624,7 +702,7 @@ public final class SettingsUi {
     }
 
     /** Monochrome switch with a 48dp touch target and native accessibility semantics. */
-    private static final class SignatureSwitch extends CompoundButton {
+    static final class SignatureSwitch extends CompoundButton {
         final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         SignatureSwitch(Context context) {
             super(context); setButtonDrawable(null); setBackground(null);

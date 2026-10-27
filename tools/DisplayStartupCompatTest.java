@@ -16,7 +16,7 @@ public class DisplayStartupCompatTest {
     static void check(boolean b,String message){assertions++;if(!b)throw new AssertionError(message);}
     static NRFakeActivity window(Display d){NRFakeActivity a=new NRFakeActivity();a.display=d;callbacks.onActivityCreated(a,null);return a;}
     static int mode(Activity a){return a.getWindow().getAttributes().preferredDisplayModeId;}
-    static Intent intent(){return new Intent().setComponent(new ComponentName("com.xreal.evapro.nebula","ai.nreal.activitylife.NRFakeActivity"));}
+    static Intent intent(){return new Intent().setComponent(new ComponentName("dev.markpronkin.unbound","ai.nreal.activitylife.NRFakeActivity"));}
     public static void main(String[] args){
         Context.app=new Application();displays=new DisplayManager();Context.displays=displays;Context.manager=new ActivityManager();
         DisplayStartupCompat.install(Context.app);callbacks=Context.app.callbacks.get(0);

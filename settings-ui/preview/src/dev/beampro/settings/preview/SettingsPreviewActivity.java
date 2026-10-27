@@ -22,9 +22,11 @@ public class SettingsPreviewActivity extends Activity {
             mPPView, mTosView, mDevOptionView, mForceOtaView;
     public int launches, privacyClicks, termsClicks;
     public Intent externalLaunch;
+    public Intent shareLaunch;
 
     @Override public void startActivity(Intent intent) {
         if (Intent.ACTION_VIEW.equals(intent.getAction())) { externalLaunch = intent; return; }
+        if (Intent.ACTION_CHOOSER.equals(intent.getAction())) { shareLaunch = intent; return; }
         super.startActivity(intent);
     }
 
@@ -53,6 +55,9 @@ public class SettingsPreviewActivity extends Activity {
             setConnectedModel(getIntent().getIntExtra("glasses_type", com.xreal.glassesdisplayplugevent.GlassesInitSetting.previewType));
         }
         SettingsUi.install(this);
+        if (getIntent().getBooleanExtra("install_update", false)) {
+            startActivity(new Intent(this, dev.beampro.settings.UpdateInstallActivity.class));
+        }
     }
 
     public void setConnected(boolean value) {

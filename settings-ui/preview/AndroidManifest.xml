@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.settings.preview">
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -19,11 +20,22 @@
             </intent-filter>
         </activity>
         <activity android:name=".PermissionsPreviewActivity" android:exported="true" />
+        <activity android:name="ai.nreal.nebula.activity.setting.SettingActivity" android:exported="false" />
         <activity android:name="dev.beampro.settings.PermissionSetupActivity" android:exported="false" />
         <activity android:name="dev.beampro.settings.AppMenuActivity" android:exported="false" />
+        <activity android:name="dev.beampro.settings.UpdateInstallActivity" android:exported="false" />
+        <provider android:name="dev.beampro.settings.UpdateFileProvider" android:exported="false"
+            android:authorities="dev.beampro.settings.preview.unbound.updates" android:grantUriPermissions="true" />
+        <provider android:name="dev.beampro.settings.DebugFileProvider" android:exported="false"
+            android:authorities="dev.beampro.settings.preview.unbound.debug" android:grantUriPermissions="true" />
+        <provider android:name=".ClassificationProvider" android:exported="true" android:authorities="dev.beampro.settings.preview.unbound.bridge" />
     </application>
+    <instrumentation android:name="dev.beampro.settings.HelpPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".SettingsUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".AboutPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.settings.AppUpdateChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.settings.AppDetectionChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.settings.ExperimentalStereoChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".OledUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".GlassesArtworkChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".AppMenuChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />

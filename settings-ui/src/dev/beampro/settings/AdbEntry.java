@@ -19,6 +19,7 @@ final class AdbEntry {
     static boolean setup(Activity activity) { return Boolean.TRUE.equals(invoke("setup", activity)); }
     static void open(Activity activity) { invoke("open", activity); }
     static void install(Activity activity) { invoke("install", activity); }
+    static void completed(Activity activity) { invoke("completed", activity); }
     static boolean allowLaunch(Activity activity) {
         if (!available()) return true;
         return Boolean.TRUE.equals(invoke("allowLaunch", activity));

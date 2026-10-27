@@ -6,7 +6,7 @@ import unittest
 from test_display_startup import ROOT, JAVA
 
 STUBS = {
-    'android/content/Context.java': 'package android.content;public class Context {public String getPackageName(){return "com.xreal.evapro.nebula";}}',
+    'android/content/Context.java': 'package android.content;public class Context {public String getPackageName(){return "dev.markpronkin.unbound";}}',
     'android/app/Activity.java': '''package android.app;public class Activity extends android.content.Context {
       public android.content.Intent intent;public android.content.Intent getIntent(){return intent;}}''',
     'android/content/ComponentName.java': '''package android.content;public class ComponentName {
@@ -22,6 +22,7 @@ STUBS = {
       public int getFlags(){return flags;}public Intent setFlags(int f){flags=f;return this;}
       public String getAction(){return action;}public Intent setAction(String a){action=a;return this;}
       public void removeCategory(String c){categories.remove(c);}public void setSelector(Object s){selector=s;}
+      public void removeExtra(String k){extras.remove(k);}
       public Intent setComponent(ComponentName c){component=c;return this;}}''',
     'android/widget/Toast.java': '''package android.widget;public class Toast {public static int shown;
       public static Toast makeText(android.content.Context c,String s,int n){return new Toast();}public void show(){shown++;}}''',
@@ -43,6 +44,10 @@ public class SetupNavigationTest {
   check(next.flags==0&&next.action==null&&!next.categories.contains(Intent.CATEGORY_LAUNCHER));
   check(next.component.pkg.equals(a.getPackageName())&&next.component.name.equals("dev.beampro.adb.AdbPairingActivity"));
   check(next.extras.get("marker").equals(73));check(a.intent.flags==0x10200000&&a.intent.action.equals(Intent.ACTION_MAIN));
+  a.intent=next;a.intent.extras.put("dev.beampro.adb.SETUP",true);
+  Intent launcher=SetupNavigation.launcher(a);
+  check(launcher.flags==0&&Intent.ACTION_MAIN.equals(launcher.action)&&!launcher.categories.contains(Intent.CATEGORY_LAUNCHER));
+  check(launcher.component.name.equals("ai.nreal.nebula.activity.splash.SplashActivity")&&!launcher.extras.containsKey("dev.beampro.adb.SETUP"));
   a.intent.flags=0x7fffffff;a.intent.action="android.hardware.usb.action.USB_DEVICE_ATTACHED";
   a.intent.data="content://device/one";a.intent.clip=new Object();a.intent.selector=new Object();
   a.intent.categories.add("custom.category");a.intent.extras.put("device",new Object());
@@ -50,6 +55,8 @@ public class SetupNavigationTest {
   check(next.flags==195);check(next.action.equals(a.intent.action)&&next.data.equals(a.intent.data));
   check(next.clip==a.intent.clip&&next.extras.get("device")==a.intent.extras.get("device"));
   check(next.selector==null&&next.categories.contains("custom.category"));
+  launcher=SetupNavigation.launcher(a);
+  check(launcher.action.equals(a.intent.action)&&launcher.extras.get("device")==a.intent.extras.get("device"));
   check(AdbEntry.setup(a)&&AdbBootstrap.setups==1);AdbBootstrap.reject=true;
   check(!AdbEntry.setup(a)&&android.widget.Toast.shown==1&&AdbBootstrap.setups==1);
   AdbBootstrap.allowed=false;check(!AdbEntry.allowLaunch(a));AdbBootstrap.allowed=true;check(AdbEntry.allowLaunch(a));
@@ -69,7 +76,7 @@ class SetupNavigationTests(unittest.TestCase):
             subprocess.run([str(JAVA/'bin/javac'),'--release','8','-d',str(work),*paths],check=True)
             result=subprocess.run([str(JAVA/'bin/java'),'-cp',str(work),'dev.beampro.settings.SetupNavigationTest'],capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
-            self.assertIn('PASS setup-navigation assertions: 12',result.stdout)
+            self.assertIn('PASS setup-navigation assertions: 15',result.stdout)
             print(result.stdout.strip())
 
 

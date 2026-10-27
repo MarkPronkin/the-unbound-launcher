@@ -14,7 +14,7 @@ import dev.beampro.settings.SetupNavigation;
 
 /** Starts only the helper shipped in this APK, on this same device, after system pairing. */
 public final class AdbBootstrap {
-    public static final String AUTHORITY = "com.xreal.evapro.nebula.unbound.bridge";
+    public static final String AUTHORITY = "dev.markpronkin.unbound.unbound.bridge";
     private static final ExecutorService WORK = Executors.newSingleThreadExecutor();
     private static final ScheduledExecutorService WATCHDOG = Executors.newSingleThreadScheduledExecutor();
     static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -29,6 +29,10 @@ public final class AdbBootstrap {
     public static void setup(Activity activity) {
         activity.startActivity(SetupNavigation.forward(activity, AdbPairingActivity.class)
                 .putExtra(AdbPairingActivity.SETUP, true));
+    }
+    public static void completed(Activity activity) {
+        Context context = activity.getApplicationContext();
+        MAIN.postDelayed(() -> AutoGlassesReceiver.helperReady(context), 1000);
     }
     public static boolean allowLaunch(Activity activity) {
         if (ready(activity)) return true;
@@ -127,7 +131,7 @@ public final class AdbBootstrap {
         if (connectedPort == 0) throw new StartupFailure("ADB connection failed. Check Wireless debugging and its current connection port. Pair again if Android forgot this app.", last);
         if (!"2000".equals(shell(adb, "id -u").trim())) throw new SecurityException("ADB did not provide Android shell access");
         String apk = quote(context.getApplicationInfo().sourceDir);
-        String dir = "/data/local/tmp/unbound-launcher";
+        String dir = "/data/local/tmp/" + context.getPackageName();
         String jar = dir + "/helper-" + HelperPayload.SHA256 + ".jar";
         String command = "mkdir -p " + dir + " && chmod 700 " + dir
                 + " && rm -f " + jar + ".new"
@@ -151,6 +155,7 @@ public final class AdbBootstrap {
         }
         context.getSharedPreferences("unbound-adb", 0).edit().putInt("connect-port", connectedPort).apply();
         status = "Ready · AR app windows are enabled";
+        AutoGlassesReceiver.helperReady(context);
     }
     private static String shell(LocalAdb adb, String command) throws Exception {
         ScheduledFuture<?> timeout = WATCHDOG.schedule(() -> disconnect(adb), 20, TimeUnit.SECONDS);

@@ -2,8 +2,12 @@
 import struct
 from branding import _append_pool_string, _pool_strings
 from build_port_bootstrap import chunks
+from package_identity import AUTHORITY
 
-AUTHORITY = "com.xreal.evapro.nebula.unbound.bridge"
+# android.R.style.Theme_Material_NoActionBar_Fullscreen. Android resolves
+# translucency before onCreate; inheriting Nebula's translucent theme can leave
+# this activity INITIALIZING behind the native Presentation without any window.
+AR_BACKDROP_THEME = 16974383
 
 
 def patch_usb_attach_manifest(original):
@@ -131,8 +135,16 @@ def patch_manifest(original):
         return begin + end
 
     additions = element("activity", [("name", 3, "dev.beampro.adb.AdbPairingActivity"), ("exported", 0x12, 0)])
-    additions += element("activity", [("name", 3, "dev.beampro.port.ArBackdropActivity"), ("exported", 0x12, 0)])
+    # The lease registry is created by the :space renderer, so the backdrop must
+    # share that process rather than starting with an empty registry in the UI.
+    additions += element("activity", [("name", 3, "dev.beampro.port.ArBackdropActivity"), ("exported", 0x12, 0),
+                                      ("process", 3, ":space"), ("theme", 1, AR_BACKDROP_THEME)])
     additions += element("service", [("name", 3, "dev.beampro.adb.PairingOverlayService"), ("exported", 0x12, 0)])
+    receiver = element("receiver", [("name", 3, "dev.beampro.adb.AutoGlassesReceiver"), ("exported", 0x12, 0)])
+    usb_filter = element("intent-filter", [])
+    actions = b"".join(element("action", [("name", 3, action)]) for action in (
+        "android.hardware.usb.action.USB_DEVICE_ATTACHED", "android.hardware.usb.action.USB_DEVICE_DETACHED"))
+    additions += receiver[:-24] + usb_filter[:-24] + actions + usb_filter[-24:] + receiver[-24:]
     additions += element("provider", [("name", 3, "dev.beampro.adb.LocalBridgeProvider"),
                                        ("authorities", 3, AUTHORITY), ("exported", 0x12, 0xFFFFFFFF),
                                        ("process", 3, ":unbound_bridge")])

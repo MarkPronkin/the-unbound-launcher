@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 ADB = Path.home() / "Library/Android/sdk/platform-tools/adb"
-PACKAGE = "com.xreal.evapro.nebula"
+PACKAGE = "dev.markpronkin.unbound"
 
 
 def main():
