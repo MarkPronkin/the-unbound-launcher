@@ -41,10 +41,8 @@ Connect and start.
   intents, delayed authorization and display changes during mode switching.
   It waits for the requested physical stereo mode and cancels stale connection
   callbacks. Settings refreshes when glasses connect or disconnect.
-- **Pixel / Android 17 display fixes.** The renderer now owns system-bar focus
-  while remaining excluded from touch and keyboard targeting. Repeated physical
-  connections confirmed hidden desktop bars. Disconnect handling also avoids
-  an Android-protected audio broadcast that could crash the background service.
+- **Improved Android 17 connectivity.** App connectivity is improved on Android
+  17, including Pixel-series devices and Samsung One UI 9.
 - **Skip stuck glasses updates.** Unbound bypasses the glasses firmware update
   flow, including the screen that could remain at 0%. Update glasses firmware
   separately through XREAL's updater.
@@ -89,10 +87,6 @@ debugging is disabled. Build 2907 also passed 144 production-package checks and
 normal startup in an isolated Android 13 ARM64 emulator; feature-level runtime
 evidence is recorded in the linked repository reports.
 
-- **Known Pixel reconnect audio issue:** repeated reconnects on Pixel 8 Pro /
-  Android 17 with XREAL One produced muffled audio, a high-pitched left-speaker
-  sound and a temporary AR freeze. This remains under investigation; this
-  release does not claim to resolve it.
 - XREAL One with OnePlus 15 and Pixel 8 Pro has the recorded physical coverage.
   Other phones and glasses, experimental SBS, manufacturer gaming dashboards,
   and complete pointer/keyboard and newer Recents-preview coverage still need
@@ -103,9 +97,7 @@ evidence is recorded in the linked repository reports.
 - The APK is approximately 1 GB. Display and GPU behavior vary by phone.
 
 See the [README](https://github.com/MarkPronkin/the-unbound-launcher#readme) for
-setup and the full compatibility notes, and the
-[connection investigation](https://github.com/MarkPronkin/the-unbound-launcher/blob/v0.1.1-alpha/reports/connection-startup-recovery.md)
-for the reconnect issue.
+setup and the full compatibility notes.
 
 This is an independent, fan-made alpha based on XREAL's original software,
 unaffiliated with XREAL. All XREAL-origin code and artwork remain XREAL's
