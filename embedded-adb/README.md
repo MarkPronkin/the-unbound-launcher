@@ -187,6 +187,11 @@ YouTube on the Pixel, whose live 2933 log still selected an overlay. Supported
 GPUs retain that overlay. Android secure-window and virtual-display flags are
 unchanged; unknown capability retains the original route.
 
+Build 2950 applies the same flag to immersive mode. Entering immersive always
+asks `ChangeSurface` for a multi-layer overlay, even for windows that opened on
+the copy path, so Pixel windows turned washed out after entering it. With the
+flag set, the request uses the copy path; supported GPUs keep the overlay.
+
 Build 2935 preserves the GPU flags and parameter metadata following each GLSL
 source array. The earlier source rewriter incorrectly discarded those zero
 fields, and Unity rejected the software programs even though their extracted

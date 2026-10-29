@@ -22,6 +22,19 @@ app_surface_routing:
     entry app_change, x21, 0x3309410
     entry separate_open, x21, 0x34ee2c0
     entry separate_intent, x22, 0x34ee5a4
+// OnEnterImmersive always passes isMultiLayer=true to ChangeSurface, which
+// recreates the window as a compositor overlay. Apply the same capability
+// result: the request is a byte in a stack slot that filter clears in place.
+immersive:
+    mov w5, #1
+    stp x0, x30, [sp, #-16]!
+    stp x5, x8, [sp, #-16]!
+    sub x0, sp, #0x72
+    mov w8, #1
+    bl filter
+    ldp x5, x8, [sp], #16
+    ldp x0, x30, [sp], #16
+    jump 0x34ed8c8
 filter:
     cbz w8, done
     sub sp, sp, #96
