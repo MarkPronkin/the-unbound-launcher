@@ -41,6 +41,7 @@ from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
 from updater_manifest import patch_updater_manifest
 from debug_manifest import patch_debug_manifest
+from storage_manifest import patch_storage_manifest
 from package_identity import PACKAGE, METADATA, BINARY_ENCODINGS, patch_binary_identity, repackage_dex
 from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, build_library
 from phone_pointer import ENTRY as POINTER_LIBRARY, build_library as build_pointer_library
@@ -299,6 +300,7 @@ def main():
                 value = patch_usb_attach_manifest(patch_release_manifest(patch_adaptive_manifest(patch_manifest(patch_manifest_version(value, VERSION)))))
                 value = patch_debug_manifest(patch_updater_manifest(value))
                 value = patch_menu_manifest(patch_connection_theme_manifest(value))
+                value = patch_storage_manifest(value)
             if info.filename == "resources.arsc" and not args.test_only:
                 # This builder reuses a pinned APK; apply current branding here too.
                 value = patch_resources(value)
