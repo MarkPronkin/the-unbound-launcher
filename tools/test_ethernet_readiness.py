@@ -18,6 +18,9 @@ class EthernetReadinessTests(unittest.TestCase):
     def test_client_helper_identity_usb_revalidation_and_cancellation(self):
         stubs = dict(USB_STUBS)
         stubs.update({
+            # Network selection itself is exercised with the real ping guard in test_glasses_network.
+            'dev/beampro/port/GlassesNetworkCompat.java': '''package dev.beampro.port;public class GlassesNetworkCompat {
+                static void deliver(java.lang.reflect.Method result,Object callback,boolean success)throws Exception {result.invoke(callback,success);}}''',
             'android/os/Handler.java': '''package android.os;public class Handler {
                 final java.util.Queue<Runnable> jobs=new java.util.concurrent.ConcurrentLinkedQueue<>();
                 public boolean post(Runnable r){jobs.add(r);return true;}public void removeCallbacks(Runnable r){jobs.removeIf(j->j==r);}
