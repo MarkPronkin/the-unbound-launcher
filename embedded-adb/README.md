@@ -77,6 +77,12 @@ or the session ends. Android may show the initial chooser before the helper has
 first configured the glasses; choose Mirror if it does. Pairing consent remains
 part of Android's initial ADB setup.
 
+Build 2951 also retains a drained Unity render surface while an active AR
+session's phone controller is hidden. The foreground service and pause/focus
+guards alone did not prevent Android from destroying the phone SurfaceView and
+freezing the scene. Returning to the controller or ending the session restores
+the phone surface. See [the background rendering investigation](../reports/direct-glasses-display.md#frozen-content-after-leaving-the-controller--build-2951).
+
 The fixed footer only allows continuation when the real launch-helper Binder is
 alive. Completion is saved so subsequent permission reviews and ADB recovery do
 not repeat first-run setup. Original glasses connection intents survive both

@@ -106,12 +106,14 @@ public final class PresentationDeviceChecks extends Instrumentation {
                 check(!other.focused,"Focus loss for any other player is forwarded unchanged");
                 PresentationOnlyCompat.pause(other);
                 check(other.pauses==1,"Pause for any other player is forwarded unchanged");
+                other.destroy();
                 check(PresentationOnlyCompat.isActive(owner),"Session belongs to the live phone owner");
                 check(NRXRApp.getFakeActivity()==owner,"Native activity lookup resolves to the phone owner");
                 app.moveToVirtualDisplay();
                 check(app.virtualMoves==0&&app.readyForDynamicSwitchDPImpl(),"Mode transition needs no placeholder activity/display");
                 check(!app.readyForRestartSessionImpl(),"Restart waits until the glasses re-enumerate");
             });
+            await(()->owner.mUnityPlayer.frames>20,5000,"The visible controller produces real GLES frames");
             // A mode switch re-enumerates the glasses: remove, then add under a new logical ID.
             final int before=external.getDisplayId();
             runOnMainSync(()->{
@@ -143,6 +145,11 @@ public final class PresentationDeviceChecks extends Instrumentation {
             check(owner.mUnityPlayer.focused,"A hidden phone controller retains renderer focus");
             check(onMain(()->presentation.isShowing()&&PresentationOnlyCompat.isActive(owner)),"The glasses Presentation and session survive leaving the trackpad");
             check(serviceForeground(),"The hidden renderer retains its foreground service");
+            await(()->owner.mUnityPlayer.phoneDestroys>0,5000,"Android destroys the hidden controller's phone SurfaceView");
+            final long hiddenFrames=owner.mUnityPlayer.frames;
+            await(()->owner.mUnityPlayer.frames>hiddenFrames+30,5000,
+                    "New GLES buffers keep rendering after the phone SurfaceView is destroyed");
+            check(owner.mUnityPlayer.hasOverride(),"Hidden rendering uses a session-owned surface override");
             runOnMainSync(()->getTargetContext().startService(new Intent(getTargetContext(),dev.beampro.port.ArSessionService.class)
                     .putExtra("unbound.arSession",-1L)));
             waitForIdleSync();
@@ -152,10 +159,20 @@ public final class PresentationDeviceChecks extends Instrumentation {
             backgroundNotice.contentIntent.send();
             await(()->owner.mUnityPlayer.resumes>oldResumes,5000,"Original phone resume path executes on return");
             check(owner.mUnityPlayer.pauses==oldPauses,"Returning to the trackpad does not restart a paused renderer");
+            await(()->!owner.mUnityPlayer.hasOverride(),5000,"Returning restores the ordinary Unity phone surface");
+            final long returnedFrames=owner.mUnityPlayer.frames;
+            await(()->owner.mUnityPlayer.frames>returnedFrames+10,5000,"New frames continue on the restored phone SurfaceView");
+            runOnMainSync(()->startActivitySyncOnMain());
+            await(()->onMain(()->ownerStopped),5000,"The controller can be hidden a second time");
+            final long secondHidden=owner.mUnityPlayer.frames;
+            await(()->owner.mUnityPlayer.frames>secondHidden+30,5000,"Repeated backgrounding still produces new GLES buffers");
+            sessionNotice().contentIntent.send();
+            await(()->onMain(()->!ownerStopped&&!owner.mUnityPlayer.hasOverride()),5000,"Repeated return releases the second background surface");
             runOnMainSync(()->entry.finish());
             runOnMainSync(()->{presentation.dismiss();virtual.release();virtual=null;});
             await(()->owner.isFinishing()||owner.isDestroyed(),15000,"Display loss closes the direct session");
             check(!PresentationOnlyCompat.isActive(owner),"Display loss releases lifecycle ownership");
+            check(!owner.mUnityPlayer.hasOverride(),"Display loss releases the session's surface override");
             runOnMainSync(()->{
                 int beforePause=owner.mUnityPlayer.pauses;
                 PresentationOnlyCompat.pause(owner.mUnityPlayer);
@@ -177,6 +194,9 @@ public final class PresentationDeviceChecks extends Instrumentation {
             });
             await(()->owner!=null&&presentation!=null,15000,"A fresh connection starts a new direct session");
             await(()->sessionNotice()!=null,5000,"The foreground notification is posted for the new session");
+            await(()->owner.mUnityPlayer.frames>40,5000,"The new session also produces GLES frames");
+            runOnMainSync(()->startActivitySyncOnMain());
+            await(()->onMain(()->ownerStopped&&owner.mUnityPlayer.hasOverride()),5000,"The second session can render while hidden");
             runOnMainSync(()->{
                 check(owner.getDisplay().getDisplayId()==0&&app.externalLaunches==0,"Reconnect still uses no external activity");
                 check(presentation.getDisplay().getMode().getPhysicalWidth()==1920,"Mono 1080p output uses the same Presentation path");
@@ -186,6 +206,7 @@ public final class PresentationDeviceChecks extends Instrumentation {
                 try {notice.actions[0].actionIntent.send();}catch(PendingIntent.CanceledException error){throw new AssertionError(error);}
             });
             await(()->!PresentationOnlyCompat.isActive(owner),5000,"Stop AR in the notification releases the second session");
+            check(!owner.mUnityPlayer.hasOverride(),"Stop AR while hidden releases the background surface");
             await(()->!serviceForeground(),5000,"Stop AR removes the foreground service");
             result.putString("stream","PASS direct Presentation Android/SDK checks: "+passed+"\n");
             finish(-1,result);

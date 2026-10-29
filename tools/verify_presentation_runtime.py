@@ -43,10 +43,6 @@ public class NRXRApp {
  void onStart();void onStop();void onResume();void onPause();}''',
  'ai/nreal/nebula/space/IFocusChangeCallback.java': '''package ai.nreal.nebula.space;public interface IFocusChangeCallback {void onFocusChanged(boolean value);}''',
  'com/xreal/evapro/EvaProHelper.java': '''package com.xreal.evapro;public class EvaProHelper {public static void initXrealLivePks(android.content.Context c){}}''',
- 'com/unity3d/player/UnityPlayer.java': '''package com.unity3d.player;public class UnityPlayer extends android.widget.FrameLayout {
- public int resumes,pauses;public boolean focused;public UnityPlayer(android.content.Context c){super(c);}
- public void resume(){resumes++;}public void pause(){pauses++;}public void windowFocusChanged(boolean value){focused=value;}
- public static void UnitySendMessage(String a,String b,String c){}}''',
  'ai/nreal/nebula/space/LaunchSpaceAcrivity.java': '''package ai.nreal.nebula.space;
 import android.app.*;import android.os.*;import android.view.*;import android.widget.*;
 import com.unity3d.player.UnityPlayer;import dev.beampro.presentationtest.PresentationDeviceChecks;
@@ -59,6 +55,7 @@ public class LaunchSpaceAcrivity extends Activity {
    mUnityPlayer=new UnityPlayer(this);mImeMaskView=new View(this);TextView text=new TextView(this);
    text.setText("Phone controller — direct output fixture");mUnityPlayer.addView(text);setContentView(mUnityPlayer);
    PresentationDeviceChecks.owner=this;new Handler(getMainLooper()).post(()->PresentationDeviceChecks.showOutput(this));}
+ protected void onDestroy(){mUnityPlayer.destroy();super.onDestroy();}
  protected void onStart(){throw new AssertionError("SDK transplant missing");}
  protected void onResume(){throw new AssertionError("SDK transplant missing");}
  protected void onPause(){throw new AssertionError("SDK transplant missing");}
@@ -82,7 +79,7 @@ MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/androi
 </manifest>'''
 
 
-def build(output):
+def build(output, surface_loss_negative_control=False):
     output.mkdir(parents=True, exist_ok=True)
     sdk=Path.home()/'Library/Android/sdk';bt=sdk/'build-tools/36.0.0';android=sdk/'platforms/android-34/android.jar'
     env=dict(os.environ,JAVA_HOME=str(JAVA))
@@ -91,8 +88,19 @@ def build(output):
     for name,value in SOURCES.items():
         p=output/'src'/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(value);files.append(p)
     files.append(ROOT/'tools/PresentationDeviceChecks.java')
+    player=output/'src/com/unity3d/player/UnityPlayer.java'
+    player.parent.mkdir(parents=True,exist_ok=True)
+    player.write_text((ROOT/'tools/PresentationUnityPlayerFixture.java').read_text());files.append(player)
     files.extend(ROOT/'port-client/src/dev/beampro/port'/name for name in (
-        'PresentationOnlyCompat.java','PresentationReadiness.java','DisplayStartupCompat.java','StereoPresentationCompat.java','ArBackdropActivity.java','ArSessionService.java'))
+        'PresentationOnlyCompat.java','BackgroundUnitySurface.java','PresentationReadiness.java','DisplayStartupCompat.java',
+        'StereoPresentationCompat.java','PresentationWindowDiagnostics.java','ArBackdropActivity.java','ArSessionService.java'))
+    if surface_loss_negative_control:
+        compat=ROOT/'port-client/src/dev/beampro/port/PresentationOnlyCompat.java'
+        before=compat.read_text();needle='if(isActive(activity))active.retainRenderSurface();'
+        if before.count(needle)!=1:raise AssertionError('Missing background surface hook')
+        negative=output/'src/dev/beampro/port/PresentationOnlyCompat.java';negative.parent.mkdir(parents=True,exist_ok=True)
+        negative.write_text(before.replace(needle,'/* Negative control: retain only the original pause/focus guards. */'))
+        files[files.index(compat)]=negative
     classes=output/'classes';classes.mkdir(exist_ok=True)
     run(JAVA/'bin/javac','--release','8','-cp',android,'-d',classes,*files)
     jar=output/'fixture.jar';run(JAVA/'bin/jar','cf',jar,'-C',classes,'.')
@@ -120,18 +128,20 @@ def main():
     parser.add_argument('--serial',default='emulator-5554');parser.add_argument('--build-only',action='store_true')
     parser.add_argument('--physical-device',action='store_true',
         help='Allow a non-emulator serial; the separate fixture package is uninstalled afterwards')
+    parser.add_argument('--surface-loss-negative-control',action='store_true',
+        help='Disable only the new surface handoff and require the real GLES frame check to fail')
     args=parser.parse_args()
     if not args.serial.startswith('emulator-') and not args.physical_device:
         parser.error('Only use an isolated emulator, or pass --physical-device')
-    output=args.output.resolve();apk=build(output)
+    output=args.output.resolve();apk=build(output,args.surface_loss_negative_control)
     if args.build_only:return
     adb=[str(Path.home()/'Library/Android/sdk/platform-tools/adb'),'-s',args.serial]
-    try:run_checks(adb,apk,output)
+    try:run_checks(adb,apk,output,args.surface_loss_negative_control)
     finally:
         if args.physical_device:subprocess.run([*adb,'uninstall','dev.beampro.presentationtest'],capture_output=True)
 
 
-def run_checks(adb,apk,output):
+def run_checks(adb,apk,output,surface_loss_negative_control=False):
     deadline=time.monotonic()+60
     while True:
         boot=subprocess.run([*adb,'shell','getprop','sys.boot_completed'],capture_output=True,text=True,timeout=5)
@@ -144,6 +154,11 @@ def run_checks(adb,apk,output):
     result=subprocess.run([*adb,'shell','am','instrument','-w','dev.beampro.presentationtest/dev.beampro.presentationtest.PresentationDeviceChecks'],capture_output=True,text=True,timeout=90)
     (output/'android-checks.log').write_text(result.stdout+result.stderr)
     print(result.stdout+result.stderr)
+    if surface_loss_negative_control:
+        if 'FAIL direct Presentation after ' not in result.stdout or 'New GLES buffers keep rendering after the phone SurfaceView is destroyed' not in result.stdout:
+            raise AssertionError('Negative control did not fail at the surface-loss regression check')
+        print('PASS negative control: surface destruction stalls new GLES buffers with only the old pause/focus guards')
+        return
     if result.returncode or 'PASS direct Presentation Android/SDK checks:' not in result.stdout or 'FAIL' in result.stdout:
         logs=subprocess.run([*adb,'logcat','-d','-t','1000'],capture_output=True,text=True)
         (output/'failure-logcat.txt').write_text(logs.stdout+logs.stderr)

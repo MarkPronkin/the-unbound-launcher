@@ -218,6 +218,7 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
     private static final class Session implements Runnable,DisplayManager.DisplayListener {
         final Object app;final long token=++sequence;final boolean originalMultiResume;
         Activity owner;DisplayManager displays;int displayId,switchFrom=-1;boolean closed,seenPresentation,foreground;
+        BackgroundUnitySurface backgroundSurface;
         long deadline=SystemClock.uptimeMillis()+45000,missingSince,switchUntil;String switchMode;
         Session(Object app,int displayId,boolean originalMultiResume){this.app=app;this.displayId=displayId;this.originalMultiResume=originalMultiResume;}
         void attach(Activity activity) {
@@ -236,11 +237,26 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
         }
         void close() {
             if(closed)return;closed=true;MAIN.removeCallbacks(this);
+            restorePhoneSurface();
             if(displays!=null)displays.unregisterDisplayListener(this);
             if(owner!=null)owner.stopService(new Intent(owner,ArSessionService.class));
             try {field(app,"mMultiResumeMode").setBoolean(app,originalMultiResume);}
             catch(Exception failure){Log.w(TAG,"Cannot restore SDK lifecycle selection",failure);}
             if(active==this)active=null;
+        }
+        void retainRenderSurface() {
+            if(backgroundSurface!=null||!keepRendering())return;
+            // Startup dialogs can pause the owner before Unity/NRSDK can render. Scan now
+            // as well as on the timer so a just-attached Presentation is not missed.
+            if(!seenPresentation){run();if(!seenPresentation||closed)return;}
+            try {
+                Object unity=get(owner,"mUnityPlayer");
+                if(unity!=null)backgroundSurface=new BackgroundUnitySurface(unity);
+            } catch(Exception failure){Log.e(TAG,"Cannot retain Unity's background render surface",failure);}
+        }
+        void restorePhoneSurface() {
+            if(backgroundSurface==null)return;
+            backgroundSurface.close();backgroundSurface=null;
         }
         void finish(String reason) {
             Log.w(TAG,reason);Activity activity=owner;close();
@@ -313,6 +329,13 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
         StereoPresentationCompat.track(activity);
     }
     public void onActivityResumed(Activity activity){}
+    public void onActivityPostResumed(Activity activity) {
+        if(isActive(activity))active.restorePhoneSurface();
+    }
+    public void onActivityPrePaused(Activity activity) {
+        // This runs before the SDK callbacks and before Android destroys the phone SurfaceView.
+        if(isActive(activity))active.retainRenderSurface();
+    }
     public void onActivityPaused(Activity activity){}
     public void onActivityStopped(Activity activity) {
         if(!isActive(activity))return;
