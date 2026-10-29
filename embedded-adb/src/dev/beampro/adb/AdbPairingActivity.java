@@ -34,7 +34,7 @@ public final class AdbPairingActivity extends Activity {
     };
 
     @Override public void onCreate(Bundle saved) {
-        setTheme(android.R.style.Theme_Material_NoActionBar);
+        dev.beampro.settings.MenuActivity.applyTheme(this);
         super.onCreate(saved);
         onboarding = getIntent().getBooleanExtra(SETUP, false) || AdbBootstrap.needsSetup(this);
         expanded = saved != null && saved.getBoolean("advanced");

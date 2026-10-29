@@ -8,7 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import zipfile
-from permission_manifest import patch_manifest as patch_permission_manifest
+from permission_manifest import patch_manifest as patch_permission_manifest, patch_menu_manifest
 from adaptive_manifest import patch_adaptive_manifest
 from app_menu import patch_app_menu, restore_app_menu
 from launcher_layout import verify_launcher_layout
@@ -167,6 +167,7 @@ def main():
                 value = patch_splash_theme_manifest(value)
                 value = patch_permission_manifest(value)
                 value = patch_permission_manifest(value, "dev.beampro.settings.AppMenuActivity")
+                value = patch_menu_manifest(value)
                 value = patch_adaptive_manifest(value)
                 value = patch_debug_manifest(patch_updater_manifest(value))
                 (build / "permission-manifest.bin").write_bytes(value)

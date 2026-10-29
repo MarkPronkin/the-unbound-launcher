@@ -30,6 +30,6 @@ public final class PresentationFixtureDex {
         }
         if(edits!=10)throw new IllegalStateException("Missing fixture methods");
         DexPool.writeTo(args[2],new ImmutableDexFile(fixture.getOpcodes(),classes));
-        System.out.println("Fixture uses five patched SDK entry guards and five original phone lifecycle methods");
+        System.out.println("Fixture uses five patched SDK entry guards and five SDK phone lifecycle methods with scoped pause/focus hooks");
     }
 }

@@ -1,5 +1,6 @@
 package dev.beampro.bridge;
 
+import dev.beampro.compat.GlassesIdentity;
 import android.content.pm.PackageManager;
 import android.hardware.usb.UsbDevice;
 import android.os.Bundle;
@@ -29,7 +30,7 @@ final class XrealUsbPermissions {
     boolean grant(int caller, String name, int vendor, int product, int deviceId) throws Exception {
         if (caller!=launcherUid || packages.getApplicationInfo(PACKAGE, 0).uid!=launcherUid)
             throw new SecurityException("USB access is restricted to the installed launcher");
-        if (name==null || vendor!=VENDOR) throw new SecurityException("Only XREAL USB devices are eligible");
+        if (name==null || !GlassesIdentity.usb(vendor, product)) throw new SecurityException("Only XREAL USB devices are eligible");
         if (service==null) {
             // createShellContext() uses ActivityThread.systemMain(). Android 17 then
             // treats this process as system_server when unparcelling UsbDevice and
@@ -45,14 +46,8 @@ final class XrealUsbPermissions {
     }
 
     static boolean grantOnService(Object service, Class<?> api, int launcherUid, String name, int vendor, int product, int deviceId) throws Exception {
-        if (vendor!=VENDOR) throw new SecurityException("Only XREAL USB devices are eligible");
-        Bundle devices=new Bundle();
-        api.getMethod("getDeviceList", Bundle.class).invoke(service, devices);
-        Object value=devices.get(name);
-        if (!(value instanceof UsbDevice)) return false;
-        UsbDevice device=(UsbDevice)value;
-        if (!name.equals(device.getDeviceName()) || device.getVendorId()!=VENDOR
-                || device.getProductId()!=product || device.getDeviceId()!=deviceId) return false;
+        UsbDevice device=findDevice(service,api,name,vendor,product,deviceId);
+        if (device==null) return false;
         Method modern;
         try { modern=api.getMethod("grantDevicePermission", UsbDevice.class, String.class, int.class, boolean.class); }
         catch (NoSuchMethodException olderAndroid) { modern=null; }
@@ -64,28 +59,43 @@ final class XrealUsbPermissions {
         return true;
     }
 
+    static UsbDevice findDevice(Object service, Class<?> api, String name, int vendor, int product, int deviceId) throws Exception {
+        if (!GlassesIdentity.usb(vendor, product)) throw new SecurityException("Only XREAL USB devices are eligible");
+        Bundle devices=new Bundle();
+        api.getMethod("getDeviceList", Bundle.class).invoke(service, devices);
+        Object value=devices.get(name);
+        if (!(value instanceof UsbDevice)) return null;
+        UsbDevice device=(UsbDevice)value;
+        if (!name.equals(device.getDeviceName()) || device.getVendorId()!=vendor
+                || device.getProductId()!=product || device.getDeviceId()!=deviceId) return null;
+        return device;
+    }
+
     /** Deliberately has no ActivityThread, Context, or LaunchServer initialization. */
     public static final class Worker {
         public static void main(String[] args) {
             try {
                 if (android.os.Process.myUid()!=2000 || args.length!=5) throw new SecurityException("Shell USB worker only");
-                int uid=Integer.parseInt(args[0]),vendor=Integer.parseInt(args[2]);
-                if (vendor!=VENDOR) throw new SecurityException("Only XREAL USB devices are eligible");
-                Class<?> manager=Class.forName("android.content.pm.IPackageManager");
-                Object packages=service("package", "android.content.pm.IPackageManager");
-                Method lookup;
-                try { lookup=manager.getMethod("getPackageUid", String.class, long.class, int.class); }
-                catch (NoSuchMethodException older) { lookup=manager.getMethod("getPackageUid", String.class, int.class, int.class); }
-                Object flags=lookup.getParameterTypes()[1]==long.class ? (Object)Long.valueOf(0) : Integer.valueOf(0);
-                if ((Integer)lookup.invoke(packages, PACKAGE, flags, uid/100000)!=uid)
-                    throw new SecurityException("Launcher installation changed");
+                int uid=Integer.parseInt(args[0]),vendor=Integer.parseInt(args[2]),product=Integer.parseInt(args[3]);
+                if (!GlassesIdentity.usb(vendor, product)) throw new SecurityException("Only XREAL USB devices are eligible");
+                requireLauncher(uid);
                 Class<?> api=Class.forName("android.hardware.usb.IUsbManager");
                 boolean granted=grantOnService(service("usb", "android.hardware.usb.IUsbManager"),api,uid,
                         args[1],vendor,Integer.parseInt(args[3]),Integer.parseInt(args[4]));
                 System.out.println(granted?"UNBOUND_USB_GRANTED":"UNBOUND_USB_ABSENT");
             } catch (Throwable failure) { failure.printStackTrace(System.err);System.exit(1); }
         }
-        private static Object service(String name, String type) throws Exception {
+        static void requireLauncher(int uid) throws Exception {
+            Class<?> manager=Class.forName("android.content.pm.IPackageManager");
+            Object packages=service("package", "android.content.pm.IPackageManager");
+            Method lookup;
+            try { lookup=manager.getMethod("getPackageUid", String.class, long.class, int.class); }
+            catch (NoSuchMethodException older) { lookup=manager.getMethod("getPackageUid", String.class, int.class, int.class); }
+            Object flags=lookup.getParameterTypes()[1]==long.class ? (Object)Long.valueOf(0) : Integer.valueOf(0);
+            if ((Integer)lookup.invoke(packages, PACKAGE, flags, uid/100000)!=uid)
+                throw new SecurityException("Launcher installation changed");
+        }
+        static Object service(String name, String type) throws Exception {
             IBinder binder=(IBinder)Class.forName("android.os.ServiceManager").getMethod("getService",String.class).invoke(null,name);
             Object value=Class.forName(type+"$Stub").getMethod("asInterface",IBinder.class).invoke(null,binder);
             if (value==null) throw new IllegalStateException("Android service unavailable: "+name);

@@ -66,9 +66,10 @@ public class AppMenuActivity extends Activity {
     private Boolean otherAppsHidden, undoOtherAppsHidden;
     private String query = "", dragId;
 
-    public static void open(Activity activity) { activity.startActivity(new Intent(activity, AppMenuActivity.class)); }
+    public static void open(Activity activity) { MenuTransitions.open(activity, new Intent(activity, AppMenuActivity.class)); }
 
     @Override public void onCreate(Bundle state) {
+        MenuActivity.applyTheme(this);
         super.onCreate(state);
         if (state != null) {
             query = state.getString("query", ""); hiddenOnly = state.getBoolean("hiddenOnly");

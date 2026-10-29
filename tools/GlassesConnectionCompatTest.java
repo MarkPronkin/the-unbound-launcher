@@ -26,9 +26,10 @@ public final class GlassesConnectionCompatTest {
     static Presenter fixture() throws Exception {
         java.lang.reflect.Field active=GlassesConnectionCompat.class.getDeclaredField("current");active.setAccessible(true);
         if(active.get(null)!=null)throw new AssertionError("previous session was not cleaned up");
-        Handler.clear();SystemClock.now=0;ConnectionAnimation.defer=false;
+        Handler.clear();SystemClock.now=0;ConnectionAnimation.defer=false;ConnectionHandoff.defer=false;
         Context.app=new Application();Context.displays=new DisplayManager();Context.manager=new ActivityManager();Context.usb=new UsbManager();
         Context.usb.devices.put("glasses",new UsbDevice(13080));XREALManager.instance=new XREALManager();
+        dev.beampro.settings.DebugData.events.clear();dev.beampro.settings.DebugData.fail=false;
         return new Presenter();
     }
     static void close(Presenter p){GlassesConnectionCompat.cancel(p.mActivity);Handler.advance(0);}
@@ -49,7 +50,7 @@ public final class GlassesConnectionCompatTest {
 
         p=fixture();m=XREALManager.instance;ConnectionAnimation.defer=true;
         GlassesConnectionCompat.begin(p);Handler.advance(0);ConnectionAnimation pending=ConnectionAnimation.last;
-        check(pending.success&&m.launches==0&&p.success==0,"Success morph holds the controller and presenter completion");
+        check(pending.success&&m.launches==1&&p.success==0,"The controller starts beneath the cover before the success morph completes");
         GlassesConnectionCompat.launch(m);pending.complete();Handler.advance(0);
         check(m.launches==1&&p.success==1&&p.launchesAtSuccess==1,"Handoff launches once before the original presenter callback");
         pending.complete();m.lateSuccess();Handler.advance(0);
@@ -58,7 +59,39 @@ public final class GlassesConnectionCompatTest {
         p=fixture();m=XREALManager.instance;ConnectionAnimation.defer=true;
         GlassesConnectionCompat.begin(p);Handler.advance(0);pending=ConnectionAnimation.last;close(p);
         pending.complete();m.lateSuccess();Handler.advance(0);
-        check(m.launches==0&&p.success==0,"Closing during the morph prevents a late controller launch");
+        check(m.launches==1&&p.success==0&&ConnectionHandoff.last.cancelled,"Closing during the morph cancels the covered controller and prevents completion");
+
+        p=fixture();m=XREALManager.instance;ConnectionHandoff.defer=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(5000);pending=ConnectionAnimation.last;
+        check(m.launches==1&&!pending.success&&p.success==0,"SDK success launches AR while the connection animation keeps running until real output is ready");
+        check(!GlassesConnectionCompat.acceptSdkCallback(m.callback),"Late native callbacks cannot mutate display or USB state while waiting for the renderer");
+        check(GlassesConnectionCompat.sessionActive(),"Automatic USB entry stays suppressed while the renderer is starting");
+        ConnectionHandoff.last.ready();Handler.advance(0);
+        check(pending.success&&p.success==1,"Actual controller and renderer readiness completes the handoff");
+        ConnectionHandoff.last.ready();m.lateSuccess();Handler.advance(0);
+        check(m.launches==1&&p.success==1,"Duplicate renderer readiness cannot complete or launch twice");close(p);
+
+        p=fixture();m=XREALManager.instance;ConnectionHandoff.defer=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        ConnectionHandoff abandoned=ConnectionHandoff.last;close(p);abandoned.ready();Handler.advance(0);
+        check(abandoned.cancelled&&p.success==0,"Late controller readiness after cancellation cannot finish startup");
+
+        p=fixture();m=XREALManager.instance;ConnectionHandoff.defer=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(45000);
+        check(ConnectionAnimation.last.failed&&ConnectionHandoff.last.cancelled&&p.success==0,"A renderer that never becomes ready times out with recovery and cancels its controller");
+        ConnectionHandoff.defer=false;GlassesConnectionCompat.confirm(p);Handler.advance(0);
+        check(m.starts==2&&m.launches==2&&p.success==1,"Retry after renderer timeout starts a fresh covered session");close(p);
+
+        p=fixture();m=XREALManager.instance;ConnectionHandoff.defer=true;ConnectionAnimation.defer=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(44750);ConnectionHandoff.last.ready();Handler.advance(1000);
+        check(!ConnectionAnimation.last.failed&&p.success==0,"Readiness just before the deadline allows the success morph to finish");
+        ConnectionAnimation.last.complete();Handler.advance(0);
+        check(p.success==1,"The completed morph finishes a session already acknowledged as ready");close(p);
+
+        p=fixture();m=XREALManager.instance;ConnectionAnimation.defer=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);ConnectionHandoff.last.failed();
+        ConnectionAnimation.last.complete();Handler.advance(0);
+        check(ConnectionAnimation.last.failed&&ConnectionHandoff.last.cancelled&&p.success==0,"A controller lost during the ready morph returns to recovery instead of reporting success");close(p);
 
         p=fixture();m=XREALManager.instance;m.waitingDisplay=true;
         Display.Mode stereo=new Display.Mode(8,3840,1080,60f),vga=new Display.Mode(9,640,480,60f);
@@ -188,6 +221,24 @@ public final class GlassesConnectionCompatTest {
         p=fixture();m=XREALManager.instance;m.nextResult=2;Context.usb.devices.clear();Context.usb.devices.put("other",new UsbDevice(1234));
         GlassesConnectionCompat.begin(p);Handler.advance(5000);
         check(m.starts==1,"An unrelated USB device cannot resume the glasses connection");close(p);
+
+        p=fixture();m=XREALManager.instance;m.nextResult=1;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        java.util.List<String[]> events=dev.beampro.settings.DebugData.events;
+        String failedAttempt=events.get(0)[0];
+        check(!failedAttempt.isEmpty()&&events.get(0)[1].equals("begin"),"Record an attempt identity before SDK work");
+        for(String event:new String[]{"sdk_start","sdk_result","failure"}) {
+            boolean found=false;for(String[] record:events)if(record[0].equals(failedAttempt)&&record[1].equals(event))found=true;
+            check(found,"Correlate diagnostic event "+event+" with the same attempt");
+        }
+        GlassesConnectionCompat.confirm(p);Handler.advance(0);
+        boolean freshAttempt=false;for(String[] record:events)if(record[1].equals("begin")&&!record[0].equals(failedAttempt))freshAttempt=true;
+        check(freshAttempt&&p.success==1,"Retry uses a fresh diagnostic attempt ID without changing startup success");
+        check(m.mNRServiceControl.queries==0,"Diagnostics do not issue extra native display/status queries");close(p);
+        p=fixture();m=XREALManager.instance;dev.beampro.settings.DebugData.fail=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        check(m.starts==1&&p.success==1,"Diagnostic storage failure cannot break a valid glasses startup");close(p);
+        dev.beampro.settings.DebugData.fail=false;
 
         Handler.clear();Context.usb.devices.clear();GlassesConnectionCompat.install(Context.app);
         ai.nreal.nebula.activity.setting.SettingActivity page=new ai.nreal.nebula.activity.setting.SettingActivity();

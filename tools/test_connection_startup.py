@@ -11,15 +11,34 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 
 STUBS = dict(DISPLAY_STUBS)
 STUBS.update({
+    'dev/beampro/settings/DebugData.java': '''package dev.beampro.settings;public class DebugData {
+      public static boolean fail;public static java.util.List<String[]> events=new java.util.ArrayList<>();
+      public static void connectionEvent(android.content.Context c,String id,String event,String detail){
+        if(fail)throw new IllegalStateException("diagnostic storage failed");events.add(new String[]{id,event,detail});}
+      public static void connectionFailure(android.content.Context c,String reason){}
+    }''',
     'dev/beampro/port/ConnectionAnimation.java': '''package dev.beampro.port;
       public class ConnectionAnimation {
         public static ConnectionAnimation last;public static boolean defer;public boolean disposed,failed,success,busy;public String phase;
         public Runnable retry,close,completion;public ConnectionAnimation(android.app.Activity a,Runnable r,Runnable c){last=this;retry=r;close=c;}
         public void show(android.app.Activity a){} public void stage(String s){phase=s;}
+        public void starting(){}
         public void failure(String s,boolean b){failed=true;phase=s;busy=b;}
         public void connected(){success=true;}public void connected(Runnable r){success=true;completion=r;if(!defer)complete();}
         public void complete(){Runnable r=completion;completion=null;if(r!=null)r.run();}
+        public void reveal(Runnable r){r.run();}
         public void dispose(){disposed=true;completion=null;}
+      }''',
+    'dev/beampro/port/ConnectionHandoff.java': '''package dev.beampro.port;
+      public class ConnectionHandoff {
+        public static ConnectionHandoff last;public static boolean defer;public boolean closed,cancelled,renderReady;
+        final ConnectionAnimation animation;Runnable completion,failure;
+        ConnectionHandoff(android.app.Activity a,ConnectionAnimation v){last=this;animation=v;}
+        void start(Runnable r,Runnable f){completion=r;failure=f;if(!defer)new android.os.Handler().post(this::ready);}
+        public void ready(){if(!closed){renderReady=true;if(animation!=null)animation.connected(()->animation.reveal(completion));else completion.run();}}
+        public void failed(){if(!closed)failure.run();}
+        boolean isReady(){return renderReady;}
+        void close(boolean cancel){closed=true;cancelled=cancel;}
       }''',
     'android/os/Handler.java': '''package android.os;import java.util.*; public class Handler {
       static class Task {Handler h;Runnable r;long at;Task(Handler h,Runnable r,long at){this.h=h;this.r=r;this.at=at;}}
@@ -51,7 +70,7 @@ STUBS.update({
     'ai/nreal/nebula/activity/setting/SettingActivity.java': '''package ai.nreal.nebula.activity.setting;public class SettingActivity extends android.app.Activity {
       public int refreshes;private void check3DBtn(){refreshes++;}}''',
     'android/hardware/usb/UsbDevice.java': '''package android.hardware.usb;public class UsbDevice {
-      public int vendor;public UsbDevice(int v){vendor=v;}public int getVendorId(){return vendor;}}''',
+      public int vendor;public UsbDevice(int v){vendor=v;}public int getVendorId(){return vendor;}public int getProductId(){return 1080;}}''',
     'android/hardware/usb/UsbManager.java': '''package android.hardware.usb;public class UsbManager {
       public boolean permission=true;public java.util.HashMap<String,UsbDevice> devices=new java.util.HashMap<>();
       public java.util.HashMap<String,UsbDevice> getDeviceList(){return devices;}public boolean hasPermission(UsbDevice d){return permission;}}''',
@@ -79,7 +98,7 @@ STUBS.update({
        public static class Event implements com.xreal.glassesdisplayplugevent.IGlassesEvent.IDisplayEvent {}
        public static class FakeOta {public int skuCalls;public Runnable onSecondSku;public String getSku(){skuCalls++;if(skuCalls==2&&onSecondSku!=null)onSecondSku.run();return "L";}public int getOtaNum(String s){throw new AssertionError("firmware probe during AR startup");}}
        public static class FakeSdk {public com.xreal.glasses.servicesdk.helper.PingGSeriesHelper mPingHelper=new com.xreal.glasses.servicesdk.helper.PingGSeriesHelper();
-         public boolean started,isEthernetSeries=true;public int mode=5,stops;public boolean isStartSdk(){return started;}public int get2D3D(){return mode;}
+         public boolean started,isEthernetSeries=true;public int mode=5,stops,queries;public boolean isStartSdk(){return started;}public int get2D3D(){queries++;return mode;}
          public void stopSdk(){stops++;started=false;}}
        public void startSdk(ISdkStartResult cb){starts++;callback=cb;
          if(networkWait){mNRServiceControl.mPingHelper.callback=(com.xreal.glasses.servicesdk.helper.PingGSeriesHelper.PingCallback)
@@ -124,6 +143,7 @@ class ConnectionStartupTests(unittest.TestCase):
             sources += [ROOT / 'port-client/src/dev/beampro/port' / name for name in
                         ('GlassesConnectionCompat.java', 'DisplayStartupCompat.java', 'PingCallbackCompat.java')]
             sources.append(ROOT / 'tools/GlassesConnectionCompatTest.java')
+            sources.append(ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java")
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', str(work), *map(str, sources)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work),
                                      'dev.beampro.port.GlassesConnectionCompatTest'], text=True, capture_output=True)

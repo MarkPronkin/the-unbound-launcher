@@ -1,4 +1,10 @@
 <resources>
+    <!-- Match the pre-2937 editor's window attributes from the original APK. -->
+    <style name="Theme.Transparent" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
     <style name="UnboundPreview" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:colorBackground">#000000</item>
         <item name="android:windowBackground">#000000</item>

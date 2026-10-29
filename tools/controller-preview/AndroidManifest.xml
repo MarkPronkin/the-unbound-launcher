@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.controllerpreview">
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="33" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <queries><package android:name="dev.beampro.controllerresources" /></queries>
+    <application android:label="Controller checks" android:debuggable="true" android:theme="@android:style/Theme.Material.NoActionBar">
+        <activity android:name="ai.nreal.nebula.space.LaunchSpaceAcrivity" android:exported="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" />
+    </application>
+    <instrumentation android:name="dev.beampro.controllerpreview.ControllerScreenChecks" android:targetPackage="dev.beampro.controllerpreview" />
+</manifest>

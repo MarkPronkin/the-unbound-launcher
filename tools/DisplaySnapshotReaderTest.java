@@ -13,8 +13,8 @@ public final class DisplaySnapshotReaderTest {
         public float getRefreshRate(){return hz;}
     }
     public static final class Product {
-        String pnp;Product(String pnp){this.pnp=pnp;}
-        public String getManufacturerPnpId(){return pnp;}
+        String pnp,product;Product(String pnp){this(pnp,"1");}Product(String pnp,String product){this.pnp=pnp;this.product=product;}
+        public String getManufacturerPnpId(){return pnp;}public String getProductId(){return product;}
     }
     public static final class Info {
         public int type;
@@ -73,6 +73,13 @@ public final class DisplaySnapshotReaderTest {
         api.infos.put(18,glasses(VGA));
         check(DisplaySnapshotReader.read(api,Api.class,false).get(0).modes.isEmpty(),"Legacy mode-management guard remains effective");
         check(DisplaySnapshotReader.read(new LegacyApi(),LegacyApi.class,true).get(0).id==17,"Support the older direct ID API without using a client cache");
+        Info r1=new Info(2,"local:r1","AUS",VGA,SBS,VGA);
+        r1.deviceProductInfo=new Product("AUS","43593");api.infos.put(18,r1);
+        check(read(api).get(0).xreal,"Recognize the captured R1 ASUS EDID");
+        r1.deviceProductInfo=new Product("AUS","43594");
+        check(!read(api).get(0).xreal,"Do not manage an arbitrary ASUS monitor");
+        r1.deviceProductInfo=new Product("DEL","43593");
+        check(!read(api).get(0).xreal,"EDID product IDs are vendor-specific");
         System.out.println("PASS direct display snapshot regressions: "+assertions);
     }
 }

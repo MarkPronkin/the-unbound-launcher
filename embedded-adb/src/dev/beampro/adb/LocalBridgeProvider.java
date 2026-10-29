@@ -12,6 +12,7 @@ import android.os.IBinder;
 /** Local Binder rendezvous: shell may publish; only our signing certificate may consume. */
 public final class LocalBridgeProvider extends ContentProvider {
     private static IBinder bridge;
+    private static Bundle connectionHandoff;
     private static final Object LOCK = new Object();
 
     @Override public boolean onCreate() { return true; }
@@ -35,13 +36,26 @@ public final class LocalBridgeProvider extends ContentProvider {
             return result;
         }
         int own = getContext().getApplicationInfo().uid;
+        if (method != null && method.startsWith("connection-handoff-")) {
+            if (caller != own) throw new SecurityException("Connection handoff belongs to this app only");
+            synchronized (LOCK) {
+                if ("connection-handoff-put".equals(method)) {
+                    if (extras == null || extras.getString("token") == null || extras.getParcelable("callback") == null)
+                        throw new IllegalArgumentException("Missing connection handoff");
+                    connectionHandoff = new Bundle(extras);
+                } else if ("connection-handoff-clear".equals(method)) {
+                    if (connectionHandoff != null && connectionHandoff.getString("token").equals(arg)) connectionHandoff = null;
+                } else if (!"connection-handoff-get".equals(method)) throw new IllegalArgumentException("Unknown connection handoff operation");
+                return connectionHandoff == null ? new Bundle() : new Bundle(connectionHandoff);
+            }
+        }
         if (caller != own && getContext().getPackageManager().checkSignatures(caller, own) != PackageManager.SIGNATURE_MATCH) {
             throw new SecurityException("Bridge consumer must share the local port signing certificate");
         }
         if ("flag-put".equals(method) || "flag-get".equals(method)) {
             if (arg == null || !java.util.Arrays.asList("xreal.navigation_enable", "xreal.navigation_focus",
                     "xreal.flag.not_focusable", "xreal.launcher_is_ready", "xreal_vids",
-                    "xreal_glass_connected", "xreal_glass_connected_plugin").contains(arg)) {
+                    "xreal_glass_connected", "xreal_glass_connected_plugin", "xreal_hide_pointicon").contains(arg)) {
                 throw new IllegalArgumentException("Unknown Beam-only flag");
             }
             android.content.SharedPreferences state = getContext().getSharedPreferences("port-beam-flags", 0);

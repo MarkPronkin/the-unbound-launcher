@@ -48,6 +48,7 @@ class EthernetReadinessTests(unittest.TestCase):
                 files.append(path)
             files += [ROOT / 'port-client/src/dev/beampro/port' / n for n in ('PingCallbackCompat.java', 'EthernetReadinessCompat.java')]
             files.append(ROOT / 'tools/EthernetReadinessTest.java')
+            files.append(ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java")
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', tmp, *map(str, files)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp, 'dev.beampro.port.EthernetReadinessTest'],
                                     capture_output=True, text=True, timeout=20)
@@ -57,10 +58,22 @@ class EthernetReadinessTests(unittest.TestCase):
 
     def test_helper_allows_only_launcher_fixed_command_and_has_no_backlog(self):
         with tempfile.TemporaryDirectory() as tmp:
-            files = [ROOT / 'bridge/src/dev/beampro/bridge' / n for n in ('ShellCommand.java', 'GlassesNetworkProbe.java')]
-            files.append(ROOT / 'tools/GlassesNetworkProbeTest.java')
+            work = Path(tmp)
+            files = []
+            for name, source in USB_STUBS.items():
+                path = work / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(source)
+                files.append(path)
+            files += [ROOT / 'bridge/src/dev/beampro/bridge' / n for n in
+                      ('ShellCommand.java', 'GlassesNetworkProbe.java', 'GlassesEthernet.java', 'XrealUsbPermissions.java')]
+            files += [ROOT / 'tools/GlassesNetworkProbeTest.java', ROOT / 'tools/GlassesEthernetTest.java',
+                      ROOT / 'compat/src/dev/beampro/compat/GlassesIdentity.java']
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', tmp, *map(str, files)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp, 'dev.beampro.bridge.GlassesNetworkProbeTest'],
+                                    capture_output=True, text=True, check=True, timeout=10)
+            print(result.stdout.strip())
+            result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp, 'dev.beampro.bridge.GlassesEthernetTest'],
                                     capture_output=True, text=True, check=True, timeout=10)
             print(result.stdout.strip())
 

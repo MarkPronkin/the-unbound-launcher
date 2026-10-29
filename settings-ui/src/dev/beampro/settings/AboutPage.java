@@ -3,45 +3,31 @@ package dev.beampro.settings;
 import static dev.beampro.settings.Signature.*;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.graphics.drawable.ColorDrawable;
-import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** A full-screen secondary page, retaining the original settings/legal callbacks. */
-public final class AboutPage extends Dialog {
-    private final Activity activity;
+/** About content hosted by the native menu Activity, using the original legal helper. */
+public final class AboutPage extends MenuPage {
     private final Runnable privacy, terms;
-    private ScrollView scroll;
     private LinearLayout body;
     private final AppUpdater updater;
     private Row checkUpdate, updateAction;
     private final Runnable updateChanged = this::refreshUpdates;
 
     AboutPage(Activity activity, Runnable privacy, Runnable terms) {
-        super(activity, android.R.style.Theme_Material_NoActionBar);
-        this.activity = activity;
+        super(activity);
         this.privacy = privacy;
         this.terms = terms;
         updater = AppUpdater.get(activity);
-        setOwnerActivity(activity);
-        setTitle("About");
-    }
-
-    @Override protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        render();
     }
 
     @Override protected void onStart() {
         super.onStart();
         Window window = getWindow();
-        window.setLayout(-1, -1);
         window.setBackgroundDrawable(new ColorDrawable(BACKGROUND));
         window(window);
         updater.observe(updateChanged);
@@ -54,7 +40,7 @@ public final class AboutPage extends Dialog {
     }
 
     void render() {
-        int previousScroll = scroll == null ? 0 : scroll.getScrollY();
+        int previousScroll = scrollPosition();
         View back = back(activity, "Back", v -> dismiss());
         back.setTag("about-back");
         AdaptiveLayout.DetailPage page = new AdaptiveLayout.DetailPage(activity, back);
@@ -84,6 +70,7 @@ public final class AboutPage extends Dialog {
         LinearLayout versions = group(activity);
         versions.addView(version("App version", AppVersion.NAME));
         versions.addView(version("Base app version", "MyGlasses " + AppVersion.BASE_NAME));
+        versions.addView(version("Build number", Integer.toString(AppVersion.CODE)));
         body.addView(versions);
         body.addView(heading(activity, "App updates"));
         LinearLayout updates = group(activity);

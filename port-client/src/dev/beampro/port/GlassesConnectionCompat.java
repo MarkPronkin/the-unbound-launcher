@@ -1,5 +1,6 @@
 package dev.beampro.port;
 
+import dev.beampro.compat.GlassesIdentity;
 import android.app.Activity;
 import android.app.Application;
 import android.content.Context;
@@ -33,6 +34,7 @@ public final class GlassesConnectionCompat {
     private static final Map<Object, WeakReference<Session>> running = Collections.synchronizedMap(new WeakHashMap<>());
     private static final WeakHashMap<Activity, SettingsWatcher> settings = new WeakHashMap<>();
     private static volatile Session current;
+    private static final java.util.concurrent.atomic.AtomicLong ATTEMPTS = new java.util.concurrent.atomic.AtomicLong();
     private static boolean installed;
 
     public static void install(Context context) {
@@ -74,7 +76,7 @@ public final class GlassesConnectionCompat {
             try {
                 java.util.ArrayList<String> names = new java.util.ArrayList<>();
                 for (Map.Entry<String, UsbDevice> entry : a.getSystemService(UsbManager.class).getDeviceList().entrySet())
-                    if (entry.getValue().getVendorId() == 13080) names.add(entry.getKey());
+                    if (GlassesIdentity.usb(entry.getValue().getVendorId(), entry.getValue().getProductId())) names.add(entry.getKey());
                 Collections.sort(names);
                 String signature = names.toString();
                 if (!signature.equals(previous)) { previous = signature; call(a, "check3DBtn"); }
@@ -119,6 +121,7 @@ public final class GlassesConnectionCompat {
             if (current != null && current.isBusy()) { current.fail("Glasses are still responding. Unplug and reconnect them before trying again."); return; }
             if (current != null) current.dispose(current.presenter != presenter);
             current = new Session(presenter);
+            current.debug("begin", "New connection attempt");
             WeakReference<Session> prior = running.get(current.manager);
             Session pending = prior == null ? null : prior.get();
             if (pending != null && pending.busy) {
@@ -155,7 +158,7 @@ public final class GlassesConnectionCompat {
     /** Keep the original SDK and per-model display selector; own its callback lifetime. */
     public static void startSdk(Object presenter) {
         Session s = session(presenter);
-        if (s == null || !s.active() || s.sdkPending) return;
+        if (s == null || !s.active() || s.sdkPending || s.sdkReady) return;
         s.sdkPending = true; s.busy = true;
         running.put(s.manager, new WeakReference<>(s));
         s.stage("Starting AR Space");
@@ -183,6 +186,7 @@ public final class GlassesConnectionCompat {
                 return null;
             });
             callbacks.put(proxy, new WeakReference<>(s));
+            s.debug("sdk_start", "Calling the original SDK startup path");
             call(s.manager, "startSdk", new Class<?>[]{callback}, proxy);
         } catch (Exception error) {
             s.sdkPending = false; s.finishedWork();
@@ -195,8 +199,8 @@ public final class GlassesConnectionCompat {
         WeakReference<Session> reference = callbacks.get(callback);
         if (reference == null) return true; // SDK calls outside this connection flow.
         Session owner = reference.get();
-        if (owner != null && owner.active()) return true;
-        if (owner != null) { owner.sdkPending = false; owner.finishedWork(); }
+        if (owner != null && owner.active() && !owner.sdkReady) return true;
+        if (owner != null) { owner.debug("stale_callback", "Rejected late native initialization callback"); owner.sdkPending = false; owner.finishedWork(); }
         Log.i(TAG, "Discarded stale native initialization callback");
         return false;
     }
@@ -208,7 +212,6 @@ public final class GlassesConnectionCompat {
             if ((Boolean) call(manager, "isHasGoLauncher")) return;
             Session s = current;
             if (s != null && s.manager == manager && !s.disposed && !s.failed && !s.handoffFinished) {
-                s.launchHeld = true;
                 return;
             }
             call(manager, "goLauncher");
@@ -223,6 +226,7 @@ public final class GlassesConnectionCompat {
     public static void confirm(Object presenter) {
         Session s = session(presenter);
         if (s == null) { begin(presenter); return; }
+        s.debug("retry", "Retry requested");
         if (s.isBusy()) { s.close(); return; }
         try {
             s.detachCallbacks();
@@ -250,6 +254,7 @@ public final class GlassesConnectionCompat {
             Session s = current;
             if (s == null || s.activity != activity || !s.active()) return;
             String value = String.valueOf(status);
+            s.debug("usb_status", value);
             if (value.equals("sdkFail") || value.equals("otaFail")) {
                 try {
                     if ((Boolean)get(s.presenter, "hasMTP")) {
@@ -266,6 +271,7 @@ public final class GlassesConnectionCompat {
     public static void newIntent(Object presenter) {
         Session s=session(presenter);
         if(s==null) { begin(presenter);return; }
+        s.debug("usb_resume", "Attachment continuation received");
         try {
             String status=String.valueOf(get(presenter,"mOtaStatus"));
             if(s.failed || status.equals("sdkFail") || status.equals("otaFail")) {
@@ -296,18 +302,20 @@ public final class GlassesConnectionCompat {
 
     static final class Session implements Runnable {
         final Object presenter, manager;
+        final String attempt = Long.toHexString(System.currentTimeMillis()) + "-" + ATTEMPTS.incrementAndGet();
         final Activity activity;
         final Handler work;
         final UsbManager usb;
         final DisplayManager displays;
-        final long deadline = SystemClock.uptimeMillis() + DEADLINE_MS;
-        volatile boolean failed, disposed, busy, sdkPending;
+        long deadline = SystemClock.uptimeMillis() + DEADLINE_MS;
+        volatile boolean failed, disposed, busy, sdkPending, sdkReady;
         Session waitingFor;
-        boolean preparing, success, checkingDisplay, launchHeld, handoffFinished;
+        boolean preparing, success, checkingDisplay, handoffFinished;
         long mtpSince, readySince;
         int resumes;
         String phase = "Waiting for glasses USB access";
         ConnectionAnimation animation;
+        ConnectionHandoff handoff;
 
         Session(Object presenter) throws Exception {
             this.presenter = presenter;
@@ -349,6 +357,7 @@ public final class GlassesConnectionCompat {
         void stage(String text) {
             phase = text;
             Log.i(TAG, text);
+            debug("stage", text);
             MAIN.post(() -> {
                 if (!active()) return;
                 if (animation != null) animation.stage(text);
@@ -356,15 +365,43 @@ public final class GlassesConnectionCompat {
                 catch (Exception error) { Log.w(TAG, "Cannot update connection status", error); }
             });
         }
+        /** Read Java bookkeeping only: diagnostic getters must not issue extra glasses commands. */
+        void debug(String event, String detail) {
+            try {
+                StringBuilder state = new StringBuilder(detail).append("; phase=").append(phase)
+                        .append("; busy=").append(busy).append("; sdkPending=").append(sdkPending)
+                        .append("; sdkReady=").append(sdkReady).append("; failed=").append(failed)
+                        .append("; resumes=").append(resumes).append("; deadlineMs=").append(deadline);
+                diagnosticField(state, "model", manager, "mGlassesType");
+                diagnosticField(state, "usbConnected", manager, "mUsbConnect");
+                diagnosticField(state, "hasMTP", presenter, "hasMTP");
+                Object sdk = get(manager, "mNRServiceControl");
+                diagnosticField(state, "nativeStarted", sdk, "isStartSdk");
+                diagnosticField(state, "ethernetSeries", sdk, "isEthernetSeries");
+                diagnosticField(state, "dpInitialized", sdk, "mDpInitStateGSeries");
+                Class<?> debug = Class.forName("dev.beampro.settings.DebugData");
+                Method record = debug.getDeclaredMethod("connectionEvent", Context.class, String.class, String.class, String.class);
+                record.setAccessible(true); record.invoke(null, activity, attempt, event, state.toString());
+            } catch (ClassNotFoundException previewWithoutDebug) { }
+            catch (Exception error) { Log.w(TAG, "Cannot record startup diagnostics", error); }
+        }
+        private void diagnosticField(StringBuilder state, String label, Object owner, String name) {
+            state.append("; ").append(label).append('=');
+            try { state.append(get(owner, name)); }
+            catch (Exception unavailable) { state.append("unavailable"); }
+        }
         UsbDevice liveUsb() {
-            for (UsbDevice d : usb.getDeviceList().values()) if (d.getVendorId() == 13080 && usb.hasPermission(d)) return d;
+            for (UsbDevice d : usb.getDeviceList().values()) if (GlassesIdentity.usb(d.getVendorId(), d.getProductId()) && usb.hasPermission(d)) return d;
             return null;
         }
         @Override public void run() {
             if (!active()) return;
             try {
                 long now = SystemClock.uptimeMillis();
-                if (now >= deadline) { fail("Connection timed out while " + phase.toLowerCase() + ". Unplug and reconnect the glasses, then try again."); return; }
+                if (now >= deadline && (handoff == null || !handoff.isReady())) {
+                    fail("Connection timed out while " + phase.toLowerCase() + ". Unplug and reconnect the glasses, then try again."); return;
+                }
+                if (sdkReady) { MAIN.postDelayed(this, 250); return; }
                 if ((Boolean) get(presenter, "hasMTP")) {
                     if (mtpSince == 0) { mtpSince = now; stage("Waiting for glasses to reconnect"); }
                     // The USB handler Activity was deliberately removed from the port.
@@ -423,27 +460,31 @@ public final class GlassesConnectionCompat {
             }
         }
         void result(int result) {
+            debug("sdk_result", "result=" + result);
             sdkPending = false; finishedWork();
-            if (!active()) { Log.i(TAG, "Discarded a late SDK result=" + result); return; }
+            if (!active() || sdkReady) { Log.i(TAG, "Discarded a late SDK result=" + result); return; }
             if (result == 1) { fail("The glasses could not start AR Space. Reconnect them, then tap Try again."); return; }
             if (result == 0) {
-                success = true; MAIN.removeCallbacks(this);
-                if (animation != null) animation.connected(() -> completeSuccess(result));
-                else completeSuccess(result);
+                sdkReady = true;
+                deadline = SystemClock.uptimeMillis() + DEADLINE_MS;
+                stage("Starting AR Space");
+                try {
+                    handoff = new ConnectionHandoff(activity, animation);
+                    handoff.start(() -> completeSuccess(result), () -> fail("AR Space could not finish starting. Reconnect the glasses, then tap Try again."));
+                    // Start the real controller underneath the cover, before its success animation.
+                    if (!(Boolean)call(manager, "isHasGoLauncher")) call(manager, "goLauncher");
+                } catch (Exception error) { error("AR Space could not open. Tap Try again.", error); }
                 return;
             }
             finishResult(result);
         }
         void completeSuccess(int result) {
-            if (disposed || current != this || handoffFinished) return;
-            handoffFinished = true;
-            try {
-                if (launchHeld && !(Boolean)call(manager, "isHasGoLauncher")) call(manager, "goLauncher");
-            } catch (Exception error) {
-                success = false;
-                error("AR Space could not open. Tap Try again.", error);
-                return;
-            }
+            if (!active() || handoffFinished) return;
+            debug("ready", "Controller and glasses output ready");
+            handoffFinished = true; success = true;
+            MAIN.removeCallbacks(this);
+            if (handoff != null) handoff.close(false);
+            if (animation != null) animation.dispose();
             finishResult(result);
         }
         void finishResult(int result) {
@@ -472,13 +513,15 @@ public final class GlassesConnectionCompat {
         void fail(String message) {
             if (disposed || success) return;
             failed = true;
+            debug("failure", message);
+            if (handoff != null) handoff.close(true);
             blocked.put(manager, true);
             MAIN.removeCallbacks(this);
             Log.w(TAG, message);
             try {
                 Class<?> debug = Class.forName("dev.beampro.settings.DebugData");
                 Method capture = debug.getDeclaredMethod("connectionFailure", Context.class, String.class);
-                capture.setAccessible(true); capture.invoke(null, activity, message);
+                capture.setAccessible(true); capture.invoke(null, activity, "attempt=" + attempt + "; phase=" + phase + "; " + message);
             } catch (ClassNotFoundException previewWithoutDebug) { }
             catch (Exception error) { Log.w(TAG, "Cannot request connection diagnostics", error); }
             if (animation != null) animation.failure(message, isBusy());
@@ -494,6 +537,7 @@ public final class GlassesConnectionCompat {
             } catch (Exception error) { Log.e(TAG, "Cannot show connection recovery", error); }
         }
         void close() {
+            if (!success) debug("cancel", "Connection screen closed");
             if (!success) blocked.put(manager, true);
             dispose();
             activity.finish();
@@ -501,7 +545,9 @@ public final class GlassesConnectionCompat {
         void dispose() { dispose(true); }
         void dispose(boolean stopThread) {
             if (disposed) return;
+            debug("dispose", "Connection disposed; success=" + success);
             disposed = true;
+            if (handoff != null) handoff.close(!success);
             if (animation != null) { animation.dispose(); animation = null; }
             MAIN.removeCallbacks(this);
             if (!success) blocked.put(manager, true);

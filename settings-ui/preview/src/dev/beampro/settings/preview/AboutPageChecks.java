@@ -1,102 +1,71 @@
 package dev.beampro.settings.preview;
 
-import android.app.Dialog;
 import android.app.Instrumentation;
-import android.content.Intent;
 import android.graphics.Color;
+import android.content.Intent;
 import android.os.Bundle;
-import android.os.SystemClock;
 import android.view.KeyEvent;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.TextView;
-import java.lang.reflect.Field;
-import java.util.concurrent.atomic.AtomicBoolean;
-import dev.beampro.settings.SettingsUi;
+import dev.beampro.settings.MenuActivity;
+import dev.beampro.settings.MenuChecks;
+import ai.nreal.nebula.activity.splash.pptos.PpTosWebHelper;
 
-/** Exercise the shipped page, original policy callbacks, and both back paths. */
+/** Exercise the actual native About page, original legal helper and both Back paths. */
 public final class AboutPageChecks extends Instrumentation {
-    int passed;
-    Dialog about;
+    private int passed;
+    private MenuActivity about;
     @Override public void onCreate(Bundle arguments) { super.onCreate(arguments); start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
+        SettingsPreviewActivity owner = null;
         try {
-            SettingsPreviewActivity activity = (SettingsPreviewActivity) startActivitySync(
-                    new Intent(getTargetContext(), SettingsPreviewActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            waitForIdleSync();
+            owner = (SettingsPreviewActivity)startActivitySync(new Intent(getTargetContext(), SettingsPreviewActivity.class)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            final SettingsPreviewActivity settings = owner;
+            about = MenuChecks.open(this, owner, "About");
             runOnMainSync(() -> {
                 try {
-                    View content = activity.findViewById(android.R.id.content);
-                    TextView entry = text(content, "About");
-                    require(entry != null, "About entry available without glasses");
-                    ((View)entry.getParent().getParent()).performClick();
-                    Object state = field(activity.findViewById(0x00bea001), "state");
-                    about = (Dialog)field(state, "aboutPage");
-                    require(about.isShowing(), "About opens as a separate full-screen page");
                     View page = about.getWindow().getDecorView();
-                    require(text(page, SettingsUi.APP_NAME) != null, "project name");
-                    TextView description = text(page, "A fan-made project that extends the features and device support of the original MyGlasses software.");
-                    require(description != null, "fan-made feature and device support description");
-                    require(text(page, "This project is independent and is not affiliated with or endorsed by XREAL. All rights to the original XREAL software remain with XREAL.") != null, "original rights and independent project");
-                    require(text(page, "0.1.0 alpha") != null, "app alpha version");
-                    require(text(page, "MyGlasses 2.2.2") != null, "real base version independent of original runtime label");
+                    require(MenuChecks.findText(page, "Unbound Launcher") != null, "in-app name leaves The out");
+                    android.content.pm.PackageInfo installed = getTargetContext().getPackageManager()
+                            .getPackageInfo(getTargetContext().getPackageName(), 0);
+                    require(MenuChecks.findText(page, installed.versionName) != null, "app version agrees with installed package");
+                    require(MenuChecks.findText(page, "MyGlasses 2.2.2") != null, "original base version");
+                    require(MenuChecks.findText(page, "Build number") != null
+                            && MenuChecks.findText(page, Long.toString(installed.getLongVersionCode())) != null, "actual build number");
                     require(about.getWindow().getStatusBarColor() == Color.BLACK
                             && about.getWindow().getNavigationBarColor() == Color.BLACK, "OLED system chrome");
-                    require(getTargetContext().getPackageManager().getPackageInfo(getTargetContext().getPackageName(), 0)
-                            .versionName.equals("0.1.0 alpha"), "Android package version agrees with About");
-                    ((View)text(page, "Privacy policy").getParent().getParent()).performClick();
-                    require(activity.privacyClicks == 1, "original privacy callback runs once");
-                    ((View)text(page, "Terms of service").getParent().getParent()).performClick();
-                    require(activity.termsClicks == 1, "original terms callback runs once");
-                    require(activity.launches == 0 && activity.mSystemNotificationView.changes == 0, "opening About preserves settings and AR state");
+                    int privacy = PpTosWebHelper.privacyClicks, terms = PpTosWebHelper.termsClicks;
+                    row(MenuChecks.findText(page, "Privacy policy")).performClick();
+                    row(MenuChecks.findText(page, "Terms of service")).performClick();
+                    require(PpTosWebHelper.privacyClicks == privacy + 1 && PpTosWebHelper.termsClicks == terms + 1,
+                            "original legal helper opens each document once");
+                    require(PpTosWebHelper.owner == about, "legal document has the visible Activity as owner");
+                    require(settings.launches == 0 && settings.mSystemNotificationView.changes == 0,
+                            "opening About preserves AR and settings state");
                 } catch (Exception error) { throw new RuntimeException(error); }
             });
-            waitForIdleSync();
-            runOnMainSync(() -> {
-                View page = about.getWindow().getDecorView();
-                View description = text(page, "A fan-made project that extends the features and device support of the original MyGlasses software.");
-                View versions = text(page, "VERSIONS");
-                int[] info = new int[2], detail = new int[2];
-                description.getLocationOnScreen(info); versions.getLocationOnScreen(detail);
-                require(info[1] + description.getHeight() <= detail[1] || info[0] + description.getWidth() < detail[0],
-                        "project info precedes versions vertically or in the leading landscape pane");
-            });
             sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
-            waitForIdleSync();
+            MenuChecks.awaitClosed(this, about);
+            require(!owner.isFinishing(), "system Back returns to settings");
+            about = MenuChecks.open(this, owner, "About");
             runOnMainSync(() -> {
-                require(!about.isShowing() && !activity.isFinishing(), "system back returns to settings");
-                View content = activity.findViewById(android.R.id.content);
-                TextView entry = text(content, "About");
-                ((View)entry.getParent().getParent()).performClick();
-                require(about.isShowing(), "About can reopen");
                 View back = about.getWindow().getDecorView().findViewWithTag("about-back");
-                require(back != null, "accessible toolbar back");
-                back.performClick();
-                require(!about.isShowing() && !activity.isFinishing(), "toolbar back returns to settings");
-                ((View)entry.getParent().getParent()).performClick();
-                activity.finish();
+                require(back != null, "accessible toolbar Back"); back.performClick();
             });
-            AtomicBoolean destroyed = new AtomicBoolean();
-            long deadline = SystemClock.uptimeMillis() + 5000;
-            do {
-                waitForIdleSync();
-                runOnMainSync(() -> destroyed.set(activity.isDestroyed() && !about.isShowing()));
-                if (!destroyed.get()) SystemClock.sleep(50);
-            } while (!destroyed.get() && SystemClock.uptimeMillis() < deadline);
-            require(destroyed.get(), "page dismissed when owning settings are destroyed");
+            MenuChecks.awaitClosed(this, about);
+            require(!owner.isFinishing(), "toolbar Back returns to settings");
             result.putString("stream", "About page runtime checks passed: " + passed + "\n");
             finish(-1, result);
         } catch (Throwable error) {
-            result.putString("stream", "About page check failed after " + passed + ": " + error + "\n");
+            result.putString("stream", "About page checks failed after " + passed + ": " + error + "\n");
             finish(0, result);
+        } finally {
+            if (owner != null) { final SettingsPreviewActivity close = owner; runOnMainSync(close::finish); }
+            if (about != null) runOnMainSync(about::finish);
         }
     }
-    static Object field(Object target, String name) throws Exception {
-        Field field = target.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(target);
-    }
-    static TextView text(View root, String value) {
-        return SettingsUiChecks.findText(root, value);
-    }
-    void require(boolean condition, String message) { if (!condition) throw new AssertionError(message); passed++; }
+    private static View row(TextView label) { return (View)label.getParent().getParent(); }
+    private void require(boolean value, String message) { if (!value) throw new AssertionError(message); passed++; }
 }

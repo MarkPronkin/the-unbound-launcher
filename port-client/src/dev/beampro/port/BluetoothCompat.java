@@ -7,7 +7,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/** Optional Bluetooth input discovery must tolerate an ungranted Nearby Devices permission. */
+/** Optional Bluetooth discovery tolerates denied permission and unsupported profiles. */
 public final class BluetoothCompat {
     public static Set<BluetoothDevice> getBondedDevices(BluetoothAdapter adapter) {
         if (adapter == null) return Collections.emptySet();
@@ -23,7 +23,10 @@ public final class BluetoothCompat {
         if (manager == null) return Collections.emptyList();
         try {
             return manager.getConnectedDevices(profile);
-        } catch (SecurityException denied) {
+        } catch (SecurityException | IllegalArgumentException unavailable) {
+            // The stock helper also asks for HID_HOST (7); standard Android's
+            // BluetoothManager only supports GATT/GATT_SERVER here. Keep the
+            // helper's existing bonded-device results when this extra query fails.
             return Collections.emptyList();
         }
     }

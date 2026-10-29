@@ -22,7 +22,7 @@ public final class AdbBootstrap {
     private static volatile String status = "Pair this phone to enable AR app windows.";
     private static boolean attempted;
 
-    public static void open(Activity activity) { activity.startActivity(new Intent(activity, AdbPairingActivity.class)); }
+    public static void open(Activity activity) { dev.beampro.settings.MenuTransitions.open(activity, new Intent(activity, AdbPairingActivity.class)); }
     public static boolean needsSetup(Context context) {
         return !context.getSharedPreferences("unbound-adb", 0).getBoolean("setup-complete", false);
     }

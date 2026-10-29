@@ -1,5 +1,6 @@
 package dev.beampro.port;
 
+import dev.beampro.compat.GlassesIdentity;
 import android.content.Context;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
@@ -71,7 +72,7 @@ public final class EthernetReadinessCompat {
             usb=context.getSystemService(UsbManager.class);
             UsbDevice found=null;
             if (usb!=null) for (UsbDevice value:usb.getDeviceList().values()) {
-                if(value.getVendorId()!=13080 || !usb.hasPermission(value)) continue;
+                if(!GlassesIdentity.usb(value.getVendorId(),value.getProductId()) || !usb.hasPermission(value)) continue;
                 if(found!=null) throw new IOException("More than one authorized XREAL USB device");
                 found=value;
             }
@@ -80,7 +81,7 @@ public final class EthernetReadinessCompat {
         public boolean attached() {
             if(device==null) return false;
             UsbDevice live=usb.getDeviceList().get(device.getDeviceName());
-            return live!=null && live.getVendorId()==13080 && live.getProductId()==device.getProductId()
+            return live!=null && live.getVendorId()==device.getVendorId() && live.getProductId()==device.getProductId()
                     && live.getDeviceId()==device.getDeviceId() && usb.hasPermission(live);
         }
         public Reply ping() throws Exception {
@@ -90,6 +91,8 @@ public final class EthernetReadinessCompat {
             Parcel data=Parcel.obtain(),reply=Parcel.obtain();
             try {
                 data.writeInterfaceToken(TOKEN);
+                data.writeString(device.getDeviceName());data.writeInt(device.getVendorId());
+                data.writeInt(device.getProductId());data.writeInt(device.getDeviceId());
                 if(!binder.transact(TRANSACTION,data,reply,0)) throw new IOException("Restart the updated on-device ADB helper");
                 reply.readException();
                 int exit=reply.readInt();boolean timeout=reply.readInt()!=0;String output=reply.readString();

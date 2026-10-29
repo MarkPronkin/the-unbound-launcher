@@ -56,7 +56,7 @@ class ManagedDisplayPlatformTests(unittest.TestCase):
             work=Path(tmp);files=[]
             for name,contents in STUBS.items():
                 path=work/name;path.parent.mkdir(parents=True,exist_ok=True);path.write_text(contents);files.append(path)
-            files += [source, ROOT/'bridge/src/dev/beampro/bridge/ManagedDisplayPolicy.java',
+            files += [ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java",source, ROOT/'bridge/src/dev/beampro/bridge/ManagedDisplayPolicy.java',
                       ROOT/'bridge/src/dev/beampro/bridge/DisplaySnapshotReader.java',
                       ROOT/'tools/ManagedDisplayPlatformTest.java']
             subprocess.run([str(JAVA/'bin/javac'),'--release','8','-cp',str(SDK),'-d',str(work),*map(str,files)],check=True)

@@ -21,6 +21,7 @@ class AutoArEntryTests(unittest.TestCase):
             sources += [ROOT / 'bridge/src/dev/beampro/bridge' / name for name in
                         ('AutoArEntry.java', 'XrealUsbPermissions.java', 'ShellCommand.java')]
             sources.append(ROOT / 'tools/AutoArEntryTest.java')
+            sources.append(ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java")
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', str(work), *map(str, sources)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work), 'dev.beampro.bridge.AutoArEntryTest'],
                                     text=True, capture_output=True)

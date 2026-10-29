@@ -1,7 +1,7 @@
-# The Unbound Launcher
+# Unbound Launcher
 
-![The Unbound Launcher logo](branding/logo-dark.svg#gh-dark-mode-only)
-![The Unbound Launcher logo](branding/logo.png#gh-light-mode-only)
+![Unbound Launcher logo](branding/logo-dark.svg#gh-dark-mode-only)
+![Unbound Launcher logo](branding/logo.png#gh-light-mode-only)
 
 **Bringing the XREAL Beam Pro's NebulaOS spatial desktop to Android phones with
 USB-C DisplayPort Alt Mode.**
@@ -11,11 +11,12 @@ experience: regular Android apps floating in front of you as spatial windows,
 the phone as your trackpad, and windows that stay anchored in place or follow
 you smoothly.
 
-> **Alpha software.** The Unbound Launcher is a fan-made project, independent of
+> **Alpha software.** Unbound Launcher is a fan-made project, independent of
 > XREAL. It builds on XREAL's original Beam Pro software. All rights to that
 > software remain with XREAL.
 
-[Download 0.1.2 alpha](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.1.2-alpha)
+[Download 0.2.0 alpha](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.2.0-alpha)
+· [Changelog](RELEASE_NOTES.md)
 · [Website](https://markpronkin.github.io/the-unbound-launcher/)
 · [Discord community](https://discord.gg/J7t64xupfQ)
 
@@ -28,7 +29,7 @@ injects pointer input into them, and writes Beam-specific system settings.
 
 Many phones can already drive XREAL glasses over USB-C, but none of them grant
 those privileges to an installed app. The video path exists; the access to build
-a spatial desktop on top of it does not. The Unbound Launcher supplies that
+a spatial desktop on top of it does not. Unbound Launcher supplies that
 access, without root, so the original spatial desktop can run on an ordinary
 phone.
 
@@ -54,21 +55,31 @@ actually been tested.
 
 ## Status
 
-As of 2026-10-27:
+As of 2026-10-29. These results include earlier development builds; the exact
+0.2.0 alpha release APK still needs a separate glasses test.
 
 | Phone | Android | Glasses | Result |
 | --- | --- | --- | --- |
 | XREAL Beam Pro (reference) | 14 | XREAL One | Native NebulaOS. Measured at 3840 × 1080 stereo, 60 Hz. |
-| OnePlus 15 | 16 | XREAL One | **Works.** User-confirmed on the ADB-assisted development build: AR Space at the same 3840 × 1080 / 60 Hz as the Beam Pro, several apps open together, pointer clicks and scrolling, anchored and smooth-follow modes, and reconnecting. Automatic glasses output without the two Cast prompts is also wearer-confirmed on the 0.1.13 update. |
-| Pixel 8 Pro | 17 | XREAL One | **AR Space, app colors and automatic USB entry work.** Build 2899 hides the desktop bars on repeated connections; live window checks confirm the renderer controls both hidden bars. Accepted by the tester for now. Audio distortion, a high-pitched left-speaker sound and a temporary freeze after a third reconnect are a [known bug under investigation](reports/connection-startup-recovery.md#known-bug-audio-distortion-and-temporary-freeze-after-reconnect). Pointer/keyboard coverage and newer Recents capture still need further validation. |
-| Samsung, Honor, Oppo / Realme | Android 11+ with Wireless debugging | Compatible XREAL model required | The same APK includes capability-based display handling and tailored setup guidance. Physical hardware testing pending; wired video output varies by model. |
+| OnePlus 15 | 16 | XREAL One | **Works.** Wearer-confirmed AR Space at 3840 × 1080 / 60 Hz, multiple apps, pointing, scrolling, anchored/smooth-follow modes and reconnecting. Automatic glasses output, three-finger trackpad gestures and the revised app colors are also wearer-confirmed. |
+| Pixel 8 Pro | 17 | XREAL One | **Works with known limitations.** Wearer-confirmed AR Space, automatic entry, corrected connection handoff, screen-off/pointer restoration and continued AR while using other phone apps. Colors are much improved, with a slight remaining difference from OnePlus. Reconnect-related audio distortion and a temporary freeze remain a [known issue](reports/connection-startup-recovery.md#known-bug-audio-distortion-and-temporary-freeze-after-reconnect). |
+| Pixel 10 Pro | 17 | XREAL One Pro | **Startup blocked in the 0.1.2 report.** The display link exposes only 640 × 480. The selector correction and new diagnostics do not establish a fix. [Investigation](reports/pixel10-pro-one-pro-v012.md). |
+| OPPO CPH2791 | 17 | XREAL Air 2 Pro | **Blank output in the 0.1.2 report.** This release corrects the identified EGL colorspace defect; confirmation on this phone/glasses combination is pending. [Investigation](reports/oppo-air2-pro-v012.md). |
+| Samsung SM-S938U / SM-S928U1 | 17 | XREAL One / XREAL 1S, respectively | **Two distinct startup blockers.** Disabled Ethernet recovery for the One is pending hardware validation; the 1S's native control-channel timeouts remain unresolved. [Investigation](reports/samsung-android17-startup.md). |
+| Samsung, Honor, OPPO / Realme | Android 11+ with Wireless debugging | Compatible XREAL model required | Capability-based handling and tailored setup guidance are included. Further input and Bluetooth fixes need affected-device checks: [OPPO input](reports/oppo-input-v012.md), [Samsung mouse reconnect](reports/samsung-mouse-reconnect.md). Wired video output varies by model. |
 | Xiaomi / Redmi / Poco, Vivo / iQOO, Motorola, Sony, other brands | Android 11+ with Wireless debugging | Compatible XREAL model required | Use the same generic compatibility path; no brand allowlist. Physical hardware testing pending. [Help test it](#help-test-it). |
 
-Only XREAL One has been tested. The launcher recognizes other XREAL models
-(One Pro, Air, Air 2, Air 2 Pro, Air 2 Ultra and others) and keeps XREAL's
-original per-model display defaults, but none of them have been tried with the
-port. An optional [experimental 3D switch](#experimental-3d-on-unsupported-glasses)
+The most complete working-session validation is with XREAL One. The launcher
+recognizes other XREAL models (One Pro, Air, Air 2, Air 2 Pro, Air 2 Ultra and
+others) and keeps XREAL's original per-model display defaults. Community reports
+now cover additional combinations, but recognition alone does not establish
+support. An optional [experimental 3D switch](#experimental-3d-on-unsupported-glasses)
 can try SBS output on models that normally start in 2D.
+
+[Experimental ROG XREAL R1 support](reports/rog-xreal-r1.md) recognizes its ASUS
+USB and display identities and tries the existing One Pro Ethernet/stereo
+profile. R1 hardware testing is pending; basic mirroring and a successful ping
+do not establish that AR Space or tracking works.
 
 ## How it works
 
@@ -77,7 +88,7 @@ XREAL glasses
      ▲  USB-C, DisplayPort Alt Mode
      │
 Android phone
-├── The Unbound Launcher  (one APK, ordinary app permissions)
+├── Unbound Launcher      (one APK, ordinary app permissions)
 │   ├── XREAL AR Space renderer      original scene and display provider
 │   ├── Phone interface              setup, settings, app-menu editor
 │   └── Wireless-debugging client ──► the phone's own adbd (127.0.0.1)
@@ -112,7 +123,9 @@ surrounding Android code supplies:
   XREAL displays to **Mirror**, remembers the previous connection choice, and
   requests the native stereo mode when a model needs it. Any temporary
   display-policy change is undone by a watchdog on disconnect, screen lock or
-  failure.
+  failure. Without identified glasses, the app leaves external-monitor mirroring,
+  Samsung DeX and Pixel desktop mode alone. On unplug, the helper releases its
+  overrides on the first display snapshot and restores the previous preferences.
 
 See the [embedded ADB notes](embedded-adb/README.md) and the
 [porting assessment](reports/porting-assessment.md) for details.
@@ -142,17 +155,20 @@ an ordinary app creates. That prototype is shelved for now. See the
 
 ## Install and set up
 
-The current GitHub release is **0.1.2 alpha** (Android build **2924**). Download
-`the-unbound-launcher-0.1.2-alpha.apk` from this repository's GitHub Releases.
-It adds direct glasses display without a Desktop or DeX task, a phone connection
-screen, startup fixes for more phones, richer debug exports, and a further
-app-window color path, alongside everything in 0.1.1 alpha.
+For **0.2.0 alpha** (Android build **2946**), install
+`the-unbound-launcher-0.2.0-alpha.apk`. The GitHub release download becomes
+available after publication. This release collects the changes since 0.1.2
+alpha: smoother startup, continued AR while using phone apps, controller and
+screen-off fixes, improved colors, native phone menus, offline automatic sleep,
+more diagnostics and additional compatibility work.
 
-**Update in place from 0.1.1 alpha.** This release keeps the package
+**Update in place from 0.1.1 alpha or 0.1.2 alpha.** This release keeps the package
 `dev.markpronkin.unbound` and the same signing certificate, with a higher
-Android version code, so it installs over the public 0.1.1 alpha and later
-development builds. App data, pairing and settings stay in place. After this
+Android version code, so it installs over both public releases and development
+builds through 2945. App data, pairing and settings stay in place. After this
 release is on GitHub, **Settings → About → Check for updates** can download it.
+Start the updated helper under **Settings → On-device ADB → Connect and start**,
+then reconnect the glasses.
 
 **A clean install is still required from 0.1.0 alpha** or any build that used
 `com.xreal.evapro.nebula`, including older ports shown as My Glasses. Uninstall
@@ -163,7 +179,7 @@ having two launchers and helpers installed together.
 See the [release notes](RELEASE_NOTES.md) for all changes, validation and known
 limitations.
 
-1. Install the APK and open **The Unbound Launcher**. Read the disclaimer;
+1. Install the APK and open **Unbound Launcher**. Read the disclaimer;
    **I accept** becomes available after ten seconds.
 2. Grant **Display over other apps**, which is required. Other permissions are
    optional and can be reviewed later under **App permissions**.
@@ -197,6 +213,16 @@ Keep the glasses connected until the file is ready. Each dump retains up to
 1 MB of command output and records timeouts, permission errors and truncation.
 An unavailable or older helper adds an explanation to each file; restart the
 updated helper under **On-device ADB** and create another export.
+`display-link.txt` adds retained USB/DisplayPort, display-window, system-log,
+EDID and display-policy evidence, including a baseline, failures and export-time
+snapshots. During collection, `glasses-startup.txt` keeps the first startup failure across
+retries and process restarts, plus recent attempt IDs, observed SDK/firmware
+messages and control-request timeouts. `glasses-control.txt` adds bounded socket,
+route and interface-counter snapshots around startup and failure. Android may
+restrict these sources; the report records unavailable data. Starting a new
+collection resets its first-failure record. These additions keep the same 15 MB
+ZIP limit by reserving space from the oldest exported app-log bytes.
+
 The report adds app, Android, phone-model and display information. Logs and dumps
 may contain network addresses, display identifiers and app/window names, so review them before sharing. Nothing
 is uploaded automatically. The latest three private exports are retained;
@@ -204,7 +230,8 @@ copies saved to Downloads remain until you delete them.
 
 ### App updates
 
-Releases **0.1.1 alpha** and **0.1.2 alpha**, and development builds from version code **2906**, use Unbound's own Android package
+Releases from **0.1.1 alpha** onward, and development builds from version code
+**2906**, use Unbound's own Android package
 name, **`dev.markpronkin.unbound`**, for developer registration. The original
 XREAL Java/JNI class names remain intact. This is a separate installation from
 the earlier `com.xreal.evapro.nebula` builds: grant permissions, pair Wireless
@@ -270,12 +297,25 @@ Added by this port:
 - **App-menu editor on the phone**, with search, drag to reorder, hide or show
   all, and a preview of the headset layout. It works without the glasses.
 - **Recent apps** with window previews
-- **Phone screen off** while AR Space keeps running; either volume button turns
-  it back on
+- **Keep AR running while using other phone apps.** The ongoing **AR Space is
+  running** notification returns to the controller or stops the session. Glasses
+  removal, phone lock and explicit exit end the session.
+- **Phone screen off** while AR Space keeps running. The pointer and phone
+  touches pause until either volume button turns the screen back on. The action
+  sits in the controller toolbar in Spatial Mouse and both trackpad modes;
+  horizontal mode also labels it **Screen off**.
 - **Stays awake** in AR Space without changing system timeouts
+- **Three-finger trackpad protection** on phones with the shared Oplus gesture
+  framework, including Oppo/ColorOS and OnePlus/OxygenOS. Conflicting system
+  gestures are suspended during trackpad use and restored afterward. OnePlus
+  wearer-confirmed; Oppo hardware validation pending. See the [gesture compatibility notes](reports/three-finger-trackpad.md).
 - **Tearing fix** using buffered presentation
 - **XREAL analytics removed**
 - **Black OLED phone interface** with pictures of the connected glasses model
+- **Native phone menus with fade transitions**, retained page state, and app,
+  base-app and build information in About.
+- **Automatic sleep settings while disconnected.** Choose a timeout under
+  Experience; the saved choice is applied when a supported pair connects.
 - **Adaptive foldable layouts.** At 600dp of available window width, Settings
   shows glasses and launch controls beside independently scrolling preferences;
   the app-menu editor shows its list beside the live headset preview. Cover
@@ -294,9 +334,19 @@ Added by this port:
 
 - **Audio distortion after repeated reconnects — under investigation.** On the
   Pixel 8 Pro / Android 17 with XREAL One, a third connection produced muffled
-  audio, a high-pitched left-speaker sound and a temporary AR freeze. Build 2899
-  is accepted for now with this known bug; investigation is paused at the user's
-  request. See the [investigation record](reports/connection-startup-recovery.md#known-bug-audio-distortion-and-temporary-freeze-after-reconnect).
+  audio, a high-pitched left-speaker sound and a temporary AR freeze on an earlier
+  development build. This release does not claim a fix. See the
+  [investigation record](reports/connection-startup-recovery.md#known-bug-audio-distortion-and-temporary-freeze-after-reconnect).
+- **Compatibility fixes are not blanket device support.** Pixel 10 Pro / One
+  Pro's VGA-only display link and Samsung / 1S control-channel timeouts remain
+  unresolved. OPPO graphics/input, Samsung Ethernet/mouse recovery and R1
+  support need testing on the affected hardware; see the [status table](#status).
+- **App colors still vary.** Pixel improved substantially but retains a slight
+  difference from OnePlus. The accepted color baseline is preserved; HDR and
+  wide-gamut correctness are not established. See the [color notes](reports/universal-app-colors.md).
+- **Notification taps open the app**, using the renderer's fallback rather than
+  the exact conversation or deep link. Visible AR notifications and taps still
+  need wearer confirmation. See the [notification notes](reports/launcher-notifications.md).
 - **Setup needs Developer options and Wireless debugging.** The helper must be
   restarted from the app after every reboot.
 - **No protected video in app windows.** DRM streaming apps require a secure
@@ -383,32 +433,29 @@ force-add ignored files. Ignore rules do not remove files already tracked by Git
 
 ### Launch package
 
-The local upload package is in `artifacts/releases/v0.1.2-alpha/`. Upload the
+The local upload package is in `artifacts/releases/v0.2.0-alpha/`. Upload the
 versioned APK and its SHA-256 checksum as GitHub Release assets under tag
-`v0.1.2-alpha`, marked as a prerelease. Use the [release notes](RELEASE_NOTES.md)
+`v0.2.0-alpha`, marked as a prerelease. Use the [release notes](RELEASE_NOTES.md)
 for the description. APKs and signing keys stay outside Git history.
 
-The public name is **0.1.2 alpha**, with Android version code **2924**. It keeps
-the 0.1.1 alpha package `dev.markpronkin.unbound` and signing certificate, so it
-updates that release and later development builds in place. Earlier
+The public version is **0.2.0 alpha**, with Android build number **2946** and app
+name **Unbound Launcher**. It keeps the 0.1.1/0.1.2 alpha package
+`dev.markpronkin.unbound` and signing certificate, so it updates those releases
+and development builds through 2945 in place. Earlier
 `com.xreal.evapro.nebula` builds remain a separate installation. Both the app
 manifest and About screen read their version from `version.json`.
 
-This release draws AR through the SDK's native glasses Presentation from the
-phone, with no Desktop or DeX task on the glasses. See
-[direct glasses display](reports/direct-glasses-display.md). The helper routes
-XREAL displays to Mirror and restores the previous connection choice when the
-glasses leave. It also includes the phone connection screen, startup recovery
-for USB type 11 glasses and Android 12 renderers, helper-side glasses ping
-readiness, display and network debug exports, and a further software color path
-for app windows. YouTube washout on that color path is not yet confirmed on
-glasses. See the [release notes](RELEASE_NOTES.md).
+The [changelog](RELEASE_NOTES.md) covers every change group since 0.1.2 alpha and
+separates validated behavior from pending hardware checks. The review package
+includes the versioned APK, SHA-256 checksum, README, release notes and validation
+receipts. Publishing remains a separate step after review.
 
 ### Building
 
 The builders run on macOS with Python 3, JDK 17, the Android SDK (platform 34
-and build tools) and JADX 1.5.6 at `artifacts/tools/jadx-1.5.6/`. Gradle isn't
-used.
+and build tools 36.0.0), an Android NDK with the arm64 API 29 compiler, and
+JADX 1.5.6 at `artifacts/tools/jadx-1.5.6/`. Shader tools also use UnityPy,
+Unicorn and Capstone from `artifacts/tools/python/`. Gradle isn't used.
 
 The input is the original My Glasses 2.2.2 APK, pulled from your own Beam Pro;
 it isn't included in this repository. Each stage checks the SHA-256 of its input
@@ -416,30 +463,47 @@ and refuses anything unexpected. Those hashes currently match this workspace's
 local signing key, so a fresh checkout can't complete the chain yet (roadmap
 item 5).
 
-```sh
-# Pull the reference APKs from a Beam Pro with USB debugging enabled
-python3 tools/inspect_device.py --serial BEAM_PRO_SERIAL --label beam-pro --pull-apks
+In an already provisioned workspace, the release builder uses the pinned
+`artifacts/unbound-launcher-help/the-unbound-launcher.apk` baseline. It compiles
+the current helper, client, settings and on-device ADB sources and applies the
+current native/DEX patches. Do not overwrite that baseline by rerunning the
+earlier stages during an ordinary version update.
 
-# Build, in order
-python3 tools/build_probe.py          # Beam Port Probe and the local signing key
-python3 tools/build_shell_probe.py    # shell helper and launcher client DEX
-python3 tools/build_port_bootstrap.py --allow-network --buffered-presentation \
-  --bridge-client-dex artifacts/port-client/classes.dex \
-  --source reports/devices/beam-pro-TIMESTAMP/apks/com.xreal.evapro.nebula/0-base.apk \
-  --output artifacts/port-default-m
-python3 tools/build_settings_ui.py    # phone interface: artifacts/unbound-launcher-help
-python3 tools/build_embedded_adb.py   # one APK: artifacts/unbound-launcher-0.1.2-alpha
+```sh
+# Build the release from the pinned local inputs
+python3 tools/build_embedded_adb.py
 
 # Verify and test
-python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-0.1.2-alpha/the-unbound-launcher.apk
-python3 -m unittest discover -s tools -p 'test_app_updater.py' -v
+python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-0.2.0-alpha/the-unbound-launcher.apk
 python3 -m unittest discover -s tools -p 'test_*.py' -v
 ```
+
+The earlier baseline stages are `build_probe.py`, `build_shell_probe.py`,
+`build_port_bootstrap.py` and `build_settings_ui.py`. Rebuilding that chain
+requires reviewing each new input and its pinned hash; it is not yet a complete
+fresh-checkout release recipe. `inspect_device.py --serial BEAM_PRO_SERIAL
+--label beam-pro --pull-apks` acquires the reference APKs from a Beam Pro with
+USB debugging enabled.
 
 Tests of the native patches execute ARM64 code with Unicorn. Install it with
 `python3 -m pip install --target artifacts/tools/python unicorn`. Run native tests
 in an environment that permits Unicorn's JIT; a restricted sandbox can cause
-SIGILL. All 171 host regressions pass for 0.1.2 alpha outside that sandbox.
+SIGILL. All **210 host regression tests** pass for 0.2.0 alpha. The independent
+signed-APK audit passes, and the signing certificate matches public 0.1.2 alpha.
+The exact release APK still needs a separate physical glasses test.
+
+To check the screen-off toolbar in all three controller modes and capture Android
+image examples without installing anything on a physical phone:
+
+```sh
+python3 tools/build_embedded_adb.py --output artifacts/unbound-launcher-controller-screen-off
+python3 tools/verify_controller_screen.py --serial emulator-5580
+```
+
+The verifier uses the signed APK's controller resources in an inert emulator
+fixture. It checks layout bounds, mode changes, tap routing, confirmation and
+Cancel, drawer handling, and disconnect cleanup. Captures and results are saved
+under `artifacts/controller-screen-off/`. Physical panel power is not exercised.
 
 To verify the adaptive phone interface on an isolated Android emulator:
 
@@ -483,6 +547,11 @@ permission and changes no settings.
 
 - [Embedded ADB](embedded-adb/README.md): pairing, the helper's lifecycle and
   display management
+- [Direct glasses display and background AR](reports/direct-glasses-display.md)
+- [Controller-mode fixes](reports/controller-mode-switch.md), [Home hold
+  cancellation](reports/pointer-reset.md) and [three-finger gestures](reports/three-finger-trackpad.md)
+- [Native phone menus](reports/menu-polish.md) and [automatic sleep](reports/automatic-sleep.md)
+- [App-window colors](reports/universal-app-colors.md) and [notification delivery](reports/launcher-notifications.md)
 - [Porting assessment](reports/porting-assessment.md): what My Glasses needs
   from the system and how the port provides it
 - [Pixel 8 Pro display investigation](reports/pixel-display-startup.md)
@@ -492,7 +561,7 @@ permission and changes no settings.
 
 ## Licensing and attribution
 
-The Unbound Launcher is a fan-made project, not affiliated with or endorsed by
+Unbound Launcher is a fan-made project, not affiliated with or endorsed by
 XREAL. **All code originating from XREAL belongs to XREAL.** All rights to
 XREAL's original code, software, artwork and other assets remain with XREAL,
 including XREAL code retained or modified by this project. XREAL, Beam Pro,

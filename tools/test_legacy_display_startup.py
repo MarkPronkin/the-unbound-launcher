@@ -29,6 +29,7 @@ class LegacyDisplayStartupTests(unittest.TestCase):
             sources += [ROOT / 'bridge/src/dev/beampro/bridge' / name for name in
                         ('ManagedDisplay.java', 'ManagedDisplayPolicy.java', 'DisplaySnapshotReader.java')]
             sources.append(ROOT / 'tools/LegacyDisplayPlatformTest.java')
+            sources.append(ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java")
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-cp', str(SDK),
                             '-d', str(work), *map(str, sources)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work) + ':' + str(SDK),

@@ -170,13 +170,29 @@ shader passes encoded pixels through. The Pixel-only 0.1.8 variant reused the
 stock software-decoding shader. Universal 0.1.10 supersedes that split: it checks
 the current GL extension and texture-parameter readback, then enables the
 existing GAMMA_TO_LINEAR keyword only for textures requiring software decode.
-The selected 24 shader variants use the exact stock software programs; the
-remaining 24 preserve the original hardware-path programs. No device-brand
-allowlist is involved. Protected overlay windows such as YouTube never enter
-that Unity copy. The compositor decodes external layers and sampler2D window
-layers with the IEC sRGB curve, the static blit sampler does too, and the
-compositor no longer calls the override Mali rejects. See
+Build 2933 replaces the software approximation in the selected 24 variants with
+the exact IEC sRGB curve, including its linear segment near black. The remaining
+24 preserve the original hardware-path programs. Direct-OES fallback uses that
+same exact curve. No device-brand allowlist is involved. Non-protected
+multi-layer windows, including the observed YouTube window, use the Unity copy
+path. Protected windows retain their original overlay path. The unsuccessful
+2922–2924 compositor gamma patches are no longer applied; the full-library audit
+requires the stock compositor apart from the independent Display.Mode fix. See
 [color selection](../reports/universal-app-colors.md).
+
+Build 2934 also probes the GPU in an isolated EGL context before app launch.
+If the sRGB-override extension is absent, a private capability flag sends the
+SDK's protected-app routing hints through the copy path as well. This reaches
+YouTube on the Pixel, whose live 2933 log still selected an overlay. Supported
+GPUs retain that overlay. Android secure-window and virtual-display flags are
+unchanged; unknown capability retains the original route.
+
+Build 2935 preserves the GPU flags and parameter metadata following each GLSL
+source array. The earlier source rewriter incorrectly discarded those zero
+fields, and Unity rejected the software programs even though their extracted
+GLSL compiled correctly. Build and APK audits now execute the pinned Unity
+ARM64 GPU-program reader for all 60 app/OES programs, with a negative control
+that drops the same metadata. Material selection is also logged for live checks.
 
 The native SDK creates an independent Presentation whose views bypass the old
 Java-view constructor hook. During the AR owner's lifetime, 0.1.8 discovers

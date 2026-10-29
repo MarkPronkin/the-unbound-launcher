@@ -1,8 +1,8 @@
 """Capability-selected app colors: retain hardware decode or enable shader decode.
 
 The original software payload remains available for auditing older Pixel builds.
-Universal builds pair a GL-state probe, per-material selection, and the existing
-GAMMA_TO_LINEAR variants. Direct-OES windows use the same decision through a
+Universal builds pair a GL-state probe, per-material selection, and an exact
+IEC sRGB decode in the GAMMA_TO_LINEAR variants. Direct-OES windows use the same decision through a
 _DecodeGamma uniform that stays 0 when hardware conversion is active.
 No manufacturer or model names participate.
 """
@@ -29,6 +29,39 @@ OES_SHADERS = {OES_UI_SHADER: OES_UI_SHA256, OES_STEREO_SHADER: OES_STEREO_SHA25
 _OES_COMMENT = b'//\t\t\t\t\tcol.xyz = gammaToLinear(col.xyz);'
 _OES_ACTIVE = b'\t\t\t\t\tcol.xyz = mix(col.xyz, gammaToLinear(col.xyz), _DecodeGamma);'
 _OES_UNIFORM = b'uniform float _AlphaEdge;'
+_APP_APPROXIMATION = b'return sRGB * (sRGB * (sRGB * 0.305306011F + 0.682171111F) + 0.012522878F);'
+_OES_APPROXIMATION = b'return pow(v, vec3(gamma));'
+
+
+def srgb_decode_expression(value):
+    """IEC 61966-2-1 EOTF, applied to RGB only, including the near-black toe."""
+    return (b'mix(pow(max((' + value + b' + vec3(0.055)) / vec3(1.055), vec3(0.0)), vec3(2.4)), '
+            + value + b' / vec3(12.92), lessThanEqual(' + value + b', vec3(0.04045)))')
+
+
+def _exact_app_source(code):
+    if code.count(_APP_APPROXIMATION) != 1:
+        raise ValueError('App copy fragment does not contain the pinned sRGB approximation')
+    return code.replace(_APP_APPROXIMATION, b'return ' + srgb_decode_expression(b'sRGB') + b';', 1).replace(
+        b'// Approximate version from http://chilliant.blogspot.com.au/2012/08/srgb-approximations-for-hlsl.html?m=1',
+        b'// Exact IEC 61966-2-1 sRGB decode; retain dark colors and neutral grays.', 1)
+
+
+def _rewrite_program(raw, transform):
+    version = raw.find(b'#version')
+    if version < 4:
+        raise ValueError('Shader program is not length-prefixed GLSL')
+    old_len = struct.unpack_from('<I', raw, version - 4)[0]
+    old_end = (version + old_len + 3) & ~3
+    if old_end > len(raw):
+        raise ValueError('GLSL source extends beyond its program')
+    # Unity's native loader reads GPU flags and parameter metadata after the
+    # aligned source byte array. Zero-valued fields are data, not padding.
+    # UnityPy's exporter stops at the source and does not validate this tail.
+    suffix = raw[old_end:]
+    code = transform(raw[version:version + old_len])
+    body = raw[:version - 4] + struct.pack('<I', len(code)) + code
+    return body + b'\x00' * ((4 - len(body) % 4) % 4) + suffix
 
 
 def software_app_shader(base):
@@ -46,7 +79,8 @@ def verify_app_shader(candidate,base):
     if candidate.read(SOFTWARE_SHADER)!=software:raise ValueError('Original software shader was modified')
     return {'pixel_software_decode_enabled':actual==software,'automatic_decode_selection':actual==automatic,'resource':APP_SHADER,
             'software_variant_source':SOFTWARE_SHADER,'native_material_selector_changed':actual==automatic,
-            'scope':'Per-texture GL capability; hardware or shader decode' if actual==automatic else
+            'exact_srgb_fallback':actual==automatic,
+            'scope':'Per-texture GL capability; hardware or exact IEC sRGB shader decode' if actual==automatic else
             ('Legacy Pixel-only software decode' if actual==software else 'Original hardware-decoding path')}
 
 
@@ -76,8 +110,10 @@ def _automatic_shader(original,software):
         source=new if decode else old
         offset,length,segment=struct.unpack_from('<III',source,4+index*12)
         assert segment==0
-        struct.pack_into('<III',result,4+index*12,len(result),length,segment)
-        result.extend(source[offset:offset+length]);changed+=decode
+        raw=source[offset:offset+length]
+        if decode:raw=_rewrite_program(raw,_exact_app_source)
+        struct.pack_into('<III',result,4+index*12,len(result),len(raw),segment)
+        result.extend(raw);changed+=decode
     assert changed==24
     compressed=CompressionHelper.compress_lz4(bytes(result))
     tree['compressedBlob']=list(compressed)
@@ -86,15 +122,17 @@ def _automatic_shader(original,software):
         for shader_pass in sub['m_Passes']:
             digest=hashlib.md5(result).digest()
             shader_pass['m_EditorDataHash']=[{f'bytes[{i}]':v for i,v in enumerate(digest)}]
-            shader_pass['m_State']['gpuProgramID']=10003
+            shader_pass['m_State']['gpuProgramID']=10005
     obj.save_typetree(tree)
     return env.file.save()
 
 
 def _patch_oes_source(code):
-    if code.count(_OES_COMMENT)!=1 or code.count(_OES_UNIFORM)!=1:
+    if code.count(_OES_COMMENT)!=1 or code.count(_OES_UNIFORM)!=1 or code.count(_OES_APPROXIMATION)!=1:
         raise ValueError('Direct-OES fragment does not contain the stock gamma comment')
-    return code.replace(_OES_UNIFORM,_OES_UNIFORM+b'\n\t\t\t\tuniform float _DecodeGamma;',1).replace(_OES_COMMENT,_OES_ACTIVE,1)
+    return code.replace(_OES_UNIFORM,_OES_UNIFORM+b'\n\t\t\t\tuniform float _DecodeGamma;',1).replace(
+        _OES_COMMENT,_OES_ACTIVE,1).replace(_OES_APPROXIMATION,b'return '+srgb_decode_expression(b'v')+b';',1).replace(
+        b'const float gamma = 2.2;',b'// Exact IEC sRGB, including the linear segment near black.',1)
 
 
 def _rewrite_oes_blob(blob):
@@ -106,15 +144,9 @@ def _rewrite_oes_blob(blob):
     for offset,length,segment in entries:
         if segment!=0 or offset+length>len(blob):raise ValueError('Unexpected direct-OES program span')
         raw=blob[offset:offset+length]
-        version=raw.find(b'#version')
-        if version<4 or _OES_COMMENT not in raw:
+        if _OES_COMMENT not in raw:
             segments.append(raw);continue
-        old_len=struct.unpack_from('<I',raw,version-4)[0]
-        if version+old_len>len(raw) or raw[version+old_len:].strip(b'\x00'):
-            raise ValueError('Direct-OES program is not length-prefixed GLSL')
-        code=_patch_oes_source(raw[version:version+old_len])
-        body=raw[:version-4]+struct.pack('<I',len(code))+code
-        segments.append(body+b'\x00'*((4-len(body)%4)%4));patched+=1
+        segments.append(_rewrite_program(raw,_patch_oes_source));patched+=1
     if patched!=6:raise ValueError('Expected six direct-OES fragments')
     result=bytearray(blob[:base])
     for index,segment in enumerate(segments):
@@ -142,7 +174,7 @@ def direct_oes_shader(original):
     uniform=dict(props[-1]);uniform.update({'m_Name':'_DecodeGamma','m_Description':'Software decode','m_Type':2,
         'm_DefValue[0]':0.0,'m_DefValue[1]':0.0,'m_DefValue[2]':0.0,'m_DefValue[3]':0.0})
     props.append(uniform)
-    program_id=10011 if digest==OES_UI_SHA256 else 10012
+    program_id=10015 if digest==OES_UI_SHA256 else 10016
     for sub in tree['m_ParsedForm']['m_SubShaders']:
         for shader_pass in sub['m_Passes']:
             digest_bytes=hashlib.md5(rewritten).digest()
@@ -160,7 +192,19 @@ def verify_direct_oes_shaders(candidate,base):
         actual=candidate.read(name);patched=direct_oes_shader(original)
         if actual not in (original,patched):raise ValueError('Unexpected direct-OES shader changes '+name)
         selected.append(actual==patched)
-    return {'direct_oes_software_uniform':all(selected),'resources':list(OES_SHADERS)}
+    return {'direct_oes_software_uniform':all(selected),'direct_oes_exact_srgb_fallback':all(selected),
+            'resources':list(OES_SHADERS)}
+
+
+def verify_native_shader_loading(candidate):
+    from unity_shader_loader import ENGINE, UnityProgramReader, validate_shader_programs
+    reader=UnityProgramReader(candidate.read(ENGINE))
+    counts={name:validate_shader_programs(candidate.read(name),reader) for name in (APP_SHADER,*OES_SHADERS)}
+    if counts!={APP_SHADER:48,**{name:6 for name in OES_SHADERS}}:
+        raise ValueError('Unexpected Unity native app-shader program count')
+    return {'unity_native_shader_programs_loaded':sum(counts.values()),
+            'unity_program_metadata_preserved':True,
+            'native_loader_method':'Pinned Unity ARM64 reader; memory and keyword services mocked'}
 
 
 def native_spec():return json.loads(Path(__file__).with_name('app_color_native.json').read_text())

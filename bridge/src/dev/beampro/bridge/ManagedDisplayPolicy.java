@@ -79,11 +79,10 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         final int previous;
         Route(Screen screen,int previous) { this.screen=screen;this.previous=previous; }
     }
-    private final Set<Integer> enabled=new HashSet<>();
+    private final Map<Integer,String> enabled=new HashMap<>();
     private boolean mirrorOwned,respectOwned;
     private String previousMirror,requestedMirror="0";
     private boolean previousRespect;
-    private long absentSince=-1;
 
     public ManagedDisplayPolicy(Platform platform) { this.platform=platform; }
     public ManagedDisplayPolicy(Platform platform,Journal journal) throws Exception {
@@ -146,15 +145,21 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         for (Screen screen:all) if (screen.eligible()) screens.add(screen);
         Set<Integer> live=new HashSet<>();
         for (Screen screen:screens) live.add(screen.id);
-        enabled.retainAll(live);
+        for(Integer id:new ArrayList<>(enabled.keySet())) {
+            boolean same=false;
+            for(Screen screen:screens)if(screen.id==id&&screen.uniqueId.equals(enabled.get(id)))same=true;
+            if(!same)enabled.remove(id);
+        }
         if (screens.isEmpty() || !platform.unlockedAndCool()) {
-            restoreModes(all);
             enabled.clear();
-            if (absentSince<0) absentSince=now;
-            if (!screens.isEmpty() || now-absentSince>=2000) { restoreMirror();restoreRoutes(); }
+            // Do not carry global Mirror/stereo policy across an unplug, even briefly:
+            // the next display may be a monitor running Pixel Desktop or Samsung DeX.
+            restoreState(all);
             return;
         }
-        absentSince=-1;
+        Set<String> connected=new HashSet<>();
+        for(Screen screen:screens)connected.add(screen.uniqueId);
+        restoreRoutes(connected);
         // AR draws through the SDK's native Presentation, so XREAL glasses are routed to Mirror
         // once per helper lifetime (never Desktop). A later manual choice is not reversed.
         Set<Integer> presentations=new HashSet<>();
@@ -194,6 +199,10 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
             if (target==null) continue;
             stereoIds.add(screen.id);
             Owned owned=modes.get(screen.id);
+            if(owned!=null&&!owned.screen.uniqueId.equals(screen.uniqueId)) {
+                restoreMode(screen.id,all);
+                owned=null;
+            }
             boolean nativeSize=screen.active!=null && screen.active.width==3840 && screen.active.height==1080;
             if (owned==null && nativeSize && !respectOwned) continue; // Preserve working SDK timing.
             if (owned==null) {
@@ -229,10 +238,10 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         // per-display Desktop preference API. Its Cast button simply enables the
         // pending display. Apply that same operation only to identified XREALs;
         // leave the phone's existing content mode and resolution policy intact.
-        for (Screen screen:screens) if (!enabled.contains(screen.id)
+        for (Screen screen:screens) if (!enabled.containsKey(screen.id)
                 && (presentations.contains(screen.id) || platform.enableWithoutDesktopPreference())) {
             platform.enable(screen);
-            enabled.add(screen.id);
+            enabled.put(screen.id,screen.uniqueId);
         }
     }
 
@@ -247,12 +256,13 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
     private void restoreModes(List<Screen> screens) throws Exception {
         Exception failure=null;
         for (Integer id:new ArrayList<>(modes.keySet())) try {restoreMode(id,screens);} catch(Exception e){failure=e;}
-        try {restoreRespect();} catch(Exception e){failure=e;}
         if(failure!=null)throw failure;
     }
     private void restoreRespect() throws Exception {
         if (!respectOwned) return;
-        if (platform.respectsAppModes()!=previousRespect) platform.respectsAppModes(previousRespect);
+        // Our only write is false -> true. Never reverse a later user/system
+        // choice, including when this override was already enabled before AR.
+        if (!previousRespect && platform.respectsAppModes()) platform.respectsAppModes(false);
         respectOwned=false;
         checkpoint();
         platform.log("STEREO_POLICY_OVERRIDE restored");
@@ -265,21 +275,39 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
         platform.log("MIRROR_POLICY restored");
     }
     private void restoreRoutes() throws Exception {
-        for(String unique:new ArrayList<>(routes.keySet())) {
-            Route route=routes.get(unique);
-            if(platform.connectionPreference(route.screen)==2 && route.previous!=2)
-                platform.connectionPreference(route.screen,route.previous);
-            routes.remove(unique);checkpoint();
-        }
+        restoreRoutes(java.util.Collections.emptySet());
     }
-    @Override public void close() throws Exception {
+    private void restoreRoutes(Set<String> connected) throws Exception {
         Exception failure=null;
-        try {restoreModes(platform.screens());} catch(Exception e){failure=e;}
-        // A failed display snapshot must not prevent restoration of global policy.
+        for(String unique:new ArrayList<>(routes.keySet())) {
+            if(connected.contains(unique))continue;
+            Route route=routes.get(unique);
+            try {
+                if(platform.connectionPreference(route.screen)==2 && route.previous!=2)
+                    platform.connectionPreference(route.screen,route.previous);
+                routes.remove(unique);checkpoint();
+            } catch(Exception e){failure=e;}
+        }
+        if(failure!=null)throw failure;
+    }
+    private void restoreState(List<Screen> screens) throws Exception {
+        Exception failure=null;
+        if(screens!=null)try {restoreModes(screens);} catch(Exception e){failure=e;}
+        // A failed per-display restore must not keep global overrides in effect.
         try {restoreRespect();} catch(Exception e){failure=e;}
         try {restoreMirror();} catch(Exception e){failure=e;}
         try {restoreRoutes();} catch(Exception e){failure=e;}
         if(failure!=null)throw failure;
+    }
+    @Override public void close() throws Exception {
+        List<Screen> screens;
+        try {screens=platform.screens();}
+        catch(Exception failure) {
+            // Retain pending mode leases if the snapshot failed, but release global policy.
+            try {restoreState(null);} catch(Exception restore){failure.addSuppressed(restore);}
+            throw failure;
+        }
+        restoreState(screens);
     }
 
     /** Independent watchdog lifetime: loss of its parent's pipe or heartbeat restores state. */

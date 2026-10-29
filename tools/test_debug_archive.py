@@ -68,13 +68,52 @@ public class DebugArchiveChecks {
   String display=new String(dumpBytes,java.nio.charset.StandardCharsets.UTF_8);
   random.nextBytes(dumpBytes);for(int i=0;i<dumpBytes.length;i++)dumpBytes[i]=(byte)(32+(dumpBytes[i]&255)%95);
   String surface=new String(dumpBytes,java.nio.charset.StandardCharsets.UTF_8);
+  for(int i=0;i<6;i++)archive.link("link-snapshot-"+i+"\n"+display);
+  archive=new DebugArchive(root);
   file=archive.export("display snapshot export",display,surface);
   try(ZipFile zip=new ZipFile(file)){
-   check(zip.size()==5,"both dumps alongside logs, metadata and network history");
+   check(zip.size()==6,"both dumps and retained link history alongside logs, metadata and network history");
    check(new String(zip.getInputStream(zip.getEntry("display.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).equals(display),"display dump preserved in full at its budget");
    check(new String(zip.getInputStream(zip.getEntry("surfaceflinger.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8).equals(surface),"SurfaceFlinger dump preserved in full at its budget");
+   String link=new String(zip.getInputStream(zip.getEntry("display-link.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(!link.contains("link-snapshot-2")&&link.contains("link-snapshot-3")&&link.contains("link-snapshot-5"),"latest three link snapshots survive restarts and later disconnects");
+   check(link.indexOf("link-snapshot-3")<link.indexOf("link-snapshot-5"),"link snapshots retain chronological order");
+   check(link.getBytes(java.nio.charset.StandardCharsets.UTF_8).length<601_000&&link.contains("truncated"),"link history has an independent byte limit and explicit truncation");
   }
-  check(file.length()<=15_000_000,"maximum dumps plus network history and app ring fit ZIP cap");
+  check(file.length()<=15_000_000,"maximum dumps plus network and link histories and app ring fit ZIP cap");
+  file=archive.export(new String(new char[64_000]).replace('\0','m'),display,surface);
+  check(file.length()<=15_000_000,"full metadata budget also fits alongside maximum diagnostics");
+  byte[] fullLogs;
+  try(ZipFile zip=new ZipFile(file)){fullLogs=zip.getInputStream(zip.getEntry("app.log")).readAllBytes();}
+  archive.startupBegin(true);
+  archive.startupEvent("one","begin","XREAL 1S");
+  String sdk="10-28 12:11:27.500  3557 25772 I XREAL   : [NRService] NRSDK Version: 3.1.2.20261009101910\n";
+  byte[] sdkBytes=sdk.getBytes(java.nio.charset.StandardCharsets.UTF_8);archive.startupLog(sdkBytes,sdkBytes.length);
+  for(int i=0;i<30;i++){
+   if(i==10)archive.startupEvent("two","begin","retry after the first failure");
+   byte[] body=new byte[7000];random.nextBytes(body);for(int j=0;j<body.length;j++)body[j]=(byte)(32+(body[j]&255)%95);
+   String line="10-28 12:11:28.500  3557 25772 I UnboundConnect: "+(i==6?"333 get rsp timeout ":"Observed startup stage ")
+       +new String(body,java.nio.charset.StandardCharsets.UTF_8)+"\n";
+   byte[] encoded=line.getBytes(java.nio.charset.StandardCharsets.UTF_8);archive.startupLog(encoded,encoded.length);
+  }
+  for(int i=0;i<6;i++)archive.startupSnapshot("control-snapshot-"+i+"\n"+display.substring(0,32_000));
+  archive=new DebugArchive(root);archive.startupBegin(false);
+  file=archive.export(display.substring(0,64_000),display,surface);
+  try(ZipFile zip=new ZipFile(file)){
+   check(zip.size()==8,"startup timeline and control snapshots coexist with all existing diagnostics");
+   byte[] tail=zip.getInputStream(zip.getEntry("app.log")).readAllBytes();
+   check(tail.length==11_700_000&&Arrays.equals(tail,Arrays.copyOfRange(fullLogs,300_000,fullLogs.length)),"startup data reserves 300 KB by exporting the newest app bytes in order");
+   byte[] startup=zip.getInputStream(zip.getEntry("glasses-startup.txt")).readAllBytes();
+   byte[] controls=zip.getInputStream(zip.getEntry("glasses-control.txt")).readAllBytes();
+   check(startup.length<=165_000&&startup.length+controls.length<=262_144,"all startup evidence fits an independent 256 KiB export budget");
+   String timeline=new String(startup,java.nio.charset.StandardCharsets.UTF_8);
+   check(timeline.contains("333 get rsp timeout")&&timeline.contains("333=1")&&timeline.contains("3.1.2.20261009101910"),"first failure and observed summary survive later retries and archive restart");
+   String control=new String(controls,java.nio.charset.StandardCharsets.UTF_8);
+   check(!control.contains("control-snapshot-2")&&control.contains("control-snapshot-3")&&control.contains("control-snapshot-5"),"retain only the latest three bounded control snapshots across restart");
+   check(control.indexOf("control-snapshot-3")<control.indexOf("control-snapshot-5"),"control snapshots retain capture order");
+  }
+  check(archive.bytes()==12_000_000,"startup export reservation never shrinks the collection ring");
+  check(file.length()<=15_000_000,"maximum startup evidence, full existing diagnostics and metadata fit the ZIP hard cap");
   file=archive.export("oversized dump",display+display,"Helper unavailable: restart updated helper");
   try(ZipFile zip=new ZipFile(file)){
    byte[] dump=zip.getInputStream(zip.getEntry("display.txt")).readAllBytes();
@@ -99,7 +138,7 @@ public class DebugArchiveChecks {
             test.write_text(source)
             subprocess.run([str(JAVA / 'bin/javac'), '-d', tmp,
                 *[str(ROOT / 'settings-ui/src/dev/beampro/settings' / name) for name in
-                  ('DebugArchive.java', 'DisplayDiagnostics.java', 'NetworkDiagnostics.java')], str(test)], check=True)
+                  ('DebugArchive.java', 'StartupTrace.java', 'DisplayDiagnostics.java', 'NetworkDiagnostics.java')], str(test)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp,
                 'dev.beampro.settings.DebugArchiveChecks', str(work / 'data')], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

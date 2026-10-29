@@ -4,6 +4,10 @@ Build 2905 adds **Settings → Experimental → Force 3D on unsupported glasses*
 It is off by default. The saved switch applies after reconnecting the glasses;
 turning it off and reconnecting restores the original model defaults.
 
+The later **Use 60 Hz in 2D** diagnostic option has been removed. Current builds
+ignore its saved preference in both the Java SDK and Unity selectors, restoring
+the original model defaults. Existing saved Force 3D preferences still apply.
+
 The original model selectors execute completely before the optional filters.
 Only a mono result changes, to native SBS at 60 Hz. Existing stereo results,
 including their refresh rate, and unknown/error results remain unchanged.
@@ -70,6 +74,9 @@ SDK's model registration or rejection of an unsupported hardware switch, and
 does not add a driver for non-XREAL glasses.
 
 ## Samsung feedback and optional mono 60 Hz — test candidate 2913
+
+This section records the historical diagnostic candidate. Its optional 2D 60 Hz
+setting is no longer available in current builds.
 
 The Air 2 wearer on Samsung SM-S928W / Android 17 confirms working stereo and
 fullscreen output. Their `unbound-debug-20261027-034043-e09ea1f9.zip` independently

@@ -39,9 +39,9 @@ public final class GlassesArtworkChecks extends Instrumentation {
                 int writes = activity.mSystemNotificationView.changes;
                 // Keep the SDK getter stale throughout these real connection notifications.
                 GlassesInitSetting.previewType = 7;
-                int[] types = {2,3,4,5,6,7,9,10,11,20};
-                String[] names = {"XREAL Air","XREAL Air 2 Pro","XREAL Air 2","XREAL Air 2 Ultra","XREAL One Pro","XREAL One","XREAL 1S","xbx a01","xbx a01+","XREAL 1 Pro+"};
-                String[] pictures = {"widget_air","ota_air2pro","ota_air2","widget_flora","widget_one_pro","widget_one","widget_1s","ota_xbx_a01","ota_xbx_a01","ota_one_pro_plus"};
+                int[] types = {2,3,4,5,6,7,9,10,11,20,1003};
+                String[] names = {"XREAL Air","XREAL Air 2 Pro","XREAL Air 2","XREAL Air 2 Ultra","XREAL One Pro","XREAL One","XREAL 1S","xbx a01","xbx a01+","XREAL 1 Pro+","XREAL Rog R1"};
+                String[] pictures = {"widget_air","ota_air2pro","ota_air2","widget_flora","widget_one_pro","widget_one","widget_1s","ota_xbx_a01","ota_xbx_a01","ota_one_pro_plus","widget_rog_r1"};
                 for (int i=0; i<types.length; i++) {
                     activity.setConnectedModel(types[i]);
                     requirePhoto(activity, names[i], pictures[i]);
@@ -54,7 +54,7 @@ public final class GlassesArtworkChecks extends Instrumentation {
                     SettingsUi.refresh(activity);
                     requireHidden(activity, "stale getter cannot identify model " + unknown);
                 }
-                require(activity.getSharedPreferences("beampro_settings_ui", 0).getInt("last_glasses_type", 0) == 20, "unknown connection cannot overwrite recognized offline photo");
+                require(activity.getSharedPreferences("beampro_settings_ui", 0).getInt("last_glasses_type", 0) == 1003, "unknown connection cannot overwrite recognized offline photo");
                 activity.setConnectedModel(7);
                 requirePhoto(activity, "XREAL One", "widget_one");
                 activity.setConnected(false);
@@ -90,8 +90,22 @@ public final class GlassesArtworkChecks extends Instrumentation {
         ImageView photo = photo(activity);
         require(SettingsUiChecks.findText(activity.findViewById(android.R.id.content), name) != null, "model label " + name);
         require(((View)photo.getParent()).getVisibility() == View.VISIBLE && photo.getDrawable() instanceof BitmapDrawable, "photo visible for " + name);
-        try (InputStream stream = activity.getAssets().open("settings/" + asset + ".webp");
-                InputStream originalStream = activity.getAssets().open("settings/" + asset + ".webp")) {
+        String filename = asset + (asset.equals("widget_rog_r1") ? ".png" : ".webp");
+        android.widget.TextView title = (android.widget.TextView) SettingsUiChecks.findText(activity.findViewById(android.R.id.content), name);
+        CharSequence text = title.getText();
+        if (name.equals("XREAL Rog R1")) {
+            require(text instanceof android.text.Spanned, "R1 title retains its color span");
+            android.text.Spanned styled = (android.text.Spanned) text;
+            android.text.style.ForegroundColorSpan[] colors = styled.getSpans(0, text.length(), android.text.style.ForegroundColorSpan.class);
+            require(colors.length == 1 && colors[0].getForegroundColor() == 0xfff51928,
+                    "Rog R1 uses the red sampled from ASUS's official logo");
+            require(styled.getSpanStart(colors[0]) == 6 && styled.getSpanEnd(colors[0]) == text.length(),
+                    "Only Rog R1 is red; XREAL retains the default text color");
+        } else require(!(text instanceof android.text.Spanned)
+                || ((android.text.Spanned) text).getSpans(0, text.length(), android.text.style.ForegroundColorSpan.class).length == 0,
+                "ROG red does not leak into another model title");
+        try (InputStream stream = activity.getAssets().open("settings/" + filename);
+                InputStream originalStream = activity.getAssets().open("settings/" + filename)) {
             Bitmap expected = BitmapFactory.decodeStream(stream);
             require(((BitmapDrawable)photo.getDrawable()).getBitmap().sameAs(expected), "exact original photo pixels for " + name);
             require(photo.getColorFilter() == null && photo.getImageAlpha() == 255 && photo.getAlpha() == 1f,

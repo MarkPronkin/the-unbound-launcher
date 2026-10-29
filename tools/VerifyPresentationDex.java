@@ -11,7 +11,7 @@ public final class VerifyPresentationDex {
         var apk=DexFileFactory.loadDexContainer(new File(args[0]),Opcodes.forApi(33));
         Map<String,String> expected=Map.of("startUnityActivityInternal","startUnity","moveToVirtualDisplay","prepareSwitch",
                 "readyForDynamicSwitchDPImpl","dynamicReady","readyForRestartSessionImpl","restartReady","getFakeActivity","renderingActivity");
-        Set<String> found=new HashSet<>();int installs=0,focus=0;boolean settingClass=false,settingCall=false;
+        Set<String> found=new HashSet<>();Map<String,Integer> lifecycle=new HashMap<>();int installs=0;boolean settingClass=false,settingCall=false;
         for(String entry:apk.getDexEntryNames())for(ClassDef cls:apk.getEntry(entry).getDexFile().getClasses()) {
             if(cls.getType().equals("Ldev/beampro/settings/ExperimentalPresentation;"))settingClass=true;
             for(Method method:cls.getMethods())if(method.getImplementation()!=null)
@@ -23,11 +23,17 @@ public final class VerifyPresentationDex {
                     if(cls.getType().equals("Ldev/beampro/port/PortStatus;")&&call.getDefiningClass().equals("Ldev/beampro/port/PresentationOnlyCompat;")
                             &&call.getName().equals("install"))installs++;
                     if(cls.getType().equals("Ldev/beampro/adb/LocalBridgeProvider;")&&call.getDefiningClass().equals("Ldev/beampro/settings/ExperimentalPresentation;"))settingCall=true;
-                    if(cls.getType().equals("Lai/nreal/nebula/space/LaunchSpaceAcrivity;")&&method.getName().equals("onWindowFocusChanged")
-                            &&call.getDefiningClass().equals("Ldev/beampro/port/PresentationOnlyCompat;")&&call.getName().equals("windowFocus"))focus++;
+                    if(cls.getType().equals("Lai/nreal/nebula/space/LaunchSpaceAcrivity;")
+                            &&Set.of("onWindowFocusChanged","onPause","onStop").contains(method.getName())) {
+                        if(call.getDefiningClass().equals("Lcom/unity3d/player/UnityPlayer;")&&Set.of("pause","windowFocusChanged").contains(call.getName()))
+                            throw new IllegalStateException("Unscoped Unity lifecycle call in "+method.getName());
+                        if(call.getDefiningClass().equals("Ldev/beampro/port/PresentationOnlyCompat;"))
+                            lifecycle.merge(method.getName()+"->"+call.getName(),1,Integer::sum);
+                    }
                 }
         }
-        if(!found.equals(expected.keySet())||installs!=1||focus!=1||settingClass||settingCall)
+        if(!found.equals(expected.keySet())||installs!=1||!lifecycle.equals(Map.of("onWindowFocusChanged->windowFocus",1,
+                "onPause->pause",1,"onPause->windowFocus",1,"onStop->pause",2))||settingClass||settingCall)
             throw new IllegalStateException("Incomplete always-on Presentation integration");
         var helper=DexFileFactory.loadDexFile(args[1],Opcodes.forApi(33));int routes=0;boolean state=false,presentationOnly=false;
         for(ClassDef cls:helper.getClasses()) {

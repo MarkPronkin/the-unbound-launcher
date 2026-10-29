@@ -12,18 +12,19 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <queries><intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent></queries>
-    <application android:label="The Unbound Launcher Preview" android:icon="@drawable/unbound_icon" android:debuggable="true" android:allowBackup="false" android:resizeableActivity="true" android:theme="@style/UnboundPreview">
+    <application android:label="Unbound Launcher Preview" android:icon="@drawable/unbound_icon" android:debuggable="true" android:allowBackup="false" android:resizeableActivity="true" android:theme="@style/UnboundPreview">
         <activity android:name="dev.beampro.port.ConnectionPreviewActivity" android:exported="true" />
-        <activity android:name=".SettingsPreviewActivity" android:exported="true" android:configChanges="uiMode|screenSize|orientation|fontScale">
+        <activity android:name=".SettingsPreviewActivity" android:theme="@style/Theme.Transparent" android:exported="true" android:configChanges="uiMode|screenSize|orientation|fontScale">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity android:name=".PermissionsPreviewActivity" android:exported="true" />
+        <activity android:name=".PermissionsPreviewActivity" android:theme="@style/Theme.Transparent" android:exported="true" />
         <activity android:name="ai.nreal.nebula.activity.setting.SettingActivity" android:exported="false" />
-        <activity android:name="dev.beampro.settings.PermissionSetupActivity" android:exported="false" />
-        <activity android:name="dev.beampro.settings.AppMenuActivity" android:exported="false" />
+        <activity android:name="dev.beampro.settings.PermissionSetupActivity" android:theme="@style/Theme.Transparent" android:exported="false" />
+        <activity android:name="dev.beampro.settings.AppMenuActivity" android:theme="@style/Theme.Transparent" android:exported="false" />
+        <activity android:name="dev.beampro.settings.MenuActivity" android:theme="@style/Theme.Transparent" android:exported="false" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|fontScale|uiMode" />
         <activity android:name="dev.beampro.settings.UpdateInstallActivity" android:exported="false" />
         <provider android:name="dev.beampro.settings.UpdateFileProvider" android:exported="false"
             android:authorities="dev.beampro.settings.preview.unbound.updates" android:grantUriPermissions="true" />
@@ -36,6 +37,8 @@
     <instrumentation android:name="dev.beampro.settings.HelpPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".SettingsUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".AboutPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.settings.MenuPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.settings.SleepTimerChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name="dev.beampro.settings.AppUpdateChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name="dev.beampro.settings.AppDetectionChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name="dev.beampro.settings.ExperimentalStereoChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />

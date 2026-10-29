@@ -33,7 +33,7 @@ class AppUpdaterTests(unittest.TestCase):
         source = r'''package dev.beampro.settings;
 public final class VersionChecks {
  public static void main(String[] args) {
-  String[] order={"0.1.0-alpha", "0.1.0-alpha.2", "0.1.0-alpha.10", "0.1.0-beta", "0.1.0-rc.1", "0.1.0", "0.1.1", "0.2.0", "0.10.0", "1.0.0", "100000000000000000000.0.0"};
+  String[] order={"0.1.0-alpha", "0.1.0-alpha.2", "0.1.0-alpha.10", "0.1.0-beta", "0.1.0-rc.1", "0.1.0", "0.1.1-alpha", "0.1.1", "0.1.2-alpha", "0.2.0-alpha", "0.2.0", "0.10.0", "1.0.0", "100000000000000000000.0.0"};
   for(int i=0;i<order.length;i++) for(int j=0;j<order.length;j++)
    if(Integer.signum(ReleaseVersion.parse(order[i]).compareTo(ReleaseVersion.parse(order[j])))!=Integer.signum(i-j)) throw new AssertionError(order[i]+" vs "+order[j]);
   if(ReleaseVersion.parse("0.1.0 alpha").compareTo(ReleaseVersion.parse("v0.1.0-alpha+build.3"))!=0)throw new AssertionError("display spelling");

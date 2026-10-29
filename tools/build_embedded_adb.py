@@ -12,20 +12,30 @@ import subprocess
 import zipfile
 
 from app_version import load_version, manifest_version, patch_manifest_version, write_java_version
+from branding import APP_NAME, app_name_values, patch_resources
+from permission_manifest import patch_menu_manifest
 from embedded_adb_manifest import patch_manifest, patch_release_manifest, patch_usb_attach_manifest, AUTHORITY
 from display_startup import patch_display_startup
 from presentation_only import patch_presentation
 from adaptive_manifest import patch_adaptive_manifest
-from app_color import APP_SHADER, LIBRARY, OES_SHADERS, automatic_app_shader, direct_oes_shader, verify_app_shader, verify_direct_oes_shaders, patch_color_dex, patch_color_native
+from app_color import APP_SHADER, LIBRARY, OES_SHADERS, automatic_app_shader, direct_oes_shader, verify_app_shader, verify_direct_oes_shaders, verify_native_shader_loading, patch_color_dex, patch_color_native
 from icon_resolution import patch_icon_resolution
 from usb_permission import patch_usb_permission, patch_controller_usb_permission
 from connection_startup import patch_connection_startup, patch_connection_theme_manifest
 from disconnect_audio import patch_disconnect_audio
+from controller_mode import patch_controller_mode
+from home_button import patch_home_button
+from input_compat import patch_input_compat
 from ping_cancellation import patch_ping_cancellation
 from glasses_startup import patch_glasses_startup
 from ethernet_ping import patch_ethernet_ping
+from notifications import patch_notifications
+from rog_r1 import IDENTITY_SOURCE, patch_rog_r1
+from settings_artwork import custom_settings_artwork
 from display_mode_compat import LIBRARY as MODE_LIBRARY, patch_display_mode, verify_display_mode
-from overlay_color import patch_overlay_color, verify_overlay_color
+from egl_colorspace_compat import patch_egl_colorspace, verify_egl_colorspace
+from overlay_routing import patch_overlay_routing, verify_overlay_routing
+from app_surface_routing import patch_surface_routing, verify_surface_routing
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
@@ -33,6 +43,7 @@ from updater_manifest import patch_updater_manifest
 from debug_manifest import patch_debug_manifest
 from package_identity import PACKAGE, METADATA, BINARY_ENCODINGS, patch_binary_identity, repackage_dex
 from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, build_library
+from phone_pointer import ENTRY as POINTER_LIBRARY, build_library as build_pointer_library
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "artifacts/unbound-launcher-help/the-unbound-launcher.apk"
@@ -70,20 +81,31 @@ def pairing_source_file(path, root=ROOT):
 def write_pairing_sources(destination, root=ROOT):
     """Package corresponding sources without filesystem identities or private files."""
     paths = []
-    for directory in ["embedded-adb", "settings-ui/src", "bridge/src", "port-client/src"]:
+    for directory in ["embedded-adb", "settings-ui/src", "bridge/src", "port-client/src", "compat/src"]:
         paths.extend(path for path in (root / directory).rglob("*") if pairing_source_file(path, root))
     paths.extend(root / name for name in ["version.json", "LICENSE"])
     for name in ["build_embedded_adb.py", "app_version.py", "updater_manifest.py", "debug_manifest.py", "embedded_adb_manifest.py", "adaptive_manifest.py", "display_startup.py", "PatchDisplayStartupDex.java", "connection_startup.py", "PatchConnectionStartupDex.java", "disconnect_audio.py", "PatchDisconnectAudioDex.java", "skip_ota.py", "PatchSkipOtaDex.java", "startup_tutorial.py", "experimental_stereo.py", "experimental_stereo.S", "experimental_stereo_native.json", "PatchExperimentalStereoDex.java", "app_color.py", "PatchAppColorDex.java", "app_color_select.S", "app_color_oes.S", "app_color_native.json", "xreal_telemetry.py", "icon_resolution.py", "PatchIconResolutionDex.java", "usb_permission.py", "PatchUsbPermissionDex.java", "PatchControllerUsbDex.java"]:
         paths.append(root / "tools" / name)
     paths.extend(root / "tools" / name for name in ("package_identity.py", "RepackageDex.java"))
-    paths.extend(root / "tools" / name for name in ("startup_theme.py", "branding.py"))
+    paths.extend(root / "tools" / name for name in ("startup_theme.py", "branding.py", "permission_manifest.py"))
     paths.extend(root / "tools" / name for name in ("ping_cancellation.py", "PatchPingCancellationDex.java"))
+    paths.extend(root / "tools" / name for name in ("controller_mode.py", "PatchControllerModeDex.java"))
+    paths.extend(root / "tools" / name for name in ("home_button.py", "PatchHomeButtonDex.java"))
+    paths.extend(root / "tools" / name for name in ("input_compat.py", "PatchInputCompatDex.java"))
     paths.extend(root / "tools" / name for name in ("glasses_startup.py", "PatchGlassesStartupDex.java"))
     paths.extend(root / "tools" / name for name in ("ethernet_ping.py", "PatchEthernetPingDex.java"))
+    paths.extend(root / "tools" / name for name in ("notifications.py", "PatchNotificationsDex.java"))
+    paths.extend(root / "tools" / name for name in ("rog_r1.py", "PatchRogR1Dex.java"))
+    paths.append(root / "tools/settings_artwork.py")
     paths.append(root / "tools/display_mode_compat.py")
+    paths.append(root / "tools/egl_colorspace_compat.py")
+    paths.append(root / "tools/overlay_routing.py")
+    paths.extend(root / "tools" / name for name in ("app_surface_routing.py", "app_surface_routing.S", "app_surface_routing_native.json"))
+    paths.append(root / "tools/unity_shader_loader.py")
     paths.extend(root / "tools" / name for name in ("presentation_only.py", "PatchPresentationDex.java"))
     paths.append(root / "tools/hardware_buffer_texture.py")
     paths.append(root / "native/hardware-buffer-texture/library.c")
+    paths.extend(root / name for name in ("tools/phone_pointer.py", "native/phone-pointer/library.c", "native/phone-pointer/pointer_state.h"))
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(set(paths)):
             if not pairing_source_file(path, root):
@@ -107,7 +129,7 @@ def sha256(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "artifacts/unbound-launcher-0.1.2-alpha")
+    parser.add_argument("--output", type=Path, default=ROOT / "artifacts/unbound-launcher-0.2.0-alpha")
     parser.add_argument("--test-only", action="store_true", help="Build a small isolated device-test APK instead of the launcher")
     args = parser.parse_args()
     authority = "dev.beampro.adbtest.bridge" if args.test_only else AUTHORITY
@@ -144,7 +166,7 @@ def main():
 
     # Keep the default developer helper and companion client unchanged.
     server_sources = build / "server-src"; server_sources.mkdir(exist_ok=True)
-    sources = []
+    sources = [IDENTITY_SOURCE]
     for source in sorted((ROOT / "bridge/src").rglob("*.java")):
         text = source.read_text()
         if source.name == "LaunchServer.java":
@@ -204,7 +226,7 @@ def main():
     app_jar = compile_java(sources, "embedded", libraries)
     app_dex = dex([app_jar, libraries[1], libraries[2]], "embedded-dex")
     client_sources = build / "client-src"; client_sources.mkdir(exist_ok=True)
-    sources = []
+    sources = [IDENTITY_SOURCE]
     for source in sorted((ROOT / "port-client/src").rglob("*.java")):
         target = client_sources / source.name
         target.write_text(source.read_text().replace("dev.beampro.portprobe.bridge", authority)); sources.append(target)
@@ -216,6 +238,9 @@ def main():
                  "assets/unbound-adb/NOTICE.txt": (ROOT / "embedded-adb/NOTICE.txt").read_bytes(),
                  "assets/unbound-adb/conscrypt-LICENSE.txt": (ROOT / "embedded-adb/conscrypt-LICENSE.txt").read_bytes()}
     additions.update(native if args.test_only else {k: v for k, v in native.items() if "/arm64-v8a/" in k})
+    additions.update({name: path.read_bytes() for name, path in custom_settings_artwork(build / "settings-artwork").items()})
+    if not args.test_only:
+        additions[POINTER_LIBRARY] = build_pointer_library(build / "libUnboundPhonePointer.so")
     if args.test_only:  # The launcher APK already carries this settings artwork.
         additions["assets/settings/brand-mark.png"] = (ROOT / "branding/symbol.png").read_bytes()
     unsigned = build / "unsigned.apk"
@@ -234,14 +259,20 @@ def main():
             startup_dex = patch_connection_startup(startup_dex, build / "connection-startup", java, env)
             startup_dex = patch_skip_ota(startup_dex, build / "skip-ota", java, env)
             startup_dex = patch_stereo_dex(startup_dex, build / "experimental-stereo", java, env)
+            startup_dex = patch_home_button(startup_dex, build / "home-button", java, env)
+            startup_dex = patch_input_compat(startup_dex, build / "keyboard-input", java, env)
             presentation_dex = patch_display_startup(source.read("classes3.dex"), build / "stereo-presentation", java, env)
             icon_dex = patch_icon_resolution(source.read("classes2.dex"), build / "icon-resolution", java, env)
             icon_dex = patch_color_dex(icon_dex, build / "app-colors", java, env)
             icon_dex = patch_usb_permission(icon_dex, build / "usb-permission", java, env)
             icon_dex = patch_disconnect_audio(icon_dex, build / "disconnect-audio", java, env)
+            icon_dex = patch_controller_mode(icon_dex, build / "controller-mode", java, env)
             icon_dex = patch_ping_cancellation(icon_dex, build / "ping-cancellation", java, env)
             icon_dex = patch_glasses_startup(icon_dex, build / "glasses-startup", java, env)
             icon_dex = patch_ethernet_ping(icon_dex, build / "ethernet-ping", java, env)
+            icon_dex = patch_notifications(icon_dex, build / "notifications", java, env)
+            icon_dex = patch_rog_r1(icon_dex, build / "rog-r1", java, env)
+            icon_dex = patch_input_compat(icon_dex, build / "pointer-input", java, env)
     texture_library = None if args.test_only else build_library(build / "libHardwareBufferTexture.so")
     with zipfile.ZipFile(baseline) as source, zipfile.ZipFile(unsigned, "w", allowZip64=True) as target:
         for info in source.infolist():
@@ -255,15 +286,18 @@ def main():
             if info.filename == APP_SHADER and not args.test_only: value = automatic_app_shader(source)
             if info.filename in OES_SHADERS and not args.test_only: value = direct_oes_shader(value)
             if info.filename == LIBRARY and not args.test_only:
-                value = patch_stereo_native(patch_startup_tutorial(patch_color_native(value)))
+                value = patch_surface_routing(patch_overlay_routing(patch_stereo_native(patch_startup_tutorial(patch_color_native(value)))))
             if info.filename == MODE_LIBRARY and not args.test_only:
-                value = patch_overlay_color(patch_display_mode(value))
+                value = patch_egl_colorspace(patch_display_mode(value))
             if info.filename == TEXTURE_LIBRARY and texture_library is not None:
                 value = texture_library
             if info.filename == "AndroidManifest.xml" and not args.test_only:
                 value = patch_usb_attach_manifest(patch_release_manifest(patch_adaptive_manifest(patch_manifest(patch_manifest_version(value, VERSION)))))
                 value = patch_debug_manifest(patch_updater_manifest(value))
-                value = patch_connection_theme_manifest(value)
+                value = patch_menu_manifest(patch_connection_theme_manifest(value))
+            if info.filename == "resources.arsc" and not args.test_only:
+                # This builder reuses a pinned APK; apply current branding here too.
+                value = patch_resources(value)
             if not args.test_only:
                 if info.filename in BINARY_ENCODINGS:
                     value = patch_binary_identity(info.filename, value)
@@ -292,15 +326,26 @@ def main():
             if set(changed) != expected: raise ValueError(f"Unexpected changes: {changed}")
             color_report=verify_app_shader(target,source)
             color_report.update(verify_direct_oes_shaders(target,source))
+            color_report.update(verify_native_shader_loading(target))
             if not color_report['automatic_decode_selection'] or not color_report['direct_oes_software_uniform']:
                 raise ValueError('App color selection was not packaged')
             if manifest_version(target.read("AndroidManifest.xml")) != VERSION: raise ValueError("Version mismatch")
+            if any(label != APP_NAME for label in app_name_values(target.read("resources.arsc"))):
+                raise ValueError("App label mismatch")
     report = {"apk": str(apk), "sha256": sha256(apk), "version": VERSION, "single_apk": True,
               "requires_companion_apk": False, "helper_sha256": helper_sha, "loopback_only": True,
               "dependency_hashes": DEPS, "changed_payloads": changed, "added_payloads": added,
               "signature_and_alignment_verified": True, "physical_device_validation": "pending"}
     if not args.test_only:report['app_colors']=color_report
     if not args.test_only:report['debuggable']=False
+    if not args.test_only:
+        report['notifications'] = {'system_only_intent_inspection_removed': True,
+                                   'tap_action': 'renderer native-app fallback using PendingIntent creator',
+                                   'callbacks_and_access_unchanged': True}
+    if not args.test_only:
+        report['controller_mode'] = {'beam_pointer_flag_in_private_state': True,
+                                     'write_secure_settings_required': False,
+                                     'service_and_other_dex_behavior_preserved': True}
     if not args.test_only:
         report['package_identity'] = {'package': PACKAGE, 'original_class_names_preserved': True,
                                       'dex_reverse_semantics_verified': True,
@@ -340,20 +385,49 @@ def main():
     report['connection_animation'] = {'phone_full_screen': True, 'style': 'Dot-matrix USB, glasses and trackpad pointer',
                                       'live_connection_stages': True, 'sdk_initialization_unchanged': True,
                                       'success_handoff_ms': 650, 'reduced_motion': True, 'retry_and_cancel': True,
+                                      'continuous_controller_cover': True, 'permission_free_cover_fallback': True,
+                                      'waits_for_controller_layout': True, 'waits_for_glasses_surface': True,
+                                      'waits_for_controller_and_glasses_frame_commit': True,
+                                      'optional_pointer_visuals_do_not_gate_startup': True,
                                       'hardware_validation': 'pending'}
     report['network_diagnostics'] = {'fixed_read_only_probes': True, 'app_and_shell_identities': True,
                                      'failure_and_export_snapshots': True, 'retained_snapshots': 3,
                                      'max_snapshot_bytes': 64000, 'helper_optional_for_export': True}
     report['display_diagnostics'] = {'services': ['display', 'SurfaceFlinger'], 'launcher_uid_only': True,
                                      'pipe_transport': True, 'max_dump_bytes': 1010000,
-                                     'command_timeout_ms': 10000, 'helper_optional_for_export': True}
+                                     'command_timeout_ms': 10000, 'helper_optional_for_export': True,
+                                     'display_link_file': 'display-link.txt', 'link_snapshot_bytes': 200000,
+                                     'retained_link_snapshots': 3, 'link_capture_client_timeout_ms': 30000,
+                                     'link_sources': ['USB/DisplayPort Alt Mode', 'display windows', 'fixed-tag system logs',
+                                                      'filtered kernel logs/dmesg', 'DRM/Type-C sysfs and EDID',
+                                                      'temporary display-policy journal'],
+                                     'baseline_failure_and_export_snapshots': True,
+                                     'missing_or_denied_sources_retained': True}
+    report['glasses_startup_diagnostics'] = {'opt_in_collection': True, 'passive_sdk_events': True,
+                                            'attempt_ids_and_java_state': True,
+                                            'first_failure_retained_across_retry_and_restart': True,
+                                            'startup_file': 'glasses-startup.txt',
+                                            'control_file': 'glasses-control.txt',
+                                            'control_capture_bytes': 32000, 'control_snapshots': 3,
+                                            'independent_control_capture_slot': True,
+                                            'fixed_glasses_peers_only': True,
+                                            'native_getters_not_invoked': True,
+                                            'zip_limit_bytes': 15000000,
+                                            'first_control_failure_and_export_snapshots': True}
     report['ping_cancellation'] = {'complete_once_on_usb_detach': True, 'sdk_worker_delivery': True,
                                     'late_callbacks_rejected': True, 'connectivity_check_preserved': True,
                                     'hardware_validation': 'pending'}
     report['ethernet_readiness'] = {'fixed_shell_ping': True, 'launcher_uid_only': True,
                                     'original_sdk_polling_and_timeout_preserved': True,
                                     'cancel_and_usb_identity_rechecked': True,
-                                    'helper_timeout_and_no_backlog': True, 'hardware_validation': 'pending'}
+                                    'helper_timeout_and_no_backlog': True,
+                                    'enable_when_explicitly_disabled': True,
+                                    'live_usb_revalidated_before_enable': True,
+                                    'enable_once_per_attachment': True,
+                                    'legacy_requests_read_only': True,
+                                    'ip_configuration_unchanged': True,
+                                    'real_ping_required_after_enable': True,
+                                    'hardware_validation': 'pending'}
     report['glasses_startup'] = {'type_11_unsupported_query_fallback': not args.test_only,
                                  'native_init_and_active_xreal_display_required': True,
                                  'only_native_error_103': True, 'ethernet_startup_unchanged': True,
@@ -361,8 +435,18 @@ def main():
     if not args.test_only:
         with zipfile.ZipFile(apk) as built:
             mode_library = built.read(MODE_LIBRARY)
-            report['overlay_color'] = verify_overlay_color(mode_library)
-            report['display_mode_compatibility'] = verify_display_mode(patch_overlay_color(mode_library, restore=True))
+            report['egl_colorspace_compatibility'] = verify_egl_colorspace(mode_library)
+            mode_library = patch_egl_colorspace(mode_library, restore=True)
+            # The full-library hash in this audit also rejects the retired
+            # compositor gamma patches, including the sampler2D double decode.
+            report['rog_r1_compatibility'] = {'experimental': True, 'usb_ids': ['0b05:1d9c', '0b05:1d9d'],
+                'edid': {'manufacturer': 'AUS', 'product': '43593'}, 'sdk_profile': 6, 'hardware_verified': False}
+            report['display_mode_compatibility'] = verify_display_mode(mode_library)
+            report['overlay_color'] = {'compositor_color_patches_enabled': False,
+                                       'stock_compositor_color_pipeline_verified': True}
+            routed = patch_binary_identity(LIBRARY, built.read(LIBRARY), restore=True)
+            report['app_surface_routing'] = verify_surface_routing(routed)
+            report['overlay_routing'] = verify_overlay_routing(patch_surface_routing(routed, restore=True))
     report['headset_icons']={'max_texture_size':432,'requested_source_density':640,
                              'adaptive_layer_contract_preserved':True,'native_pixel_transport_unchanged':True,
                              'scope':'Installed-app headset icons; built-in artwork and phone editor unchanged'}
@@ -384,8 +468,7 @@ def main():
                                        "dex_keep_process_alive_metadata": not args.test_only,
                                        "manual_display_choice_respected_after_initial_configuration": True,
                                        "choice_scope": "same physical display for the helper lifetime",
-                                       "optional_mono_60_hz": True, "mono_60_enabled_by_default": False,
-                                       "mono_and_stereo_overrides_mutually_exclusive": True,
+                                       "optional_mono_60_hz": False, "retired_mono_60_choices_ignored": True,
                                        "physical_validation": "pending"}
     report["display_startup"] = {"window_scoped_stereo_mode_request": True,
                                  "actual_sdk_presentation_window_hooked": True,
@@ -398,6 +481,8 @@ def main():
                                  "per_xreal_mirror_preference_restored": not args.test_only,
                                  "desktop_routing_removed": True,
                                  "direct_presentation_always_on": True,
+                                 "background_controller_keeps_glasses_rendering": True,
+                                 "ar_foreground_service_in_renderer_process": True,
                                  "legacy_xreal_connected_display_auto_enable": not args.test_only,
                                  "embedded_display_watchdog_enabled": not args.test_only,
                                  "discovery_uses_direct_service_snapshots": True,

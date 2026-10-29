@@ -20,13 +20,25 @@ public final class PresentationDeviceChecks extends Instrumentation {
     public static volatile boolean launchPhone;
     public static Display external;
     public static Presentation presentation;
+    public static boolean ownerStopped;
     int passed;
     Entry entry;
     VirtualDisplay virtual;
     ImageReader reader;
 
     public static final class App extends Application {
-        @Override public void onCreate(){super.onCreate();PresentationOnlyCompat.install(this);}
+        @Override public void onCreate(){
+            super.onCreate();PresentationOnlyCompat.install(this);
+            registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks(){
+                public void onActivityCreated(Activity a,Bundle b){}
+                public void onActivityStarted(Activity a){if(a==owner)ownerStopped=false;}
+                public void onActivityResumed(Activity a){}
+                public void onActivityPaused(Activity a){}
+                public void onActivityStopped(Activity a){if(a==owner)ownerStopped=true;}
+                public void onActivitySaveInstanceState(Activity a,Bundle b){}
+                public void onActivityDestroyed(Activity a){}
+            });
+        }
     }
     public static final class Entry extends Activity {
         @Override public void onCreate(Bundle saved){super.onCreate(saved);TextView v=new TextView(this);v.setText("Direct display fixture");setContentView(v);}
@@ -77,6 +89,7 @@ public final class PresentationDeviceChecks extends Instrumentation {
                 virtual.resize(3840,1080,160);
             });
             await(()->owner!=null&&presentation!=null,15000,"Direct route launched the phone owner and its Presentation");
+            await(this::serviceForeground,5000,"The live session has a foreground service");
             check(external.getMode().getPhysicalWidth()==3840,"AR starts only after native stereo output");
             waitForIdleSync();
             runOnMainSync(()->{
@@ -91,6 +104,8 @@ public final class PresentationDeviceChecks extends Instrumentation {
                 com.unity3d.player.UnityPlayer other=new com.unity3d.player.UnityPlayer(owner);other.focused=true;
                 PresentationOnlyCompat.windowFocus(other,false);
                 check(!other.focused,"Focus loss for any other player is forwarded unchanged");
+                PresentationOnlyCompat.pause(other);
+                check(other.pauses==1,"Pause for any other player is forwarded unchanged");
                 check(PresentationOnlyCompat.isActive(owner),"Session belongs to the live phone owner");
                 check(NRXRApp.getFakeActivity()==owner,"Native activity lookup resolves to the phone owner");
                 app.moveToVirtualDisplay();
@@ -105,10 +120,12 @@ public final class PresentationDeviceChecks extends Instrumentation {
                         "XREAL Presentation Fixture",3840,1080,160,reader.getSurface(),
                         DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC|DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION|DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
                 external=virtual.getDisplay();
+                showOutput(owner);
             });
             await(()->onMain(()->app.mDisplayId==external.getDisplayId()&&app.readyForRestartSessionImpl()),5000,
                     "Restart proceeds on the re-enumerated native output");
             check(external.getDisplayId()!=before&&PresentationOnlyCompat.isActive(owner),"The session survives the mode switch");
+            check(presentation.getDisplay().getDisplayId()==external.getDisplayId(),"The SDK boundary recreates its Presentation on the new display");
             // A permission dialog over the phone owner (pause without stop), as on the Pixel at start-up.
             final int quietPauses=owner.mUnityPlayer.pauses;
             runOnMainSync(()->owner.startActivity(new Intent(owner,Overlay.class)));
@@ -121,14 +138,33 @@ public final class PresentationDeviceChecks extends Instrumentation {
             final int oldPauses=owner.mUnityPlayer.pauses;
             final int oldResumes=owner.mUnityPlayer.resumes;
             runOnMainSync(()->startActivitySyncOnMain());
-            await(()->owner.mUnityPlayer.pauses>oldPauses,5000,"Original phone pause path executes when the owner is hidden");
-            await(()->!owner.mUnityPlayer.focused,5000,"A hidden phone owner does not retain renderer focus");
-            runOnMainSync(()->entry.finish());
+            await(()->onMain(()->ownerStopped),5000,"A different full-screen phone activity stops the controller");
+            check(owner.mUnityPlayer.pauses==oldPauses,"A hidden phone controller does not pause the glasses renderer");
+            check(owner.mUnityPlayer.focused,"A hidden phone controller retains renderer focus");
+            check(onMain(()->presentation.isShowing()&&PresentationOnlyCompat.isActive(owner)),"The glasses Presentation and session survive leaving the trackpad");
+            check(serviceForeground(),"The hidden renderer retains its foreground service");
+            runOnMainSync(()->getTargetContext().startService(new Intent(getTargetContext(),dev.beampro.port.ArSessionService.class)
+                    .putExtra("unbound.arSession",-1L)));
+            waitForIdleSync();
+            check(serviceForeground(),"A stale session command cannot stop the current foreground service");
+            Notification backgroundNotice=sessionNotice();
+            check(backgroundNotice!=null&&backgroundNotice.contentIntent!=null,"The hidden session offers a return action");
+            backgroundNotice.contentIntent.send();
             await(()->owner.mUnityPlayer.resumes>oldResumes,5000,"Original phone resume path executes on return");
+            check(owner.mUnityPlayer.pauses==oldPauses,"Returning to the trackpad does not restart a paused renderer");
+            runOnMainSync(()->entry.finish());
             runOnMainSync(()->{presentation.dismiss();virtual.release();virtual=null;});
             await(()->owner.isFinishing()||owner.isDestroyed(),15000,"Display loss closes the direct session");
             check(!PresentationOnlyCompat.isActive(owner),"Display loss releases lifecycle ownership");
+            runOnMainSync(()->{
+                int beforePause=owner.mUnityPlayer.pauses;
+                PresentationOnlyCompat.pause(owner.mUnityPlayer);
+                check(owner.mUnityPlayer.pauses==beforePause+1,"A closed session restores ordinary Unity pause behavior");
+                PresentationOnlyCompat.windowFocus(owner.mUnityPlayer,false);
+                check(!owner.mUnityPlayer.focused,"A closed session restores ordinary Unity focus behavior");
+            });
             check(app.mMultiResumeMode,"Closing the experiment restores the SDK mode");
+            await(()->!serviceForeground(),5000,"Display loss stops the foreground service");
             owner=null;presentation=null;launched=null;
             entry=(Entry)startActivitySync(new Intent(getTargetContext(),Entry.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             app.mContext=entry;ai.nreal.nebula.manager.XREALManager.target=1;
@@ -140,13 +176,17 @@ public final class PresentationDeviceChecks extends Instrumentation {
                 external=virtual.getDisplay();app.startUnityActivityInternal(new Intent());
             });
             await(()->owner!=null&&presentation!=null,15000,"A fresh connection starts a new direct session");
+            await(()->sessionNotice()!=null,5000,"The foreground notification is posted for the new session");
             runOnMainSync(()->{
                 check(owner.getDisplay().getDisplayId()==0&&app.externalLaunches==0,"Reconnect still uses no external activity");
                 check(presentation.getDisplay().getMode().getPhysicalWidth()==1920,"Mono 1080p output uses the same Presentation path");
                 check(app.readyForRestartSessionImpl(),"Mono readiness uses its matching physical mode");
-                owner.finish();
+                Notification notice=sessionNotice();
+                check(notice!=null&&notice.contentIntent!=null,"The session notification returns to the controller");
+                try {notice.actions[0].actionIntent.send();}catch(PendingIntent.CanceledException error){throw new AssertionError(error);}
             });
-            await(()->!PresentationOnlyCompat.isActive(owner),5000,"Owner teardown releases the second session");
+            await(()->!PresentationOnlyCompat.isActive(owner),5000,"Stop AR in the notification releases the second session");
+            await(()->!serviceForeground(),5000,"Stop AR removes the foreground service");
             result.putString("stream","PASS direct Presentation Android/SDK checks: "+passed+"\n");
             finish(-1,result);
         } catch(Throwable failure) {
@@ -165,6 +205,16 @@ public final class PresentationDeviceChecks extends Instrumentation {
         getTargetContext().startActivity(intent);
     }
     interface Condition{boolean get();}
+    Notification sessionNotice() {
+        for(android.service.notification.StatusBarNotification notice:getTargetContext().getSystemService(NotificationManager.class).getActiveNotifications())
+            if(notice.getId()==7320)return notice.getNotification();
+        return null;
+    }
+    boolean serviceForeground() {
+        for(ActivityManager.RunningServiceInfo service:getTargetContext().getSystemService(ActivityManager.class).getRunningServices(50))
+            if(service.service.getClassName().equals(dev.beampro.port.ArSessionService.class.getName()))return service.foreground;
+        return false;
+    }
     boolean onMain(Condition condition){boolean[] value=new boolean[1];runOnMainSync(()->value[0]=condition.get());return value[0];}
     void await(Condition condition,long timeout,String reason)throws Exception {
         long until=SystemClock.uptimeMillis()+timeout;

@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.controllerresources">
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="33" />
+    <application android:label="Controller resource fixture" android:hasCode="true" />
+</manifest>

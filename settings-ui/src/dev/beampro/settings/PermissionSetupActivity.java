@@ -106,11 +106,11 @@ public class PermissionSetupActivity extends Activity {
     }
 
     public static void review(Activity activity) {
-        activity.startActivity(new Intent(activity, PermissionSetupActivity.class).putExtra(REVIEW, true));
+        MenuTransitions.open(activity, new Intent(activity, PermissionSetupActivity.class).putExtra(REVIEW, true));
     }
 
     @Override public void onCreate(Bundle state) {
-        setTheme(android.R.style.Theme_Material_NoActionBar);
+        MenuActivity.applyTheme(this);
         super.onCreate(state);
         if (state != null) acceptAfter = state.getLong(COUNTDOWN_DEADLINE, 0);
         // Initialize while this Activity is being created so the original legal-link
@@ -324,7 +324,7 @@ public class PermissionSetupActivity extends Activity {
         legal.addView(new Row(this, "privacy", "Privacy policy", "Read XREAL's privacy policy")
                 .chevron().onClick(v -> TermsConsent.openDocument(this, true)));
         page.body.addView(legal);
-        add(page.body, text(this, "The Unbound Launcher is an independent, fan-made project built on XREAL's MyGlasses software. These are the original software's terms and privacy policy.", SUPPORTING, TEXT_SECONDARY), 20, 0);
+        add(page.body, text(this, SettingsUi.APP_NAME + " is an independent, fan-made project built on XREAL's MyGlasses software. These are the original software's terms and privacy policy.", SUPPORTING, TEXT_SECONDARY), 20, 0);
         LinearLayout footer = page.footer();
         TextView agreement = text(this, "By tapping Agree and finish, you agree to the Terms of service and Privacy policy.", CAPTION, TEXT_SECONDARY);
         agreement.setGravity(Gravity.CENTER); add(footer, agreement, 0, 12);

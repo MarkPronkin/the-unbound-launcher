@@ -37,7 +37,7 @@ public final class PackageIdentityDeviceChecks extends Instrumentation {
             int label=context.getResources().getIdentifier("app_name","string",PACKAGE);
             check(label!=0, "Resources resolve under the new package");
             check(context.getResources().getResourcePackageName(label).equals(PACKAGE), "Resource table package");
-            check(context.getString(label).equals("The Unbound Launcher"), "Launcher label preserved");
+            check(context.getString(label).equals("Unbound Launcher"), "Launcher label");
             for(ComponentInfo[] list:new ComponentInfo[][]{info.activities,info.services,info.providers,info.receivers}) {
                 if(list==null)continue;
                 for(ComponentInfo component:list) {

@@ -16,6 +16,9 @@ import java.util.concurrent.atomic.AtomicReference;
 /** Worker-only optional dumps. A dead helper or stalled pipe cannot block ZIP export. */
 final class DebugDisplay {
     private static final AtomicReference<ReadPipe> active = new AtomicReference<>();
+    private static final AtomicReference<ReadPipe> activeControl = new AtomicReference<>();
+    private static final ThreadPoolExecutor controlWorker = new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,
+            new SynchronousQueue<Runnable>(),job->{Thread thread=new Thread(job,"unbound-control-helper");thread.setDaemon(true);return thread;});
 
     static String[] capture(Context context) { return capture(context, 15_000); }
 
@@ -24,27 +27,34 @@ final class DebugDisplay {
                 captureOne(context, DisplayDiagnostics.SURFACE_FLINGER, timeoutMillis)};
     }
 
+    static String captureLink(Context context) { return captureOne(context, DisplayDiagnostics.DISPLAY_LINK, 30_000); }
+    static String captureControl(Context context) { return captureControl(context,6000); }
+    static String captureControl(Context context, long timeoutMillis) { return captureOne(context,DisplayDiagnostics.GLASSES_CONTROL,timeoutMillis); }
+
     private static String captureOne(Context context, int kind, long timeoutMillis) {
         ReadPipe pipe = new ReadPipe();
+        AtomicReference<ReadPipe> slot = kind==DisplayDiagnostics.GLASSES_CONTROL ? activeControl : active;
         FutureTask<String> request = null;
         try {
-            if (!active.compareAndSet(null, pipe)) throw new RejectedExecutionException("A display diagnostic is still finishing");
+            if (!slot.compareAndSet(null, pipe)) throw new RejectedExecutionException("A "+DisplayDiagnostics.service(kind)+" diagnostic is still finishing");
             request = new FutureTask<>(() -> {
                 try { return helper(context, kind, pipe); }
-                finally { active.compareAndSet(pipe, null); }
+                finally { slot.compareAndSet(pipe, null); }
             });
             final FutureTask<String> task = request;
-            Thread worker = new Thread(() -> {
+            Runnable worker = () -> {
                 try { task.run(); }
-                finally { active.compareAndSet(pipe, null); }
-            }, "unbound-display-helper");
-            worker.setDaemon(true);
-            try { worker.start(); }
-            catch (RuntimeException failure) { active.compareAndSet(pipe, null); throw failure; }
+                finally { slot.compareAndSet(pipe, null); }
+            };
+            try {
+                if(kind==DisplayDiagnostics.GLASSES_CONTROL)controlWorker.execute(worker);
+                else {Thread thread=new Thread(worker,"unbound-display-helper");thread.setDaemon(true);thread.start();}
+            }
+            catch (RuntimeException failure) { slot.compareAndSet(pipe, null); throw failure; }
             return request.get(timeoutMillis, TimeUnit.MILLISECONDS);
         } catch (Exception failure) {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
-            return "Captured: " + new Date() + "\nRequested: dumpsys " + DisplayDiagnostics.service(kind)
+            return "Captured: " + new Date() + "\nRequested: " + DisplayDiagnostics.service(kind)
                     + "\nHelper display diagnostics unavailable: " + failure
                     + "\nStart or restart the updated helper under Settings > On-device ADB, then create a new debug file.\n";
         } finally {
@@ -75,9 +85,12 @@ final class DebugDisplay {
              ByteArrayOutputStream output = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[8192]; int count;
             while ((count = input.read(buffer)) != -1) {
-                int keep = Math.min(count, DisplayDiagnostics.MAX_BYTES - output.size());
+                int limit = kind == DisplayDiagnostics.GLASSES_CONTROL ? DisplayDiagnostics.MAX_CONTROL_BYTES
+                        : kind == DisplayDiagnostics.DISPLAY_LINK ? DisplayDiagnostics.MAX_LINK_BYTES : DisplayDiagnostics.MAX_BYTES;
+                int keep = Math.min(count, limit - output.size());
                 output.write(buffer, 0, keep);
-                if (keep < count) return output.toString("UTF-8") + "\n[helper output exceeded its byte limit]\n";
+                if (keep < count) return new String(DisplayDiagnostics.encode(kind,output.toString("UTF-8")
+                        + "\n[helper output exceeded its byte limit]\n"),java.nio.charset.StandardCharsets.UTF_8);
             }
             if (output.size() == 0) throw new IOException("The helper returned an empty diagnostic pipe");
             return output.toString("UTF-8");

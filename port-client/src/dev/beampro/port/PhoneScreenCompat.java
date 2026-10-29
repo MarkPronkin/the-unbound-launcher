@@ -5,10 +5,9 @@ import android.app.AlertDialog;
 import android.app.Application;
 import android.app.KeyguardManager;
 import android.content.Context;
-import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
 import android.hardware.display.DisplayManager;
@@ -24,8 +23,10 @@ import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inspector.WindowInspector;
 import android.widget.Toast;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
@@ -34,8 +35,7 @@ import java.util.concurrent.Executors;
 /** Phone-only trackpad control; its window stays resumed while the physical panel is off. */
 public final class PhoneScreenCompat {
     private static final String TOKEN = "dev.beampro.bridge.PHONE_SCREEN";
-    private static final int TRANSACTION = 0x00FFFFF8;
-    private static final int BUTTON_ID = 0x00bea010;
+    private static final int TRANSACTION = 0x00FFFFF2;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final ExecutorService REQUESTS = Executors.newSingleThreadExecutor();
     private static boolean installed;
@@ -83,19 +83,25 @@ public final class PhoneScreenCompat {
         final IBinder owner = new Binder();
         final WindowManager windows;
         final Shade shade;
-        final View button;
+        final View touchTarget;
+        final Rect buttonBounds = new Rect();
+        final ViewTreeObserver.OnGlobalLayoutListener controllerLayout = this::updateButton;
+        final ViewTreeObserver.OnPreDrawListener controllerDraw = () -> { syncTouchTarget(); return true; };
+        PhoneScreenControl button;
         final DisplayManager displays;
         final DisplayManager.DisplayListener displayListener;
+        final PhonePointerCompat pointer;
         final Runnable heartbeat = this::renew;
         AlertDialog explanation;
         IBinder remote;
         IBinder.DeathRecipient helperDeath;
-        boolean blocked, starting, restoring, closed, resumed;
+        boolean blocked, starting, restoring, closed, resumed, watching;
         int glasses = -1, blockedTouches;
         boolean hadKeepScreenOn;
 
         Session(Activity activity) {
             this.activity = activity;
+            pointer = new PhonePointerCompat(activity);
             window = activity.getWindow();
             windows = activity.getWindowManager();
             displays = activity.getSystemService(DisplayManager.class);
@@ -103,12 +109,18 @@ public final class PhoneScreenCompat {
             shade.setBackgroundColor(Color.BLACK);
             shade.setContentDescription("Phone screen off. Press either volume button to restore.");
             shade.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
-            button = new ScreenButton(activity);
-            button.setId(BUTTON_ID);
-            button.setContentDescription("Turn off phone screen");
-            button.setTooltipText("Turn off phone screen");
-            button.setFocusable(true);
-            button.setOnClickListener(v -> explain());
+            // The action is drawn and laid out by the controller itself. Only its hit
+            // target needs to sit above the legacy zero-sized, touch-modal IME window.
+            touchTarget = new View(activity);
+            touchTarget.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            touchTarget.setOnTouchListener((v, event) -> {
+                if (button != null && touchTargetReady()) {
+                    MotionEvent copy = MotionEvent.obtain(event);
+                    try { button.dispatchTouchEvent(copy); }
+                    finally { copy.recycle(); }
+                } else if (button != null) button.setPressed(false);
+                return true;
+            });
             displayListener = new DisplayManager.DisplayListener() {
                 public void onDisplayAdded(int id) { updateButton(); }
                 public void onDisplayChanged(int id) { if (blocked && !glassesReady()) restore(); updateButton(); }
@@ -119,15 +131,11 @@ public final class PhoneScreenCompat {
 
         void attach() {
             if (closed) return;
-            if (button.getParent() == null) {
-                WindowManager.LayoutParams position = overlay(dp(48), dp(48),
-                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL);
-                position.gravity = Gravity.TOP | Gravity.RIGHT;
-                position.x = dp(12); position.y = dp(12);
-                position.setTitle("Unbound phone screen button");
-                // A legacy zero-sized, touch-modal IME overlay sits above the Activity.
-                // This small overlay must be above it to receive button taps.
-                windows.addView(button, position);
+            if (!watching) {
+                ViewTreeObserver tree = window.getDecorView().getViewTreeObserver();
+                tree.addOnGlobalLayoutListener(controllerLayout);
+                tree.addOnPreDrawListener(controllerDraw);
+                watching = true;
             }
             updateButton();
         }
@@ -141,7 +149,7 @@ public final class PhoneScreenCompat {
 
         int externalDisplay() {
             for (Display display : displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
-                if (display.getDisplayId() != Display.DEFAULT_DISPLAY && display.getState() == Display.STATE_ON)
+                if (DisplayStartupCompat.xreal(display) && display.getState() == Display.STATE_ON)
                     return display.getDisplayId();
             }
             return -1;
@@ -149,19 +157,75 @@ public final class PhoneScreenCompat {
 
         boolean glassesReady() {
             Display display = displays.getDisplay(glasses);
-            return display != null && display.getState() == Display.STATE_ON;
+            return DisplayStartupCompat.xreal(display) && display.getState() == Display.STATE_ON;
         }
 
-        void updateButton() { button.setVisibility(!resumed || externalDisplay() < 0 ? View.GONE : View.VISIBLE); }
+        void updateButton() {
+            if (closed || !resumed) { hideTouchTarget(); return; }
+            View root = window.getDecorView();
+            if (button == null || !button.belongsTo(root)) {
+                hideTouchTarget();
+                button = PhoneScreenControl.attach(root, v -> explain());
+            }
+            if (button != null) {
+                button.setVisibility(externalDisplay() < 0 ? View.INVISIBLE : View.VISIBLE);
+                button.setEnabled(!blocked && !starting && !restoring);
+            }
+            syncTouchTarget();
+        }
+
+        boolean touchTargetReady() {
+            if (!resumed || closed || blocked || starting || restoring || button == null
+                    || (explanation != null && explanation.isShowing())
+                    || !button.touchBounds(window.getDecorView(), buttonBounds)) return false;
+            // Mode-selection popups belong to the Activity and must stay above its action.
+            for (View root : WindowInspector.getGlobalWindowViews()) {
+                if (root.getDisplay() == null || root.getDisplay().getDisplayId() != Display.DEFAULT_DISPLAY
+                        || !root.isShown() || !(root.getLayoutParams() instanceof WindowManager.LayoutParams)) continue;
+                int type = ((WindowManager.LayoutParams) root.getLayoutParams()).type;
+                if (type >= WindowManager.LayoutParams.FIRST_SUB_WINDOW
+                        && type <= WindowManager.LayoutParams.LAST_SUB_WINDOW) return false;
+            }
+            return true;
+        }
+
+        void syncTouchTarget() {
+            if (!touchTargetReady()) { hideTouchTarget(); return; }
+            if (touchTarget.getParent() == null) {
+                WindowManager.LayoutParams position = overlay(buttonBounds.width(), buttonBounds.height(),
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+                position.gravity = Gravity.TOP | Gravity.LEFT;
+                if (android.os.Build.VERSION.SDK_INT >= 30) position.setFitInsetsTypes(0);
+                position.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+                position.x = buttonBounds.left; position.y = buttonBounds.top;
+                position.setTitle("Unbound controller screen-off touch target");
+                windows.addView(touchTarget, position);
+            } else {
+                WindowManager.LayoutParams position = (WindowManager.LayoutParams) touchTarget.getLayoutParams();
+                if (position.x == buttonBounds.left && position.y == buttonBounds.top
+                        && position.width == buttonBounds.width() && position.height == buttonBounds.height()) return;
+                position.x = buttonBounds.left; position.y = buttonBounds.top;
+                position.width = buttonBounds.width(); position.height = buttonBounds.height();
+                windows.updateViewLayout(touchTarget, position);
+            }
+        }
+
+        void hideTouchTarget() {
+            if (touchTarget.getParent() != null) windows.removeView(touchTarget);
+            if (button != null) button.setPressed(false);
+        }
 
         void explain() {
-            if (blocked || starting || closed) return;
+            if (blocked || starting || closed || !resumed || (explanation != null && explanation.isShowing())) return;
+            hideTouchTarget();
             explanation = new AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert).setTitle("Turn off phone screen?")
-                    .setMessage("AR Space will keep running in your glasses. Phone touches will be blocked.\n\n"
+                    .setMessage("AR Space will keep running in your glasses. The pointer and phone touches will be disabled.\n\n"
                             + "Press either volume button to turn the screen back on. Your phone remains unlocked.")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Turn off screen", (dialog, which) -> MAIN.postDelayed(this::start, 200)).create();
             explanation.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+            explanation.setOnDismissListener(dialog -> { explanation = null; updateButton(); });
             explanation.show();
             signature(explanation);
         }
@@ -195,8 +259,9 @@ public final class PhoneScreenCompat {
                     Bundle result = activity.getContentResolver().call(Uri.parse("content://dev.beampro.portprobe.bridge"), "get", null, null);
                     remote = result == null ? null : result.getBinder("binder");
                     if (remote == null || !remote.isBinderAlive()) throw new IllegalStateException("Start the ADB helper first.");
-                    helperDeath = () -> MAIN.post(() -> { unblock(); toast("The helper stopped. The phone screen is being restored."); });
+                    helperDeath = () -> MAIN.post(() -> { restore(); toast("The helper stopped. The phone screen is being restored."); });
                     remote.linkToDeath(helperDeath, 0);
+                    pointer.suspend();
                     request(1);
                 } catch (Exception error) { failure = error; }
                 final Exception error = failure;
@@ -212,6 +277,7 @@ public final class PhoneScreenCompat {
         }
 
         void block() {
+            hideTouchTarget();
             blockedTouches = 0;
             hadKeepScreenOn = (window.getAttributes().flags & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0;
             shade.focusedOnce = false;
@@ -235,7 +301,7 @@ public final class PhoneScreenCompat {
             }
             REQUESTS.execute(() -> {
                 Exception failure = null;
-                try { request(2); } catch (Exception error) { failure = error; }
+                try { pointer.suspend(); request(2); } catch (Exception error) { failure = error; }
                 final Exception error = failure;
                 MAIN.post(() -> {
                     if (error != null) { restore(); toast("The phone screen was restored because the helper stopped responding."); }
@@ -252,9 +318,13 @@ public final class PhoneScreenCompat {
                 try { if (remote != null && remote.isBinderAlive()) request(3); }
                 catch (Exception error) { android.util.Log.w("PortPhoneScreen", "Restoring via watchdog", error); }
                 finally {
-                    if (remote != null && helperDeath != null) remote.unlinkToDeath(helperDeath, 0);
+                    try { pointer.restore(); }
+                    catch (Exception error) { android.util.Log.w("PortPhoneScreen", "Could not restore motion pointer", error); }
+                    if (remote != null && helperDeath != null) {
+                        try { remote.unlinkToDeath(helperDeath, 0); } catch (java.util.NoSuchElementException ignored) {}
+                    }
                     remote = null; helperDeath = null;
-                    MAIN.post(() -> { unblock(); restoring = false; });
+                    MAIN.post(() -> { unblock(); restoring = false; updateButton(); });
                 }
             });
         }
@@ -284,7 +354,16 @@ public final class PhoneScreenCompat {
         void pause() {
             resumed = false; restore();
             if (explanation != null) explanation.dismiss();
-            if (button.getParent() != null) windows.removeView(button);
+            hideTouchTarget();
+            if (button != null) button.setVisibility(View.INVISIBLE);
+            if (watching) {
+                ViewTreeObserver tree = window.getDecorView().getViewTreeObserver();
+                if (tree.isAlive()) {
+                    tree.removeOnGlobalLayoutListener(controllerLayout);
+                    tree.removeOnPreDrawListener(controllerDraw);
+                }
+                watching = false;
+            }
         }
 
         void close() {
@@ -312,21 +391,4 @@ public final class PhoneScreenCompat {
         }
     }
 
-    private static final class ScreenButton extends View {
-        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        ScreenButton(Context context) { super(context); setClickable(true); }
-        @Override protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            canvas.save(); canvas.scale(getWidth() / 48f, getHeight() / 48f);
-            paint.setStyle(Paint.Style.FILL); paint.setColor(isPressed() ? 0xff343434 : 0xff202020);
-            canvas.drawCircle(24, 24, 23, paint);
-            paint.setColor(Color.WHITE); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(1.8f);
-            paint.setStrokeCap(Paint.Cap.ROUND);
-            canvas.drawRoundRect(17, 12, 31, 36, 2, 2, paint);
-            canvas.drawLine(22, 32, 26, 32, paint);
-            paint.setColor(0xff202020); paint.setStrokeWidth(6); canvas.drawLine(12, 12, 36, 36, paint);
-            paint.setColor(Color.WHITE); paint.setStrokeWidth(1.8f); canvas.drawLine(12, 12, 36, 36, paint);
-            canvas.restore();
-        }
-    }
 }

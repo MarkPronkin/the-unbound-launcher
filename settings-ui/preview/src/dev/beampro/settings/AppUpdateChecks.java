@@ -30,7 +30,8 @@ public final class AppUpdateChecks extends Instrumentation {
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
-            releaseChecks(); downloadChecks(); packageChecks(); controllerChecks(); aboutChecks();
+            if (Boolean.parseBoolean(arguments.getString("about_only", "false"))) aboutChecks();
+            else { releaseChecks(); downloadChecks(); packageChecks(); controllerChecks(); aboutChecks(); }
             result.putString("stream", "App updater checks passed: " + passed + "\n"); finish(-1, result);
         } catch (Throwable error) {
             result.putString("stream", "App updater checks failed after " + passed + ": " + error + "\n"); finish(0, result);
@@ -111,10 +112,10 @@ public final class AppUpdateChecks extends Instrumentation {
     private void aboutChecks() throws Exception {
         SettingsPreviewActivity activity = (SettingsPreviewActivity) startActivitySync(new Intent(getTargetContext(), SettingsPreviewActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         waitForIdleSync();
+        AppUpdater updater = AppUpdater.get(activity);
+        runOnMainSync(() -> { updater.setEnabled(true); updater.setOnStartup(true); });
+        MenuActivity about = MenuChecks.open(this, activity, "About");
         runOnMainSync(() -> {
-            AppUpdater updater = AppUpdater.get(activity);
-            updater.setEnabled(true); updater.setOnStartup(true);
-            AboutPage about = new AboutPage(activity, () -> {}, () -> {}); about.show();
             require(about.findViewById(android.R.id.content).findViewWithTag("updates-check") != null, "manual check in About");
             CompoundButton startup = about.getWindow().getDecorView().findViewWithTag("updates-startup");
             require(startup.isChecked(), "startup checks enabled by default"); startup.performClick();
@@ -123,10 +124,14 @@ public final class AppUpdateChecks extends Instrumentation {
             require(!updater.enabled(), "updater disabled preference saved");
             require(!about.getWindow().getDecorView().findViewWithTag("updates-check").isEnabled(), "manual checks disabled with updater");
             require(!about.getWindow().getDecorView().findViewWithTag("updates-startup").isEnabled(), "startup toggle disabled with updater");
-            about.dismiss(); about.show();
-            require(!((CompoundButton)about.getWindow().getDecorView().findViewWithTag("updates-enabled")).isChecked(), "preference survives reopening");
-            ((CompoundButton)about.getWindow().getDecorView().findViewWithTag("updates-enabled")).performClick();
-            updater.setOnStartup(true); about.dismiss(); activity.finish();
+            about.finish();
+        });
+        MenuChecks.awaitClosed(this, about);
+        MenuActivity reopened = MenuChecks.open(this, activity, "About");
+        runOnMainSync(() -> {
+            require(!((CompoundButton)reopened.getWindow().getDecorView().findViewWithTag("updates-enabled")).isChecked(), "preference survives reopening");
+            ((CompoundButton)reopened.getWindow().getDecorView().findViewWithTag("updates-enabled")).performClick();
+            updater.setOnStartup(true); reopened.finish(); activity.finish();
         });
     }
 

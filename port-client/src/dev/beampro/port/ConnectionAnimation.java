@@ -12,8 +12,10 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityManager;
@@ -24,7 +26,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
-/** Phone-only connection theatre. Only the successful controller handoff waits for its visual transition. */
+/** Phone-only connection theatre, retained over the controller until AR is ready. */
 public final class ConnectionAnimation extends FrameLayout {
     private static final int WHITE = 0xfff5f5f7, MUTED = 0xffa1a1a6, MINT = 0xffb4ffdc;
     static final long HANDOFF_MS = 650;
@@ -37,6 +39,7 @@ public final class ConnectionAnimation extends FrameLayout {
     private final TextView brand;
     private boolean disposed;
     private boolean failedState;
+    private WindowManager overlayWindows;
 
     public ConnectionAnimation(Activity activity, Runnable onRetry, Runnable onClose) {
         super(activity);
@@ -108,31 +111,88 @@ public final class ConnectionAnimation extends FrameLayout {
 
     public void failure(String message, boolean busy) {
         if (disposed) return;
+        animate().cancel(); setAlpha(1); setVisibility(VISIBLE);
         failedState = true;
         matrix.failure();
         eyebrow.setText("LET’S RECONNECT");
         heading.setText("Connection paused.");
         status.setText(message);
         retry.setVisibility(busy ? GONE : VISIBLE);
+        close.setVisibility(VISIBLE);
         close.setText("Close");
         requestLayout();
     }
 
     public void connected() { connected(null); }
 
+    void starting() {
+        if (disposed) return;
+        eyebrow.setText("GLASSES CONNECTED");
+        heading.setText("Starting AR Space.");
+        status.setText("Preparing your controller");
+        matrix.stage("Starting AR Space");
+        requestLayout();
+    }
+
     public void connected(Runnable onHandoff) {
         if (disposed) return;
         failedState = false;
         eyebrow.setText("GLASSES CONNECTED");
-        heading.setText("Trackpad ready.");
-        status.setText("Opening AR Space");
+        heading.setText("AR Space ready.");
+        status.setText("Your controller is ready");
         retry.setVisibility(GONE);
         close.setVisibility(INVISIBLE);
         matrix.connect(onHandoff);
         requestLayout();
     }
 
-    public void dispose() { disposed = true; matrix.stop(); }
+    /** Keep this very same surface above both SDK activities, without taking Unity's focus. */
+    boolean coverLaunch(Activity activity) {
+        if (disposed || !Settings.canDrawOverlays(activity)) return false;
+        ViewGroup parent = (ViewGroup)getParent();
+        if (parent == null) return false;
+        WindowManager windows = activity.getApplicationContext().getSystemService(WindowManager.class);
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(-1, -1,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                android.graphics.PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.START;
+        params.setTitle("Unbound connection handoff");
+        params.windowAnimations = 0;
+        parent.removeView(this);
+        try {
+            windows.addView(this, params);
+            overlayWindows = windows;
+            return true;
+        } catch (RuntimeException failure) {
+            parent.addView(this, new ViewGroup.LayoutParams(-1, -1));
+            android.util.Log.w("UnboundConnect", "Using the controller's connection cover", failure);
+            return false;
+        }
+    }
+
+    /** Permission-free fallback: cover the controller before its first frame, preserving its content. */
+    void coverController(Activity activity) {
+        activity.getWindow().setWindowAnimations(0);
+        activity.addContentView(this, new ViewGroup.LayoutParams(-1, -1));
+        setElevation(dp(100));
+    }
+
+    void reveal(Runnable completion) {
+        if (disposed) return;
+        if (!matrix.motionEnabled()) { completion.run(); return; }
+        animate().alpha(0).setDuration(220).withEndAction(() -> {
+            if (!disposed) completion.run();
+        }).start();
+    }
+
+    public void dispose() {
+        if (disposed) return;
+        disposed = true; animate().cancel(); matrix.stop();
+        if (overlayWindows != null) {
+            overlayWindows.removeViewImmediate(this); overlayWindows = null;
+        }
+    }
 
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
     private TextView text(String value, float size, int color) {
@@ -204,6 +264,7 @@ public final class ConnectionAnimation extends FrameLayout {
         private float tick, age, handoff;
         private int stage;
         private long connectedAt;
+        private long motionTime;
         private boolean connected, failed, stopped, handoffDone;
         private Runnable onHandoff;
 
@@ -244,14 +305,16 @@ public final class ConnectionAnimation extends FrameLayout {
         void stop() { stopped = true; onHandoff = null; clock.cancel(); }
         private boolean canAnimate() {
             return !stopped && !failed && (!connected || !handoffDone) && isAttachedToWindow() && isShown()
-                    && getWindowVisibility() == VISIBLE && ValueAnimator.areAnimatorsEnabled()
-                    && (access == null || !access.isTouchExplorationEnabled());
+                    && getWindowVisibility() == VISIBLE && motionEnabled();
         }
+        boolean motionEnabled() { return ValueAnimator.areAnimatorsEnabled()
+                && (access == null || !access.isTouchExplorationEnabled()); }
         private void updateMotion() {
             if (canAnimate()) {
-                if (!clock.isStarted()) clock.start();
+                if (!clock.isStarted()) { clock.start(); clock.setCurrentPlayTime(motionTime); }
                 return;
             }
+            if (clock.isStarted()) motionTime = clock.getCurrentPlayTime();
             clock.cancel(); age = 1;
             if (connected && !handoffDone) { handoff = 1; completeHandoff(); }
         }
@@ -263,6 +326,7 @@ public final class ConnectionAnimation extends FrameLayout {
         }
         @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); updateMotion(); }
         @Override protected void onDetachedFromWindow() {
+            if (clock.isStarted()) motionTime = clock.getCurrentPlayTime();
             onHandoff = null; handoffDone = true; clock.cancel(); super.onDetachedFromWindow();
         }
         @Override protected void onWindowVisibilityChanged(int v) { super.onWindowVisibilityChanged(v); if (clock != null) updateMotion(); }

@@ -6,6 +6,8 @@ import java.io.InputStream;
 
 /** Original widget art where model-specific; original device art for shared-widget variants. */
 final class GlassesArtwork {
+    // Sampled from ASUS Pressroom's original red ROG logo PNG.
+    static final int ROG_RED = 0xfff51928;
     final int type;
     final String name, asset;
     final boolean widget;
@@ -19,13 +21,23 @@ final class GlassesArtwork {
         try {
             Class<?> sdk = Class.forName("com.xreal.glassesdisplayplugevent.GlassesInitSetting");
             Object instance = sdk.getMethod("getInstance").invoke(null);
-            return ((Number) sdk.getMethod("checkGlassesType").invoke(instance)).intValue();
+            return uiType(((Number) sdk.getMethod("checkGlassesType").invoke(instance)).intValue());
         } catch (ReflectiveOperationException | LinkageError | ClassCastException ignored) {
             return 0;
         }
     }
 
+    private static int uiType(int type) {
+        if (type != 6) return type;
+        try {
+            return ((Number) Class.forName("dev.beampro.port.RogR1Compat")
+                    .getMethod("uiType", int.class).invoke(null, type)).intValue();
+        } catch (ReflectiveOperationException | LinkageError unavailable) { return type; }
+    }
+
     static GlassesArtwork forType(int type) {
+        // Connection callbacks pass the native type directly, independently of the getter.
+        type = uiType(type);
         switch (type) {
             case 2: return new GlassesArtwork(type, "XREAL Air", "widget_air");
             case 3: return new GlassesArtwork(type, "XREAL Air 2 Pro", "ota_air2pro");
@@ -37,9 +49,12 @@ final class GlassesArtwork {
             case 10: return new GlassesArtwork(type, "xbx a01", "ota_xbx_a01");
             case 11: return new GlassesArtwork(type, "xbx a01+", "ota_xbx_a01");
             case 20: return new GlassesArtwork(type, "XREAL 1 Pro+", "ota_one_pro_plus");
+            case 1003: return new GlassesArtwork(type, "XREAL Rog R1", "widget_rog_r1");
             default: return new GlassesArtwork(0, "Your glasses", null);
         }
     }
+
+    String filename() { return asset == null ? null : asset + (type == 1003 ? ".png" : ".webp"); }
 
     static Drawable load(Context context, String name) {
         try (InputStream stream = context.getAssets().open("settings/" + name)) {

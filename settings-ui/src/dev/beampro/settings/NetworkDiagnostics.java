@@ -38,6 +38,14 @@ public final class NetworkDiagnostics {
     }
 
     static String runLimited(int outputBytes, long timeout, String... command) throws Exception {
+        return runLimited(outputBytes, timeout, false, command);
+    }
+
+    static String runTailLimited(int outputBytes, long timeout, String... command) throws Exception {
+        return runLimited(outputBytes, timeout, true, command);
+    }
+
+    private static String runLimited(int outputBytes, long timeout, boolean tail, String... command) throws Exception {
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         java.util.concurrent.atomic.AtomicBoolean truncated = new java.util.concurrent.atomic.AtomicBoolean();
@@ -45,9 +53,18 @@ public final class NetworkDiagnostics {
             try (InputStream input = process.getInputStream()) {
                 byte[] buffer = new byte[4096]; int count;
                 while ((count = input.read(buffer)) != -1) synchronized (bytes) {
-                    int keep = Math.min(count, outputBytes - bytes.size());
-                    if (keep > 0) bytes.write(buffer, 0, keep);
-                    if (keep < count) truncated.set(true);
+                    if (tail) {
+                        byte[] previous = bytes.toByteArray();
+                        int oldKeep = Math.min(previous.length, Math.max(0, outputBytes - count));
+                        int keep = Math.min(count, outputBytes);
+                        bytes.reset(); bytes.write(previous, previous.length - oldKeep, oldKeep);
+                        bytes.write(buffer, count - keep, keep);
+                        if (oldKeep < previous.length || keep < count) truncated.set(true);
+                    } else {
+                        int keep = Math.min(count, outputBytes - bytes.size());
+                        if (keep > 0) bytes.write(buffer, 0, keep);
+                        if (keep < count) truncated.set(true);
+                    }
                 }
             } catch (java.io.IOException expectedOnTimeout) { }
         }, "unbound-network-output");
@@ -57,8 +74,12 @@ public final class NetworkDiagnostics {
             if (!done) { process.destroyForcibly(); process.waitFor(500, TimeUnit.MILLISECONDS); }
             drain.join(500);
             synchronized (bytes) {
+                byte[] captured = bytes.toByteArray();
+                int first = 0;
+                if (tail && truncated.get()) while (first < captured.length && (captured[first] & 0xC0) == 0x80) first++;
                 return "exit=" + (done ? process.exitValue() : -1) + "; timedOut=" + !done + "\n"
-                        + bytes.toString("UTF-8") + (truncated.get() ? "\n[output limited to " + outputBytes + " bytes]\n" : "\n")
+                        + new String(captured, first, captured.length - first, java.nio.charset.StandardCharsets.UTF_8)
+                        + (truncated.get() ? "\n[output limited to " + (tail ? "last " : "") + outputBytes + " bytes]\n" : "\n")
                         + (drain.isAlive() ? "[output reader did not finish before the deadline]\n" : "");
             }
         } finally {

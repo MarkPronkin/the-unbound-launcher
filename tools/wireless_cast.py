@@ -1,6 +1,7 @@
 """Apply and round-trip audit the optional Miracast compatibility hooks."""
 from pathlib import Path
 import subprocess
+from rog_r1 import IDENTITY_SOURCE
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,7 +33,7 @@ def compile_port_client(build, java, env, platform, tools):
     jar = build / "client.jar"
     commands = [
         [Path(java) / "bin/javac", "--release", "8", "-classpath", platform, "-d", classes,
-         *sorted((ROOT / "port-client/src").rglob("*.java"))],
+         IDENTITY_SOURCE, *sorted((ROOT / "port-client/src").rglob("*.java"))],
         [Path(java) / "bin/jar", "cf", jar, "-C", classes, "."],
         [Path(tools) / "d8", "--min-api", "29", "--lib", platform, "--output", dex, jar],
     ]

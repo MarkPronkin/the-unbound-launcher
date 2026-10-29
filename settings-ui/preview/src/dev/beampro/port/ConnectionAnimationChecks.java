@@ -28,6 +28,11 @@ public final class ConnectionAnimationChecks extends Instrumentation {
                 require(find(a.animation,"Connect your\nglasses.") != null, "connection headline");
                 a.animation.stage("Waiting for glasses to reconnect");
                 require(find(a.animation,"Waiting for glasses to reconnect") != null, "live USB stage");
+                a.animation.starting();
+                require(find(a.animation,"Starting AR Space.") != null, "SDK success has a startup headline");
+                require(find(a.animation,"GLASSES CONNECTED") != null, "connected glasses do not stay labelled as USB connection");
+                a.animation.stage("Waiting for phone controls");
+                require(find(a.animation,"Waiting for phone controls") != null, "live controller readiness stage");
                 a.animation.stage("Preparing glasses");
                 require(find(a.animation,"Preparing glasses") != null, "live preparation stage");
                 ValueAnimator clock = clock(a.animation);
@@ -49,7 +54,7 @@ public final class ConnectionAnimationChecks extends Instrumentation {
                 a.animation.failure("The previous request is still finishing.", true);
                 require(find(a.animation,"Try again").getVisibility() == View.GONE, "unfinished native request cannot retry");
                 a.animation.connected(() -> completed[0]++);
-                require(find(a.animation,"Trackpad ready.") != null, "trackpad success state");
+                require(find(a.animation,"AR Space ready.") != null, "controller success state");
                 ValueAnimator clock = clock(a.animation);
                 if (ValueAnimator.areAnimatorsEnabled()) {
                     require(clock.isStarted(), "success runs its finite dot morph");

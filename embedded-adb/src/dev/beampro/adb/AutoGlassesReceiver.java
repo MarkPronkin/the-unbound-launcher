@@ -12,7 +12,6 @@ import android.os.IBinder;
 import android.os.Parcel;
 import android.provider.Settings;
 import android.util.Log;
-import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -28,13 +27,14 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
             && dev.beampro.settings.TermsConsent.hasAccepted(context)
             && Settings.canDrawOverlays(context);
     }
-    @SuppressWarnings("unchecked")
     private static boolean glasses(UsbDevice device) {
-        if(device==null || device.getVendorId()!=13080)return false;
+        if(device==null)return false;
         try {
-            Map<Integer,Integer> models=(Map<Integer,Integer>)Class.forName("com.xreal.glassesdisplayplugevent.util.USBVendorProductID")
-                .getField("sUSBPidMap").get(null);
-            Integer model=models.get(device.getProductId());return model!=null && model>1;
+            Class<?> identity=Class.forName("dev.beampro.compat.GlassesIdentity");
+            if(!(Boolean)identity.getMethod("usb",int.class,int.class).invoke(null,device.getVendorId(),device.getProductId()))return false;
+            Class<?> models=Class.forName("com.xreal.glassesdisplayplugevent.helper.GlassesTypeUtil");
+            int model=(Integer)models.getMethod("checkGlassesType",UsbDevice.class).invoke(null,device);
+            return model>1;
         } catch(Exception error) { Log.w(TAG,"Cannot identify glasses model",error);return false; }
     }
     private static boolean sessionActive() {

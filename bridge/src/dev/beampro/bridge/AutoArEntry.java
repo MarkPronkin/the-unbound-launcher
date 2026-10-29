@@ -1,5 +1,6 @@
 package dev.beampro.bridge;
 
+import dev.beampro.compat.GlassesIdentity;
 import android.content.pm.PackageManager;
 import android.os.IBinder;
 import java.util.concurrent.Executors;
@@ -58,7 +59,7 @@ final class AutoArEntry {
     }
     synchronized void request(int caller, Key key, boolean attached) throws Exception {
         if(caller!=uid || platform.installedUid()!=uid)throw new SecurityException("Automatic entry is restricted to the installed launcher");
-        if(key.name==null || key.vendor!=13080)throw new SecurityException("Automatic entry requires XREAL USB hardware");
+        if(key.name==null || !GlassesIdentity.usb(key.vendor,key.product))throw new SecurityException("Automatic entry requires XREAL USB hardware");
         if(!attached) {
             if(pending!=null && pending.key.same(key))pending=null;
             if(key.same(launched))launched=null;

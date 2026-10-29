@@ -1,5 +1,6 @@
 package dev.beampro.port;
 
+import dev.beampro.compat.GlassesIdentity;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
@@ -32,7 +33,7 @@ public final class UsbPermissionCompat {
     /** Low-level SDK callers also run from provider initialization before Application.onCreate. */
     public static void requestPermission(UsbManager manager, UsbDevice device, PendingIntent callback) {
         Context context=application;
-        if (context==null && device!=null && device.getVendorId()==13080 && PACKAGE.equals(callback.getCreatorPackage())) {
+        if (context==null && device!=null && GlassesIdentity.usb(device.getVendorId(),device.getProductId()) && PACKAGE.equals(callback.getCreatorPackage())) {
             worker.schedule(()->requestPermission(manager,device,callback),100,TimeUnit.MILLISECONDS);
             return;
         }
@@ -48,7 +49,7 @@ public final class UsbPermissionCompat {
     }
 
     public static void requestPermission(Context context, UsbManager manager, UsbDevice device, PendingIntent callback) {
-        if (device==null || device.getVendorId()!=13080 || !PACKAGE.equals(context.getPackageName())
+        if (device==null || !GlassesIdentity.usb(device.getVendorId(),device.getProductId()) || !PACKAGE.equals(context.getPackageName())
                 || !PACKAGE.equals(callback.getCreatorPackage())) {
             manager.requestPermission(device, callback);
             return;

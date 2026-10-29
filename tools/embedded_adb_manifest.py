@@ -144,6 +144,8 @@ def patch_manifest(original):
     additions += element("activity", [("name", 3, "dev.beampro.port.ArBackdropActivity"), ("exported", 0x12, 0),
                                       ("process", 3, ":space"), ("theme", 1, AR_BACKDROP_THEME)])
     additions += element("service", [("name", 3, "dev.beampro.adb.PairingOverlayService"), ("exported", 0x12, 0)])
+    additions += element("service", [("name", 3, "dev.beampro.port.ArSessionService"), ("exported", 0x12, 0),
+                                     ("process", 3, ":space"), ("foregroundServiceType", 0x11, 16)])
     receiver = element("receiver", [("name", 3, "dev.beampro.adb.AutoGlassesReceiver"), ("exported", 0x12, 0)])
     usb_filter = element("intent-filter", [])
     actions = b"".join(element("action", [("name", 3, action)]) for action in (

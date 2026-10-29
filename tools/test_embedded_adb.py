@@ -18,7 +18,7 @@ class EmbeddedAdbManifestTests(unittest.TestCase):
     def test_existing_components_and_permissions_preserved(self):
         for element in self.before:
             self.assertIn(element, self.after)
-        self.assertEqual(len(self.before) + 9, len(self.after))
+        self.assertEqual(len(self.before) + 10, len(self.after))
 
     def test_samsung_process_preservation_is_application_metadata(self):
         key = 'com.samsung.android.multidisplay.keep_process_alive'
@@ -78,6 +78,14 @@ class EmbeddedAdbManifestTests(unittest.TestCase):
         self.assertEqual(renderer[0]['process'],':space')
         self.assertEqual(matches[0]['process'],renderer[0]['process'])
         self.assertEqual(matches[0]['theme'],AR_BACKDROP_THEME)
+
+    def test_ar_foreground_service_protects_the_renderer_process(self):
+        service=[attrs for tag,attrs in self.after if tag=='service' and attrs.get('name')=='dev.beampro.port.ArSessionService']
+        renderer=[attrs for tag,attrs in self.after if attrs.get('name')=='ai.nreal.nebula.space.LaunchSpaceAcrivity']
+        self.assertEqual(len(service),1)
+        self.assertEqual(service[0]['exported'],0)
+        self.assertEqual(service[0]['process'],renderer[0]['process'])
+        self.assertEqual(service[0]['foregroundServiceType'],16)
 
     def test_android_styled_attribute_order(self):
         with zipfile.ZipFile(BASE) as archive:

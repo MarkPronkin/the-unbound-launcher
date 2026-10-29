@@ -7,6 +7,7 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.view.Display;
+import dev.beampro.compat.GlassesIdentity;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -17,7 +18,8 @@ import java.util.concurrent.TimeUnit;
 /** A leased, panel-only power session. Never puts Android or the glasses to sleep. */
 final class PhoneScreenPower {
     static final String TOKEN = "dev.beampro.bridge.PHONE_SCREEN";
-    static final int TRANSACTION = 0x00FFFFF8;
+    // 0x00FFFFF8 belongs to XREAL USB permissions in the production helper.
+    static final int TRANSACTION = 0x00FFFFF2;
     private final DisplayManager displays;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private Process watchdog;
@@ -89,7 +91,15 @@ final class PhoneScreenPower {
         Display display = displays.getDisplay(id);
         if (id == Display.DEFAULT_DISPLAY || display == null || display.getState() != Display.STATE_ON
                 || ((Integer) Display.class.getMethod("getType").invoke(display)) != 2)
-            throw new IllegalStateException("AR Space needs a connected external display");
+            throw new IllegalStateException("AR Space needs connected glasses");
+        Object product = Display.class.getMethod("getDeviceProductInfo").invoke(display);
+        if (product != null) {
+            Class<?> type = product.getClass();
+            String manufacturer = (String) type.getMethod("getManufacturerPnpId").invoke(product);
+            if ("MRG".equals(manufacturer) || ("AUS".equals(manufacturer)
+                    && GlassesIdentity.rogR1Display((String) type.getMethod("getProductId").invoke(product), manufacturer))) return;
+        }
+        throw new IllegalStateException("Phone screen control requires an identified glasses display");
     }
 
     private synchronized void check() {

@@ -1,5 +1,6 @@
 package dev.beampro.bridge;
 
+import dev.beampro.compat.GlassesIdentity;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -27,7 +28,13 @@ public final class DisplaySnapshotReader {
             boolean xreal=false;
             try {
                 Object product=type.getField("deviceProductInfo").get(info);
-                if(product!=null)xreal="MRG".equals(product.getClass().getMethod("getManufacturerPnpId").invoke(product));
+                if(product!=null) {
+                    Class<?> identity=product.getClass();
+                    String manufacturer=(String)identity.getMethod("getManufacturerPnpId").invoke(product);
+                    xreal="MRG".equals(manufacturer);
+                    if(!xreal && "AUS".equals(manufacturer))
+                        xreal=GlassesIdentity.rogR1Display((String)identity.getMethod("getProductId").invoke(product),manufacturer);
+                }
             } catch(NoSuchFieldException|NoSuchMethodException olderIdentityApi) { /* Preserve the legacy path. */ }
             List<ManagedDisplayPolicy.Mode> modes=new ArrayList<>();
             if(manageModes)for(Object supported:(Object[])type.getField("supportedModes").get(info))modes.add(mode(supported));

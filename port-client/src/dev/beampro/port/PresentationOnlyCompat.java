@@ -3,6 +3,7 @@ package dev.beampro.port;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.Application;
+import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.display.DisplayManager;
@@ -87,14 +88,33 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
     /** Defensive guard for a stale SDK callback; no external activity belongs to this path. */
     public static boolean owns(Object app) {return (pending!=null&&pending.app==app)||(active!=null&&active.app==app&&!active.closed);}
     public static Activity renderingActivity() {return active!=null&&!active.closed?active.owner:null;}
-    /** Internal engine focus may outlive focus on the phone's own zero-size IME overlay or a phone
-     *  dialog while the owner stays visible. The SDK reuses the activity's register for its player,
-     *  so the session is matched by player. */
+    static long sessionToken() {return active==null||active.closed?0:active.token;}
+    static void foreground(long token,boolean ready) {
+        if(active!=null&&!active.closed&&active.token==token)active.foreground=ready;
+    }
+    static void stopSession(long token) {
+        if(active!=null&&!active.closed&&active.token==token)active.finish("AR session ended.");
+    }
+    private static Session sessionFor(Object unity) {
+        Session session=active;
+        if(session!=null&&!session.closed&&session.owner!=null)try {
+            if(get(session.owner,"mUnityPlayer")==unity)return session;
+        } catch(Exception failure){Log.w(TAG,"Cannot match Unity to the direct session",failure);}
+        return null;
+    }
+    /** The phone controller may stop while its separate glasses Presentation keeps rendering.
+     *  Match by player because the SDK reuses the activity's register for mUnityPlayer. */
+    public static void pause(Object unity) {
+        Session session=sessionFor(unity);
+        if(session!=null&&session.keepRendering()) {
+            Log.i(TAG,"Phone controller hidden; keeping glasses renderer active");return;
+        }
+        try {unity.getClass().getMethod("pause").invoke(unity);}
+        catch(Exception failure){throw new IllegalStateException("Cannot forward Unity pause",failure);}
+    }
     public static void windowFocus(Object unity,boolean focused) {
-        Session session=active;boolean renderFocus=focused;
-        if(!focused&&session!=null&&!session.closed&&session.visible&&session.owner!=null&&!session.owner.isFinishing())
-            try {renderFocus=get(session.owner,"mUnityPlayer")==unity;}
-            catch(Exception failure){Log.w(TAG,"Cannot match Unity focus to the direct session",failure);}
+        Session session=sessionFor(unity);boolean renderFocus=focused;
+        if(!focused&&session!=null&&session.keepRendering())renderFocus=true;
         try {unity.getClass().getMethod("windowFocusChanged",boolean.class).invoke(unity,renderFocus);}
         catch(Exception failure){Log.e(TAG,"Cannot forward Unity window focus",failure);}
     }
@@ -197,16 +217,27 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
 
     private static final class Session implements Runnable,DisplayManager.DisplayListener {
         final Object app;final long token=++sequence;final boolean originalMultiResume;
-        Activity owner;DisplayManager displays;int displayId,switchFrom=-1;boolean closed,seenPresentation,visible;
+        Activity owner;DisplayManager displays;int displayId,switchFrom=-1;boolean closed,seenPresentation,foreground;
         long deadline=SystemClock.uptimeMillis()+45000,missingSince,switchUntil;String switchMode;
         Session(Object app,int displayId,boolean originalMultiResume){this.app=app;this.displayId=displayId;this.originalMultiResume=originalMultiResume;}
         void attach(Activity activity) {
             if(owner==activity)return;owner=activity;displays=activity.getSystemService(DisplayManager.class);
             displays.registerDisplayListener(this,MAIN);StereoPresentationCompat.track(owner);run();
         }
+        boolean locked() {
+            KeyguardManager guard=owner.getSystemService(KeyguardManager.class);
+            return guard!=null&&guard.isKeyguardLocked();
+        }
+        boolean keepRendering() {
+            if(closed||owner==null||owner.isFinishing()||owner.isDestroyed()||locked())return false;
+            Display display=displays==null?null:displays.getDisplay(displayId);
+            return display!=null&&display.getState()==Display.STATE_ON&&DisplayStartupCompat.xreal(display)
+                    &&(foreground||owner.getWindow().getDecorView().isShown());
+        }
         void close() {
             if(closed)return;closed=true;MAIN.removeCallbacks(this);
             if(displays!=null)displays.unregisterDisplayListener(this);
+            if(owner!=null)owner.stopService(new Intent(owner,ArSessionService.class));
             try {field(app,"mMultiResumeMode").setBoolean(app,originalMultiResume);}
             catch(Exception failure){Log.w(TAG,"Cannot restore SDK lifecycle selection",failure);}
             if(active==this)active=null;
@@ -225,6 +256,7 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
         public void run() {
             if(closed)return;MAIN.removeCallbacks(this);
             if(owner==null||owner.isDestroyed()||owner.isFinishing()){close();return;}
+            if(locked()){finish("Phone locked. Unlock it and reopen AR Space to continue.");return;}
             Display display=displays.getDisplay(displayId);
             if(display==null||!DisplayStartupCompat.xreal(display)) {
                 if(missingSince==0)missingSince=SystemClock.uptimeMillis();
@@ -267,9 +299,7 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
         if(active==null||active.closed||active.token!=token){activity.finish();return;}
         active.attach(activity);
     }
-    /** Use the SDK's own pre-multi-resume mode for the phone owner: a phone dialog (pause without
-     *  stop) must not pause the glasses renderer, because a pause during Unity's start-up can leave
-     *  the engine paused and its glasses connection closed. Leaving the app (stop) still pauses. */
+    /** Keep the SDK's dialog handling; scoped pause hooks also cover a fully hidden controller. */
     public void onActivityPostCreated(Activity activity,Bundle saved) {
         if(!isActive(activity))return;
         try {field(activity,"fakePause").setBoolean(activity,true);}
@@ -277,17 +307,17 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
     }
     public void onActivityStarted(Activity activity) {
         if(!isActive(activity))return;
-        active.visible=true;StereoPresentationCompat.track(activity);
+        try {activity.startForegroundService(new Intent(activity,ArSessionService.class)
+                .putExtra(ArSessionService.TOKEN,active.token));}
+        catch(RuntimeException failure){Log.w(TAG,"Cannot keep the renderer process active in the background",failure);}
+        StereoPresentationCompat.track(activity);
     }
     public void onActivityResumed(Activity activity){}
     public void onActivityPaused(Activity activity){}
     public void onActivityStopped(Activity activity) {
         if(!isActive(activity))return;
-        active.visible=false;
-        try {
-            Object unity=get(activity,"mUnityPlayer");
-            if(unity!=null)unity.getClass().getMethod("windowFocusChanged",boolean.class).invoke(unity,false);
-        } catch(Exception failure){Log.w(TAG,"Cannot release Unity focus",failure);}
+        try {Object unity=get(activity,"mUnityPlayer");if(unity!=null)windowFocus(unity,false);}
+        catch(Exception failure){Log.w(TAG,"Cannot reconcile Unity focus",failure);}
     }
     public void onActivitySaveInstanceState(Activity activity,Bundle state){}
     public void onActivityDestroyed(Activity activity) {

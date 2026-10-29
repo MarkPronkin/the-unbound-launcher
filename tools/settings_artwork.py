@@ -19,6 +19,10 @@ MODEL_ARTWORK = {
     "ota_xbx_a01": "res/Gu.webp",
 }
 
+CUSTOM_ARTWORK = {
+    "widget_rog_r1.png": "branding/glasses/r1/widget_rog_r1.png",
+}
+
 
 def export_settings_artwork(archive, output):
     output.mkdir(parents=True, exist_ok=True)
@@ -27,7 +31,20 @@ def export_settings_artwork(archive, output):
         destination = output / (name + ".webp")
         destination.write_bytes(archive.read(source))
         assets["assets/settings/" + destination.name] = destination
+    assets.update(custom_settings_artwork(output))
     mark = output / "brand-mark.png"
     mark.write_bytes((Path(__file__).resolve().parents[1] / "branding/symbol.png").read_bytes())
     assets["assets/settings/brand-mark.png"] = mark
+    return assets
+
+
+def custom_settings_artwork(output):
+    """Project artwork is added to pinned-baseline builds as well as previews."""
+    output.mkdir(parents=True, exist_ok=True)
+    assets = {}
+    root = Path(__file__).resolve().parents[1]
+    for name, source in CUSTOM_ARTWORK.items():
+        destination = output / name
+        destination.write_bytes((root / source).read_bytes())
+        assets["assets/settings/" + name] = destination
     return assets

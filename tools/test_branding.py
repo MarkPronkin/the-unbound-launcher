@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 import zipfile
 import zlib
 from pathlib import Path
@@ -50,6 +51,14 @@ class BrandingTests(unittest.TestCase):
     def test_patch_is_idempotent(self):
         patched = patch_resources(self.original)
         self.assertEqual(patch_resources(patched), patched)
+
+    def test_pinned_apk_with_previous_brand_is_renamed_in_every_locale(self):
+        with patch("branding.APP_NAME", "The Unbound Launcher"):
+            previous = patch_resources(self.original)
+        self.assertEqual(set(app_name_values(previous)), {"The Unbound Launcher"})
+        renamed = patch_resources(previous)
+        self.assertEqual(app_name_values(renamed), ("Unbound Launcher",) * 13)
+        self.assertEqual(patch_resources(renamed), renamed)
 
     def test_unexpected_resource_table_is_rejected(self):
         with self.assertRaises((ValueError, struct.error)):

@@ -51,7 +51,7 @@ public final class UpdateInstallActivity extends Activity {
         if (!getPackageManager().canRequestPackageInstalls()) {
             if (requested) { status.setText("Installation permission was not granted. Return to About and tap Install update to try again."); return; }
             requested = true;
-            status.setText("Allow updates from The Unbound Launcher, then return here to continue.");
+            status.setText("Allow updates from " + SettingsUi.APP_NAME + ", then return here to continue.");
             try {
                 startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
                 verifying = false;

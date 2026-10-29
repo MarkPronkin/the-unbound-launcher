@@ -10,9 +10,10 @@ import subprocess
 import sys
 
 
-APP_NAME = "The Unbound Launcher"
+APP_NAME = "Unbound Launcher"
 APP_NAME_RESOURCE = 0x7F100024
 OLD_APP_NAMES = frozenset({
+    "The Unbound Launcher",
     "My Glasses", "マイグラス", "Meine Brille", "我的眼镜", "내 글래스",
     "Mes lunettes", "Mis gafas", "I miei occhiali",
 })

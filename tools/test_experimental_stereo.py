@@ -66,29 +66,22 @@ class ExperimentalStereoTests(unittest.TestCase):
                       boolean mono=ethernet?mode>=1&&mode<=4:mode==1||mode==5||mode==10||mode==11;
                       check(ExperimentalStereo.selectConfig(mode,manager)==(mono?(ethernet?5:3):mode));
                     }
-                    ExperimentalStereo.saveMono60(context,true);
-                    check(ExperimentalStereo.mono60Enabled(context)&&!ExperimentalStereo.enabled(context));
-                    for(int mode=-1;mode<16;mode++) {
-                      boolean mono=ethernet?mode>=1&&mode<=4:mode==1||mode==5||mode==10||mode==11;
-                      check(ExperimentalStereo.selectConfig(mode,manager)==(mono?1:mode));
-                    }
-                    ExperimentalStereo.save(context,false);check(ExperimentalStereo.mono60Enabled(context));
-                    ExperimentalStereo.save(context,true);check(!ExperimentalStereo.mono60Enabled(context));
-                    ExperimentalStereo.saveMono60(context,false);check(ExperimentalStereo.enabled(context));
                     ExperimentalStereo.save(context,false);check(!ExperimentalStereo.enabled(context));
                     for(int mode=-1;mode<16;mode++)check(ExperimentalStereo.selectConfig(mode,manager)==mode);
                   }
                   check(ExperimentalStereo.selectConfig(10,new Object())==10);
                   Path flag=context.dir.toPath().resolve("unbound-experimental-stereo");
-                  for(byte[] bad:new byte[][]{new byte[0],{3},{-1},{1,1},{2,2}}) {
+                  for(byte[] bad:new byte[][]{new byte[0],{2},{3},{-1},{1,1},{2,2}}) {
                     Files.write(flag,bad);check(!ExperimentalStereo.enabled(context));
-                    check(!ExperimentalStereo.mono60Enabled(context));
-                    check(ExperimentalStereo.selectConfig(10,manager)==10);
+                    for(boolean ethernet:new boolean[]{false,true}) {
+                      manager.mNRServiceControl.isEthernetSeries=ethernet;
+                      for(int mode=-1;mode<16;mode++)check(ExperimentalStereo.selectConfig(mode,manager)==mode);
+                    }
+                    ExperimentalStereo.save(context,true);check(ExperimentalStereo.enabled(context));
+                    ExperimentalStereo.save(context,false);check(!ExperimentalStereo.enabled(context));
                   }
                   context.pkg="dev.markpronkin.unbound";
                   try {ExperimentalStereo.save(context,true);throw new AssertionError("unsupported profile");}
-                  catch(IllegalStateException expected){}
-                  try {ExperimentalStereo.saveMono60(context,true);throw new AssertionError("unsupported profile");}
                   catch(IllegalStateException expected){}
                   System.out.println("PASS mode namespaces, unknown modes, opt-in persistence and invalid flags");
                 }}''')

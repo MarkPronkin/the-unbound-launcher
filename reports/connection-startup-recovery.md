@@ -1,5 +1,125 @@
 # Glasses connection recovery and automatic entry
 
+## Fix the readiness stall without the phone — build 2931
+
+The wearer reported that build 2930 remained on **Connect your glasses**. The
+captured phone logs show successful SDK startup, a native glasses Presentation
+at 3840 × 1080 / 60 Hz and a Unity desktop heartbeat around 59 FPS, followed by
+the new handoff's 45-second timeout. The exact false predicate was not captured
+before the phone ran out of charge. Further work proceeded offline at the
+wearer's request.
+
+The old readiness condition has a reproducible false negative: it requires an
+active laser scene object and enabled pointer visuals. Those are optional
+visual states, rather than evidence that the phone controller has appeared.
+The Android regression fixture runs the actual handoff classes and native
+library from the signed build 2930 APK, changing only its provider authority.
+With the controls and glasses output drawn, the old code still times out when
+the optional laser anchor is inactive. This reproduces a concrete stall in the
+shipped implementation; it does not establish which individual predicate was
+false on the physical Pixel.
+
+Build 2931 removes the startup pointer probe and restores the screen-off pointer
+Java/native implementation from build 2929. Its native library is byte-identical
+to 2929. The animation now waits for visible, laid-out controller buttons and a
+native-resolution XREAL Presentation, then observes a committed Android frame
+from both windows. Hardware drawing uses `registerFrameCommitCallback`; software
+drawing waits until the draw traversal completes. A native Presentation host
+does not need to expose a Java `SurfaceView` child. No elapsed-time shortcut
+dismisses the cover.
+
+After SDK success the headline changes to **Starting AR Space**. The live stage
+distinguishes waiting for controls/output from drawing them. The original
+success morph and fade remain after readiness. Timeout, cancellation and stale
+callback protections remain in place.
+
+The corrected source passes 28 Android checks with a persistent cover, 30 with
+the in-window fallback and native host, and 28 with software controller drawing.
+The signed 2930 code fails the corresponding regression at the expected inactive
+laser condition. The existing 70 host recovery assertions, three pointer tests
+and eight screen-power regressions pass. Evidence is under
+`artifacts/connection-handoff/2930-regression/` and `2931-runtime/`.
+The same three configurations also pass using the signed 2931 APK's actual
+handoff classes. Its reduced-motion case passes another 28 checks, and the
+animation UI passes 25, including the new startup headline and live stage.
+Signed-runtime evidence is under `artifacts/connection-handoff/2931-signed-runtime/`.
+
+APK: `artifacts/unbound-launcher-2931/the-unbound-launcher.apk`, SHA-256
+`b80258405a1436df8393343d9fe8f675fd92cd32f18618bb3d1d74f2f014f790`.
+The full signed-APK audit passes, including source correspondence, signature and
+alignment, permissions, class uniqueness and every scoped DEX restoration check.
+Compared with 2929, every native library, original SDK DEX and helper DEX is
+identical. Runtime changes are confined to the client and provider/About DEX,
+manifest version and corresponding-source ZIP; helper JAR timestamps differ.
+Build 2931 is installed on the Pixel 8 Pro / Android 17 after the phone returned
+online. Both the transferred file and installed APK match the audited SHA-256.
+The temporary `dev.beampro.startupdiag` instrumentation package is removed.
+Without glasses, a cold launch creates Settings, starts the embedded helper and
+records no application crash. After installation, the wearer confirmed
+**“can confirm everything works”** in this connection-animation and controller
+handoff task. The reported stall and visible handoff are now wearer-confirmed
+working on the Pixel 8 Pro / Android 17 setup. This confirmation is recorded
+separately from automated checks in
+`artifacts/connection-handoff/pixel-2931/wearer-confirmation.json`.
+
+## Keep the connection animation until AR and the controller are ready — build 2930
+
+The wearer reported an abrupt switch between the animation and controller, with
+the animation finishing before AR Space and Spatial Mouse appeared. Build 2920
+held the actual controller launch until its 650 ms success morph had already
+finished. SDK initialization success therefore ended the connection screen too
+early to cover the renderer's separate startup.
+
+Build 2930 starts AR under the existing connection animation. At launch, the same
+animation view moves into a temporary phone overlay using the already granted
+overlay permission; its clock position survives the move. This cover spans both
+SDK activities without taking focus from Unity. If overlay access is unavailable,
+the real controller receives an in-window cover before its first draw.
+
+Success waits for all of the following in the renderer process:
+
+- The actual Spatial Mouse or trackpad hierarchy is visible and laid out.
+- A visible XREAL Presentation has a valid surface at native output resolution.
+- Unity's pointer input and reticle are enabled, its active hand's scene anchor
+  is active, and two readiness samples observe an advancing Unity frame count.
+
+The added JNI probe uses the shipped IL2CPP runtime API and named scene methods.
+It reads readiness without changing pointer state or patching the original
+renderer libraries. The app-only provider transports framework ResultReceivers
+between processes. Tokens prevent an old session from clearing a newer handoff.
+
+Only then does the dot-grid success morph run, followed by a 220 ms fade onto the
+already prepared controller. Reduced motion completes this visual handoff
+immediately after readiness. A 45-second renderer deadline, cancellation, retry,
+controller loss during the morph, and rejection of late completions remain
+covered. The ready acknowledgement stops the deadline before either cover's
+success animation begins.
+
+Validation artifacts are under `artifacts/connection-handoff/`. Host recovery
+checks pass 70 assertions. Late native SDK callbacks are rejected after SDK
+success, including while renderer readiness is still pending. The isolated
+Android fixture exercises the production
+cover, provider, JNI probe and a real glasses Presentation across three processes,
+with independent controls for missing UI, missing output, pointer state, scene
+anchor activity and stalled Unity frames. Both overlay and in-window paths pass,
+including cancellation and stale-token isolation; the provider rejects the shell
+UID. The original native libraries and helper DEX match build 2929. The helper
+JAR's packaging timestamps differ.
+
+The signed APK is `artifacts/unbound-launcher-2930/the-unbound-launcher.apk`,
+SHA-256 `f1af19388ce037e006d7551ad13bf9735e12f2e35a67c2f0105477fd42a52960`.
+The full APK audit passes, including handoff call wiring, source correspondence,
+signature/alignment, permissions, class uniqueness and the complete scoped DEX
+restoration chain. Android passes 28 checks with the persistent overlay, 30 with
+the in-window fallback, another 28 with animations disabled, and the shell-UID
+rejection check. The existing animation instrumentation also passes 22 checks.
+
+Build 2930 is installed on the Pixel 8 Pro. Its installed APK SHA-256 matches the
+audited artifact. The real startup observation was blocked by the locked phone
+(screen off and keyguard showing); no physical handoff success is claimed. The
+wearer chose to test it later. Installation and observation evidence is under
+`artifacts/connection-handoff/pixel/`.
+
 ## Dot-matrix connection and trackpad handoff — build 2920
 
 The portal artwork is replaced by the same sparse dot-grid visual language as the
@@ -131,9 +251,10 @@ update. The candidate is
 `artifacts/unbound-launcher-samsung-dex-2913/the-unbound-launcher.apk`, SHA-256
 `87a0073804823d092d8cf57893de7e279a0fe9651761f14fc0b36642216bc2ac`.
 Validation logs and the settings screenshot are under `artifacts/samsung-dex-2913/`.
-For the first wearer test, retain the Air 2's working SBS option; on the Air 2 Pro
-that goes black, enable Use 60 Hz in 2D and reconnect. Collect a fresh export
-while connected if either case fails. DeX may still start underneath the renderer.
+The 2D 60 Hz diagnostic option in that candidate has since been removed. Current
+builds ignore that saved choice and use the original model defaults; the Air 2's
+working SBS option remains available. Collect a fresh export while connected if
+either case fails. DeX may still start underneath the renderer.
 
 ## Ethernet readiness through the paired helper — build 2912
 

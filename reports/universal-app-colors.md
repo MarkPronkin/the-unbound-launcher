@@ -1,4 +1,129 @@
-# Universal app-window colors — 2026-10-26
+# Universal app-window colors
+
+## Pinned state — build 2935, 2026-10-28
+
+Color work is paused at the wearer's request. Pixel is now much improved, with
+a slight remaining difference from OnePlus. The repaired shader loads and the
+live material selects software decoding. Full APK and focused host checks pass.
+Keep 2935 as the current baseline; resume color tuning only when the wearer asks.
+The read-only APK and validation evidence are in
+`artifacts/pinned/color-baseline-2935/`; see
+[baseline metadata](color-baseline-2935.json) for its checksum and remaining work.
+
+## Shader binary packaging correction — 2026-10-28, build 2935
+
+2934 successfully moves Pixel YouTube onto the copy path, but Unity rejects the
+modified copy shader. The source rewriter had discarded two zero-valued metadata
+fields following the aligned GLSL array. The standalone GLSL render test missed
+this because it bypassed Unity's binary loader.
+
+2935 preserves that metadata and refreshes shader cache identifiers. Every
+build/audit now runs the actual Unity ARM64 GPU-program parser for all 60 app/OES
+records. The parser reproduces 2934's rejection and accepts the corrected
+records. Pixel's route and transfer curve are unchanged; the OnePlus hardware
+copy programs remain stock. Live material decisions are logged as well.
+
+See [the current handoff](youtube-washout-handoff.md) for the native reader
+addresses, negative controls and pending device result.
+
+## Live result and routing correction — 2026-10-28, build 2934
+
+The wearer confirms 2933 is correct on OnePlus and remains washed out on Pixel.
+Live Pixel logs show YouTube still using a protected native overlay: the
+`AppInfo.isProtected` hint wins before the previously cleared multi-layer hint.
+The Unity copy decoder is never created for that window. This is evidence of a
+missed path, not evidence that the exact sRGB curve is wrong.
+
+2934 keeps the 2933 compositor and shaders. `AppSurfacePolicy` checks the GPU's
+sRGB-override extension on a dedicated thread using an isolated EGL pbuffer,
+without borrowing Unity's context. A private one-byte flag selects the copy
+route when that extension is absent. Six pinned, reversible native trampolines
+apply that choice to the SDK's protected-app routing hint. Supported GPUs,
+unknown capability, missing files, failed reads and malformed flags all retain
+the original overlay. This preserves the validated OnePlus route.
+
+The port's virtual display remains non-secure, and Android's actual secure
+window flags are untouched. The SDK hint does not grant secure capture. A true
+secure video cannot be made capturable by this route change.
+
+Evidence and native/Java validation details are in
+[the live Pixel handoff](youtube-washout-handoff.md). 2934 passed the full APK
+audit and is installed on Pixel. Its production probe selects `app_surface=copy`
+on Mali-G715. The actual Pixel also passes the shader pixel checks. A YouTube
+reopen and wearer confirmation remain pending.
+
+## Replacement candidate — 2026-10-28, build 2933
+
+The wearer reports incorrect YouTube contrast and saturation on OnePlus and
+unsatisfactory saturation on Pixel. They do not recall a OnePlus contrast issue
+before the recent fixes. Treat the contrast symptom as a possible regression;
+double conversion is an explanation to test, not a measured diagnosis.
+
+This candidate removes the accumulated `libnr_api.so` color patches completely.
+The binary must now restore byte-for-byte to the original library after undoing
+only the independent Display.Mode API compatibility edit. This removes the
+static blit decode, all three composition decodes, and the two override-call
+removals together. On Adreno, the old sampler2D shader decode could stack with
+the remaining native texture override; readback of an override enum alone also
+does not prove that conversion happened for a particular EGLImage: the
+[override specification](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_texture_format_sRGB_override.txt)
+allows format-dependent support and ignored overrides.
+
+Non-protected app windows retain build 2925's routing through Android's
+composited RGBA SurfaceTexture and Unity's copy material. Android handles the
+video's YUV matrix and limited range before this boundary. Do not apply video
+range expansion to the combined app image: that also changes the full-range UI.
+Protected app windows keep their stock overlay and are not claimed fixed.
+
+Keep the existing, per-texture hardware negotiation on supported GPUs, including
+the OnePlus path that previously worked. Where the override is absent or cannot
+be verified, the copy fragment now uses the IEC 61966-2-1 piecewise sRGB decode
+instead of the stock cubic approximation. The optional direct-OES fallback uses
+the same curve instead of `pow(c, 2.2)`. Alpha, tint, texture orientation, vertex
+stages, and hardware copy programs retain their prior behavior. Shader cache
+identifiers change so old software programs cannot be reused.
+
+This is a correction to the transfer boundary, with no saturation or contrast
+multiplier. It does not establish that every source buffer is sRGB or fix HDR
+and wide-gamut metadata. A video-only error after this change requires a live
+source/output dataspace trace rather than another global gamma change.
+
+The original shader and native patch tests remain as historical coverage.
+`tools/test_universal_color.py` audits the precise software-source changes,
+unchanged hardware variants, compiled GLES stages, Java negotiation and native
+selector ABI. `tools/test_overlay_routing.py` also proves the compositor audit
+rejects the retired corrections. `tools/verify_app_color_runtime.py` renders the
+actual APK fragments using a Canvas-produced RGBA SurfaceTexture and an sRGB
+framebuffer on an isolated emulator, checking grayscale, primary/secondary
+ramps and mixed RGB colors, with missing-decode and double-decode negative
+controls. The
+[external-image specification](https://registry.khronos.org/OpenGL/extensions/OES/OES_EGL_image_external.txt)
+defines sampled RGB in the source image's transfer encoding; an
+[sRGB EGL framebuffer](https://registry.khronos.org/EGL/extensions/KHR/EGL_KHR_gl_colorspace.txt)
+encodes linear fragment output on write in GLES.
+
+Neither physical phone is connected during development. A finished candidate
+still requires the same SDR video and ordinary app window to be viewed on both
+phones, including a reconnect. That checks both the new OnePlus symptom and
+Pixel's remaining saturation complaint. An emulator cannot validate the phone
+driver, SurfaceFlinger video conversion or the protected glasses scanout.
+
+Validation of the finished 2933 APK: 36 focused host tests passed; signature and
+16 KB alignment checks and the full APK audit passed. Binary comparison with
+2932 confirms the Java texture negotiation and Unity library (including routing
+and material selection) are unchanged; the compositor difference is exactly the
+removal of the retired color patches. The emulator executed all 36 software fragments
+from the APK, plus two deliberate transfer-error controls, for 262,656 RGB
+component comparisons. Corrected fragments reproduced every input byte exactly;
+both invalid controls were rejected. Its known Canvas colors had unknown
+dataspace metadata, so this is a fragment/SurfaceTexture test, not a test of
+SurfaceFlinger's video color management.
+
+APK: `artifacts/unbound-launcher-2933/the-unbound-launcher.apk`.
+SHA-256: `071e814ebf607a94c51cc85a89c4405a006e7cc9ff73334d0c2160586a65efb6`.
+Render results: `artifacts/app-color-runtime-2933/verification.json`.
+
+## Historical implementation — 2026-10-26
 
 Version 0.1.10 (2884) uses one APK for compatible ARM64 Android phones. This
 includes the 432-pixel installed-app icon loader, the existing per-glasses
@@ -68,7 +193,7 @@ It converts RGB during sampling; alpha is unaffected. The fallback retains
 XREAL's original inexpensive software approximation rather than introducing
 a new transfer curve.
 
-## Protected native overlays
+## Historical compositor experiments — 2922–2924, retired in 2933
 
 YouTube and other protected windows do not use the Unity copy material. The
 Pixel log shows `CreateQuadSurfaceLayer` / `UseProtectContent`,

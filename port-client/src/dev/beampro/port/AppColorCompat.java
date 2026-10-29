@@ -51,6 +51,8 @@ public final class AppColorCompat {
     // No GL calls here: capability negotiation happened on the render thread.
     public static boolean needsSoftwareDecode(Object owner) {
         Boolean value=software.get(owner);
+        Log.i("UnboundColor","material decode="+(value==null?"unknown":value?"shader":"hardware")
+                +" surface="+System.identityHashCode(owner));
         return value!=null&&value;
     }
 

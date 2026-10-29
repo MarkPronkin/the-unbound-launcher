@@ -26,6 +26,8 @@ public final class SettingsCompat {
     }
 
     public static boolean putGlobalInt(ContentResolver resolver, String key, int value) { return put(resolver, key, Integer.toString(value)); }
+    /** Beam-only flags, including pointer visibility, default to off when absent. */
+    public static int getGlobalInt(ContentResolver resolver, String key) { return getGlobalInt(resolver, key, 0); }
     public static int getGlobalInt(ContentResolver resolver, String key, int fallback) {
         try { return Integer.parseInt(get(resolver, key)); }
         catch (NumberFormatException ignored) { return fallback; }

@@ -23,9 +23,13 @@ final class DebugArchive {
     static final long MAX_EXPORT_BYTES = 15_000_000;
     static final int CHUNK_BYTES = 1_000_000, MAX_CHUNKS = 12;
     private final File logs, exports;
+    private final StartupTrace startup;
     private File current;
     private long sequence;
     static final int MAX_NETWORK_BYTES = 64_000, MAX_NETWORK_SNAPSHOTS = 3;
+    static final int MAX_LINK_SNAPSHOTS = 3;
+    static final int MAX_STARTUP_SNAPSHOTS = 3, MAX_STARTUP_SNAPSHOT_BYTES = 32_000;
+    static final int STARTUP_LOG_RESERVE = 300_000;
 
     DebugArchive(File directory) throws IOException {
         logs = new File(directory, "logs"); exports = new File(directory, "exports");
@@ -37,6 +41,7 @@ final class DebugArchive {
         File[] existing = chunks();
         if (existing.length > 0) sequence = Long.parseLong(existing[existing.length - 1].getName().substring(4, 16));
         trim();
+        startup = new StartupTrace(logs);
     }
 
     private File[] chunks() {
@@ -70,23 +75,50 @@ final class DebugArchive {
     }
 
     private File[] networks() {
-        File[] files = logs.listFiles((dir, name) -> name.matches("network-[0-9]{20}\\.txt"));
+        return snapshots("network");
+    }
+
+    private File[] snapshots(String prefix) {
+        File[] files = logs.listFiles((dir, name) -> name.matches(prefix + "-[0-9]{20}\\.txt"));
         if (files == null) return new File[0];
         Arrays.sort(files); return files;
     }
 
     synchronized void network(String report) throws IOException {
-        File[] previous = networks();
-        long sequence = previous.length == 0 ? 1
-                : Long.parseLong(previous[previous.length - 1].getName().substring(8, 28)) + 1;
-        File file = new File(logs, String.format(Locale.US, "network-%020d.txt", sequence));
         byte[] bytes = report.getBytes(StandardCharsets.UTF_8);
+        snapshot("network", Arrays.copyOf(bytes, Math.min(bytes.length, MAX_NETWORK_BYTES)), MAX_NETWORK_SNAPSHOTS);
+    }
+
+    synchronized void link(String report) throws IOException {
+        snapshot("display-link", DisplayDiagnostics.encode(DisplayDiagnostics.DISPLAY_LINK, report), MAX_LINK_SNAPSHOTS);
+    }
+
+    synchronized void startupBegin(boolean reset) throws IOException {
+        startup.begin(reset);
+        if (reset) for (File file : snapshots("glasses-control"))
+            if (!file.delete()) throw new IOException("Could not reset glasses control diagnostics.");
+    }
+
+    synchronized boolean startupLog(byte[] bytes, int count) throws IOException { return startup.log(bytes, count); }
+
+    synchronized void startupEvent(String attempt, String event, String detail) throws IOException { startup.event(attempt, event, detail); }
+
+    synchronized void startupSnapshot(String text) throws IOException {
+        snapshot("glasses-control", StartupTrace.encode(text, MAX_STARTUP_SNAPSHOT_BYTES), MAX_STARTUP_SNAPSHOTS);
+    }
+
+    private void snapshot(String prefix, byte[] bytes, int retain) throws IOException {
+        File[] previous = snapshots(prefix);
+        int start = prefix.length() + 1;
+        long sequence = previous.length == 0 ? 1
+                : Long.parseLong(previous[previous.length - 1].getName().substring(start, start + 20)) + 1;
+        File file = new File(logs, String.format(Locale.US, prefix + "-%020d.txt", sequence));
         try (OutputStream output = new FileOutputStream(file)) {
-            output.write(bytes, 0, Math.min(bytes.length, MAX_NETWORK_BYTES));
+            output.write(bytes);
         }
-        File[] files = networks();
-        for (int i = 0; i < files.length - MAX_NETWORK_SNAPSHOTS; i++)
-            if (!files[i].delete()) throw new IOException("Could not rotate network diagnostics.");
+        File[] files = snapshots(prefix);
+        for (int i = 0; i < files.length - retain; i++)
+            if (!files[i].delete()) throw new IOException("Could not rotate " + prefix + " diagnostics.");
     }
 
     synchronized File export(String report) throws IOException {
@@ -113,24 +145,24 @@ final class DebugArchive {
                 zip.putNextEntry(new ZipEntry("device-and-session.txt")); zip.write(metadata); zip.closeEntry();
                 zip.putNextEntry(new ZipEntry("app.log"));
                 byte[] buffer = new byte[8192];
+                boolean startupData = startup.hasData() || snapshots("glasses-control").length > 0;
+                long skip = Math.max(0, bytes() - (long) CHUNK_BYTES * MAX_CHUNKS + (startupData ? STARTUP_LOG_RESERVE : 0));
                 for (File chunk : chunks()) try (FileInputStream input = new FileInputStream(chunk)) {
+                    if (skip >= chunk.length()) { skip -= chunk.length(); continue; }
+                    while (skip > 0) {
+                        long skipped = input.skip(skip);
+                        if (skipped == 0) { if (input.read() == -1) break; skipped = 1; }
+                        skip -= skipped;
+                    }
                     int count; while ((count = input.read(buffer)) != -1) zip.write(buffer, 0, count);
                 }
                 zip.closeEntry();
-                File[] networks = networks();
-                if (networks.length > 0) {
-                    zip.putNextEntry(new ZipEntry("network-diagnostics.txt"));
-                    for (File snapshot : networks) {
-                        zip.write("\n--- Network snapshot ---\n".getBytes(StandardCharsets.UTF_8));
-                        try (InputStream input = new FileInputStream(snapshot)) {
-                            int remaining = MAX_NETWORK_BYTES, count;
-                            while (remaining > 0 && (count = input.read(buffer, 0, Math.min(buffer.length, remaining))) != -1) {
-                                zip.write(buffer, 0, count); remaining -= count;
-                            }
-                        }
-                    }
-                    zip.closeEntry();
+                if (startup.hasData()) {
+                    zip.putNextEntry(new ZipEntry("glasses-startup.txt")); zip.write(startup.report()); zip.closeEntry();
                 }
+                writeSnapshots(zip, "glasses-control.txt", snapshots("glasses-control"), MAX_STARTUP_SNAPSHOT_BYTES, "Glasses control snapshot");
+                writeSnapshots(zip, "network-diagnostics.txt", networks(), MAX_NETWORK_BYTES, "Network snapshot");
+                writeSnapshots(zip, "display-link.txt", snapshots("display-link"), DisplayDiagnostics.MAX_LINK_BYTES, "Display/link snapshot");
                 if (display != null) {
                     zip.putNextEntry(new ZipEntry("display.txt"));
                     zip.write(DisplayDiagnostics.encode(display)); zip.closeEntry();
@@ -146,6 +178,22 @@ final class DebugArchive {
         } finally {
             if (temporary.exists()) temporary.delete();
         }
+    }
+
+    private static void writeSnapshots(ZipOutputStream zip, String name, File[] snapshots, int limit, String label) throws IOException {
+        if (snapshots.length == 0) return;
+        zip.putNextEntry(new ZipEntry(name));
+        byte[] buffer = new byte[8192];
+        for (File snapshot : snapshots) {
+            zip.write(("\n--- " + label + " ---\n").getBytes(StandardCharsets.UTF_8));
+            try (InputStream input = new FileInputStream(snapshot)) {
+                int remaining = limit, count;
+                while (remaining > 0 && (count = input.read(buffer, 0, Math.min(buffer.length, remaining))) != -1) {
+                    zip.write(buffer, 0, count); remaining -= count;
+                }
+            }
+        }
+        zip.closeEntry();
     }
 
     static boolean validName(String name) { return name.matches("unbound-debug-[0-9]{8}-[0-9]{6}-[a-f0-9]{8}\\.zip"); }

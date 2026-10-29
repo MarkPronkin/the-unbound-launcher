@@ -70,10 +70,13 @@ public class LaunchSpaceAcrivity extends Activity {
 MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.presentationtest">
 <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/>
 <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 <application android:name="dev.beampro.presentationtest.PresentationDeviceChecks$App" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:debuggable="true">
 <activity android:name="dev.beampro.presentationtest.PresentationDeviceChecks$Entry" android:exported="true" android:launchMode="singleTask" android:taskAffinity="fixture.entry"/>
 <activity android:name="ai.nreal.nebula.space.LaunchSpaceAcrivity" android:exported="false" android:taskAffinity="fixture.unity" android:configChanges="orientation|screenSize"/>
 <activity android:name="dev.beampro.presentationtest.PresentationDeviceChecks$Overlay" android:exported="false" android:theme="@android:style/Theme.Translucent.NoTitleBar"/>
+<service android:name="dev.beampro.port.ArSessionService" android:exported="false" android:foregroundServiceType="connectedDevice"/>
 </application>
 <instrumentation android:name="dev.beampro.presentationtest.PresentationDeviceChecks" android:targetPackage="dev.beampro.presentationtest"/>
 </manifest>'''
@@ -89,7 +92,7 @@ def build(output):
         p=output/'src'/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(value);files.append(p)
     files.append(ROOT/'tools/PresentationDeviceChecks.java')
     files.extend(ROOT/'port-client/src/dev/beampro/port'/name for name in (
-        'PresentationOnlyCompat.java','PresentationReadiness.java','DisplayStartupCompat.java','StereoPresentationCompat.java','ArBackdropActivity.java'))
+        'PresentationOnlyCompat.java','PresentationReadiness.java','DisplayStartupCompat.java','StereoPresentationCompat.java','ArBackdropActivity.java','ArSessionService.java'))
     classes=output/'classes';classes.mkdir(exist_ok=True)
     run(JAVA/'bin/javac','--release','8','-cp',android,'-d',classes,*files)
     jar=output/'fixture.jar';run(JAVA/'bin/jar','cf',jar,'-C',classes,'.')
@@ -137,6 +140,7 @@ def run_checks(adb,apk,output):
         time.sleep(1)
     subprocess.run([*adb,'install','--no-incremental','-r',str(apk)],check=True)
     subprocess.run([*adb,'shell','appops','set','dev.beampro.presentationtest','SYSTEM_ALERT_WINDOW','allow'],check=True)
+    subprocess.run([*adb,'shell','pm','grant','dev.beampro.presentationtest','android.permission.POST_NOTIFICATIONS'],check=True)
     result=subprocess.run([*adb,'shell','am','instrument','-w','dev.beampro.presentationtest/dev.beampro.presentationtest.PresentationDeviceChecks'],capture_output=True,text=True,timeout=90)
     (output/'android-checks.log').write_text(result.stdout+result.stderr)
     print(result.stdout+result.stderr)

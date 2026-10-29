@@ -51,7 +51,7 @@ public final class ArKeepAwake implements Application.ActivityLifecycleCallbacks
 
     private boolean connected() {
         for (Display display : displays.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)) {
-            if (display.getDisplayId() != Display.DEFAULT_DISPLAY && display.getState() == Display.STATE_ON) return true;
+            if (DisplayStartupCompat.xreal(display) && display.getState() == Display.STATE_ON) return true;
         }
         return false;
     }

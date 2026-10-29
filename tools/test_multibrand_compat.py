@@ -66,6 +66,7 @@ class MultibrandCompatTests(unittest.TestCase):
                     sources=[ROOT/'bridge/src/dev/beampro/bridge'/name for name in
                              ('ManagedDisplay.java','ManagedDisplayPolicy.java','DisplaySnapshotReader.java')]
                     sources.append(ROOT/'tools/OemDisplayPlatformTest.java')
+                    sources.append(ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java")
                     self.execute(stubs,sources,'dev.beampro.bridge.OemDisplayPlatformTest',[capabilities],sdk=True)
 
 

@@ -3,17 +3,14 @@ package dev.beampro.settings;
 import static dev.beampro.settings.Signature.*;
 
 import android.app.Activity;
-import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
-import android.os.Bundle;
 import android.view.View;
 import android.view.Window;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.File;
@@ -21,32 +18,34 @@ import java.io.IOException;
 import java.util.Locale;
 
 /** Support and opt-in diagnostics share the same secondary-page navigation as About. */
-final class HelpPage extends Dialog {
+final class HelpPage extends MenuPage {
     private static final String DISCORD_INVITE = "https://discord.gg/J7t64xupfQ";
-    private final Activity activity;
     private final DebugData data;
-    private final Runnable changed = this::render;
-    private ScrollView scroll;
+    private final Runnable changed = this::refresh;
     private File export;
     private boolean busy;
     private String status;
 
     HelpPage(Activity activity) {
-        super(activity, android.R.style.Theme_Material_NoActionBar);
-        this.activity = activity; data = DebugData.get(activity);
-        setOwnerActivity(activity); setTitle("Help");
+        super(activity);
+        data = DebugData.get(activity);
+        export = data.latestExport();
     }
-    @Override protected void onCreate(Bundle state) { super.onCreate(state); render(); }
     @Override protected void onStart() {
         super.onStart();
-        Window window = getWindow(); window.setLayout(-1, -1);
+        Window window = getWindow();
         window.setBackgroundDrawable(new ColorDrawable(BACKGROUND)); window(window);
-        data.observe(changed); render();
+        data.observe(changed); refresh();
     }
     @Override protected void onStop() { data.remove(changed); super.onStop(); }
 
+    private void refresh() {
+        if (export == null || !export.isFile()) export = data.latestExport();
+        render();
+    }
+
     void render() {
-        int previousScroll = scroll == null ? 0 : scroll.getScrollY();
+        int previousScroll = scrollPosition();
         View back = back(activity, "Back", v -> dismiss()); back.setTag("help-back");
         AdaptiveLayout.DetailPage page = new AdaptiveLayout.DetailPage(activity, back);
         page.root.setContentDescription("Help"); scroll = page.scroll;
@@ -63,7 +62,7 @@ final class HelpPage extends Dialog {
         LinearLayout options = group(activity);
         options.addView(toggle("Debug mode", "Enable extra app diagnostics to help investigate a problem.",
                 "debug-enabled", data.enabled(), true, data::setEnabled));
-        options.addView(toggle("Collect debug data", "Record app logs and connection network diagnostics while you reproduce the problem. Turn off to stop.",
+        options.addView(toggle("Collect debug data", "Start before connecting the glasses, then reproduce the problem. Keeps the first startup failure and recent attempts. Turn off to stop.",
                 "debug-collecting", data.collecting(), data.enabled(), data::setCollecting));
         page.body.addView(options);
 
@@ -74,7 +73,7 @@ final class HelpPage extends Dialog {
                 : "Enable debug mode and collect data while you reproduce the problem.";
         if (data.error != null) description = data.error;
         add(page.body, text(activity, description, SUPPORTING, TEXT_SECONDARY), 4, 0);
-        add(page.body, text(activity, "Creating a debug file also captures display and SurfaceFlinger diagnostics. Keep the glasses connected until it is ready. Files stay on your device until you share them. Logs, network addresses, display identifiers and app/window names may contain personal information. Each ZIP is limited to 15 MB.",
+        add(page.body, text(activity, "Create a debug file while the problem is visible and keep the glasses connected until it is ready. It includes the first failed startup, recent SDK and firmware messages, glasses connection snapshots, display and USB/DisplayPort diagnostics. Retrying does not replace the first failure. Some phones restrict socket, interface and kernel data; unavailable sources are recorded. Files stay on your device until you share them. Logs, network addresses, device/display identifiers and app/window names may contain personal information. Each ZIP is limited to 15 MB.",
                 SUPPORTING, TEXT_SECONDARY), 12, 0);
 
         Button create = button(activity, busy ? "Preparing debug file…" : export == null ? "Create debug file" : "Create new debug file", PRIMARY);
@@ -118,7 +117,7 @@ final class HelpPage extends Dialog {
     }
 
     private void prepare() {
-        busy = true; status = "Preparing logs, display and network diagnostics. Keep the glasses connected until the file is ready…"; render();
+        busy = true; status = "Preparing logs, USB/DisplayPort, display and network diagnostics. Keep the glasses connected until the file is ready…"; render();
         data.files.execute(() -> {
             File file = null; String error = null;
             try { file = data.export(); }

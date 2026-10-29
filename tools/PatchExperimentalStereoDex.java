@@ -36,14 +36,23 @@ public final class PatchExperimentalStereoDex {
     }
     static Method patch(Method method) {
         if (!method.getParameterTypes().isEmpty() || !method.getReturnType().equals("I")
-                || method.getImplementation() == null || method.getImplementation().getRegisterCount() > 16)
+                || (method.getAccessFlags() & AccessFlags.STATIC.getValue()) != 0
+                || method.getImplementation() == null || method.getImplementation().getRegisterCount() < 1
+                || method.getImplementation().getRegisterCount() >= 16)
             throw new IllegalStateException("Unexpected display selector signature");
-        var mutable = new MutableMethodImplementation(method.getImplementation());
+        var original = method.getImplementation();
+        int owner = original.getRegisterCount();
+        // D8 reuses the old p0 for the G-series log string. Increasing the
+        // register count moves the incoming receiver to an untouched register;
+        // copy it to the old slot so every original instruction still works.
+        var mutable = new MutableMethodImplementation(new ImmutableMethodImplementation(owner + 1,
+            original.getInstructions(), original.getTryBlocks(), original.getDebugItems()));
         for (var instruction : mutable.getInstructions())
             if (instruction instanceof ReferenceInstruction ref && ref.getReference() instanceof MethodReference call
                     && call.getDefiningClass().equals(POLICY))
                 throw new IllegalStateException("Experimental stereo already patched");
-        int returns = 0, owner = mutable.getRegisterCount() - 1;
+        mutable.addInstruction(0, new BuilderInstruction22x(Opcode.MOVE_OBJECT_FROM16, owner - 1, owner));
+        int returns = 0;
         // Insert backwards so each original RETURN (and its incoming branches)
         // becomes the filter call, with the actual return immediately after it.
         for (int index = mutable.getInstructions().size() - 1; index >= 0; index--) {

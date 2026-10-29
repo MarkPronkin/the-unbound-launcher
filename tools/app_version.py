@@ -77,6 +77,7 @@ def write_java_version(directory, version, base):
                     "/** Generated from version.json and the verified base APK. */\n"
                     "public final class AppVersion {\n"
                     f"    public static final String NAME = {json.dumps(version['version_name'])};\n"
+                    f"    public static final int CODE = {version['version_code']};\n"
                     f"    public static final String BASE_NAME = {json.dumps(base['version_name'])};\n"
                     "    private AppVersion() {}\n}\n")
     return path

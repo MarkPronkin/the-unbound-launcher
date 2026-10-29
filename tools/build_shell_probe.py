@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import zipfile
+from rog_r1 import IDENTITY_SOURCE
 
 ROOT = Path(__file__).resolve().parents[1]
 SDK = Path(os.environ.get("ANDROID_HOME", str(Path.home() / "Library/Android/sdk")))
@@ -26,7 +27,7 @@ def main():
     (BUILD / "classes").mkdir(parents=True)
     (BUILD / "dex").mkdir()
     run(JAVA / "bin/javac", "--release", "8", "-classpath", PLATFORM, "-d", BUILD / "classes",
-        *sorted((ROOT / "bridge/src").rglob("*.java")),
+        IDENTITY_SOURCE, *sorted((ROOT / "bridge/src").rglob("*.java")),
         ROOT / "settings-ui/src/dev/beampro/settings/NetworkDiagnostics.java",
         ROOT / "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java")
     run(JAVA / "bin/jar", "cf", BUILD / "classes.jar", "-C", BUILD / "classes", ".")
@@ -46,7 +47,7 @@ def main():
     client = ROOT / "artifacts/port-client"
     (client / "classes").mkdir(parents=True, exist_ok=True)
     run(JAVA / "bin/javac", "--release", "8", "-classpath", PLATFORM, "-d", client / "classes",
-        *sorted((ROOT / "port-client/src").rglob("*.java")))
+        IDENTITY_SOURCE, *sorted((ROOT / "port-client/src").rglob("*.java")))
     run(JAVA / "bin/jar", "cf", client / "classes.jar", "-C", client / "classes", ".")
     run(TOOLS / "d8", "--min-api", "29", "--lib", PLATFORM, "--output", client, client / "classes.jar")
     print(client / "classes.dex")

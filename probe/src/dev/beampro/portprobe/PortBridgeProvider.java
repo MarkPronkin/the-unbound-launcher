@@ -41,7 +41,7 @@ public final class PortBridgeProvider extends ContentProvider {
         if ("flag-put".equals(method) || "flag-get".equals(method)) {
             if (arg == null || !java.util.Arrays.asList("xreal.navigation_enable", "xreal.navigation_focus",
                     "xreal.flag.not_focusable", "xreal.launcher_is_ready", "xreal_vids",
-                    "xreal_glass_connected", "xreal_glass_connected_plugin").contains(arg)) {
+                    "xreal_glass_connected", "xreal_glass_connected_plugin", "xreal_hide_pointicon").contains(arg)) {
                 throw new IllegalArgumentException("Unknown Beam-only flag");
             }
             android.content.SharedPreferences state = getContext().getSharedPreferences("port-beam-flags", 0);

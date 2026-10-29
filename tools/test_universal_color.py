@@ -11,8 +11,10 @@ import tempfile
 import unittest
 import zipfile
 
-from app_color import (APP_SHADER,SOFTWARE_SHADER,LIBRARY,OES_UI_SHADER,OES_STEREO_SHADER,
-                       automatic_app_shader,direct_oes_shader,patch_color_native,patch_color_dex,native_spec)
+from app_color import (APP_SHADER,SOFTWARE_SHADER,LIBRARY,OES_UI_SHADER,OES_STEREO_SHADER,OES_SHADERS,
+                       automatic_app_shader,direct_oes_shader,patch_color_native,patch_color_dex,native_spec,
+                       _exact_app_source,srgb_decode_expression)
+from unity_shader_loader import ENGINE, UnityProgramReader, validate_shader_programs
 from build_embedded_adb import BASE,ROOT
 sys.path.insert(0,str(ROOT/'artifacts/tools/python'))
 import UnityPy
@@ -80,14 +82,16 @@ class UniversalColorTests(unittest.TestCase):
             self.assertIn('app-color capability assertions',result)
             print(result.strip())
 
-    def test_shader_uses_exact_stock_hardware_and_software_programs(self):
+    def test_shader_preserves_hardware_programs_and_only_refines_software_transfer(self):
         before,hardware=shader(self.raw[APP_SHADER]);_,software=shader(self.raw[SOFTWARE_SHADER]);after,auto=shader(self.auto)
         self.assertEqual(len(auto),49)
         counts={False:0,True:0}
         for index,(h,s,a) in enumerate(zip(hardware,software,auto)):
             if index==0:continue # Unity China baked metadata, not a GPU program.
             decode='GAMMA_TO_LINEAR' in h.m_Keywords
-            self.assertEqual(a.__dict__,(s if decode else h).__dict__)
+            expected=copy.deepcopy((s if decode else h).__dict__)
+            if decode:expected['m_ProgramCode']=_exact_app_source(bytes(s.m_ProgramCode))
+            self.assertEqual(a.__dict__,expected)
             if index:counts[decode]+=1
         self.assertEqual(counts,{False:24,True:24})
         for tree in (before,after):
@@ -96,6 +100,50 @@ class UniversalColorTests(unittest.TestCase):
                 for shader_pass in sub['m_Passes']:
                     shader_pass.pop('m_EditorDataHash');shader_pass['m_State'].pop('gpuProgramID')
         self.assertEqual(before,after)
+
+    def test_exact_decode_is_present_only_in_selected_rgb_fragments(self):
+        _,programs=shader(self.auto)
+        for program in programs[1:]:
+            code=bytes(program.m_ProgramCode)
+            if 'GAMMA_TO_LINEAR' in program.m_Keywords:
+                self.assertIn(b'return '+srgb_decode_expression(b'sRGB')+b';',code)
+                self.assertNotIn(b'0.305306011F',code)
+                self.assertIn(b'gl_FragColor = vec4(GammaToLinearSpace(result), 1.0f);',code)
+            else:
+                self.assertNotIn(srgb_decode_expression(b'sRGB'),code)
+                self.assertIn(b'gl_FragColor = vec4(result, 1.0f);',code)
+
+    def test_actual_unity_loader_accepts_all_records_and_rejects_dropped_metadata(self):
+        with zipfile.ZipFile(BASE) as archive:
+            reader=UnityProgramReader(archive.read(ENGINE))
+        for name in (APP_SHADER,*OES_SHADERS):
+            candidate=self.auto if name==APP_SHADER else direct_oes_shader(self.raw[name])
+            self.assertEqual(validate_shader_programs(candidate,reader),48 if name==APP_SHADER else 6)
+            obj=UnityPy.load(candidate).objects[0];tree=obj.read_typetree()
+            blob=CompressionHelper.decompress_lz4(bytes(tree['compressedBlob']),tree['decompressedLengths'][0][0])
+            count=struct.unpack_from('<I',blob)[0]
+            for index in range(1,count):
+                offset,length,segment=struct.unpack_from('<III',blob,4+index*12)
+                record=blob[offset:offset+length]
+                version=record.index(b'#version');size=struct.unpack_from('<I',record,version-4)[0]
+                suffix=record[(version+size+3)&~3:]
+                self.assertEqual(suffix,bytes(8))
+                # Reproduce the exact 2933/2934 packaging mistake. The stock
+                # engine rejects these bytes before compiling any GLSL.
+                self.assertFalse(reader.accepts(record[:-8]))
+
+    def test_source_rewriter_preserves_nonzero_metadata_and_alignment(self):
+        from app_color import _rewrite_program
+        prefix=bytes(28)
+        code=b'#version 300 es\nvoid main(){}'
+        body=prefix+struct.pack('<I',len(code))+code
+        suffix=bytes.fromhex('7856341201000000efcdab89')
+        record=body+bytes((-len(body))%4)+suffix
+        for extra in range(5):
+            rewritten=_rewrite_program(record,lambda value:value+b' '*extra)
+            end=(32+len(code)+extra+3)&~3
+            self.assertEqual(rewritten[end:],suffix)
+            self.assertEqual(struct.unpack_from('<I',rewritten,28)[0],len(code)+extra)
 
     def test_all_auto_shader_stages_compile(self):
         _,programs=shader(self.auto)
@@ -146,7 +194,7 @@ class UniversalColorTests(unittest.TestCase):
         active=b'col.xyz = mix(col.xyz, gammaToLinear(col.xyz), _DecodeGamma);'
         comment=b'//\t\t\t\t\tcol.xyz = gammaToLinear(col.xyz);'
         uniform=b'uniform float _DecodeGamma;'
-        for name,program_id in ((OES_UI_SHADER,10011),(OES_STEREO_SHADER,10012)):
+        for name,program_id in ((OES_UI_SHADER,10015),(OES_STEREO_SHADER,10016)):
             original=self.raw[name];patched=direct_oes_shader(original)
             self.assertNotEqual(patched,original)
             stock,_=shader(original);stock_blob=CompressionHelper.decompress_lz4(bytes(stock['compressedBlob']),stock['decompressedLengths'][0][0])
@@ -168,6 +216,8 @@ class UniversalColorTests(unittest.TestCase):
                 source=bytes(program.m_ProgramCode)
                 self.assertTrue(source.startswith(b'#version 300 es\n'))
                 self.assertEqual(source.count(active),1);self.assertEqual(source.count(uniform),1);self.assertNotIn(comment,source)
+                self.assertIn(b'return '+srgb_decode_expression(b'v')+b';',source)
+                self.assertNotIn(b'const float gamma = 2.2;',source)
                 vertex,fragment=source.split(b'#ifdef FRAGMENT',1)
                 self.assertNotIn(b'_DecodeGamma',vertex);self.assertEqual(fragment.count(uniform),1);self.assertIn(active,fragment)
 

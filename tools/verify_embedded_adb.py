@@ -10,25 +10,34 @@ import subprocess
 import tempfile
 import zipfile
 
-from branding import _pool_strings
+from branding import APP_NAME, _pool_strings, app_name_values, patch_resources
 from build_port_bootstrap import chunks
 from build_embedded_adb import BASE, BASE_SHA, ROOT, sha256, VERSION
 from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, SAMPLING_MARK
+from phone_pointer import ENTRY as POINTER_LIBRARY, MARKER as POINTER_MARKER
 from app_version import manifest_version
+from permission_manifest import MENU_ACTIVITY, MENU_CONFIG_CHANGES, MENU_ORIGINAL_ACTIVITIES, MENU_THEME_RESOURCE
 from embedded_adb_manifest import AUTHORITY, patch_release_manifest, patch_usb_attach_manifest
 from adaptive_manifest import patch_adaptive_manifest
 from display_startup import patch_display_startup
 from presentation_only import patch_presentation
-from app_color import APP_SHADER, LIBRARY, OES_SHADERS, verify_app_shader, verify_direct_oes_shaders, patch_color_dex, patch_color_native
+from app_color import APP_SHADER, LIBRARY, OES_SHADERS, verify_app_shader, verify_direct_oes_shaders, verify_native_shader_loading, patch_color_dex, patch_color_native
 from icon_resolution import patch_icon_resolution
 from usb_permission import patch_usb_permission, patch_controller_usb_permission
 from connection_startup import patch_connection_startup, patch_connection_theme_manifest
 from disconnect_audio import patch_disconnect_audio
+from controller_mode import patch_controller_mode
+from home_button import patch_home_button
+from input_compat import patch_input_compat
 from ping_cancellation import patch_ping_cancellation
 from glasses_startup import patch_glasses_startup
 from ethernet_ping import patch_ethernet_ping
+from notifications import patch_notifications
+from rog_r1 import patch_rog_r1
 from display_mode_compat import LIBRARY as MODE_LIBRARY, patch_display_mode, verify_display_mode
-from overlay_color import patch_overlay_color, verify_overlay_color
+from egl_colorspace_compat import patch_egl_colorspace, verify_egl_colorspace
+from overlay_routing import patch_overlay_routing, verify_overlay_routing
+from app_surface_routing import patch_surface_routing, verify_surface_routing
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
@@ -115,12 +124,19 @@ def verify(apk):
         auto_receiver=[a for t,a in entries if t=='receiver' and a.get('name')=='dev.beampro.adb.AutoGlassesReceiver']
         assert len(auto_receiver)==1 and auto_receiver[0]['exported']==0
         for entry in before:
+            if entry[0] == 'activity' and entry[1].get('name') in MENU_ORIGINAL_ACTIVITIES:
+                entry = (entry[0], {**entry[1], 'theme': MENU_THEME_RESOURCE})
             if entry[0] not in ("manifest",): assert entry in entries, entry
+        menus = [attrs for tag, attrs in entries if tag == 'activity' and attrs.get('name') == MENU_ACTIVITY]
+        assert menus == [{'name': MENU_ACTIVITY, 'exported': 0, 'configChanges': MENU_CONFIG_CHANGES}]
         backdrop=[a for t,a in entries if t=='activity' and a.get('name')=='dev.beampro.port.ArBackdropActivity']
         assert len(backdrop)==1 and backdrop[0]['exported']==0
         renderer=[a for t,a in entries if t=='activity' and a.get('name')=='ai.nreal.nebula.space.LaunchSpaceAcrivity']
         assert len(renderer)==1 and renderer[0]['process']==':space'
         assert backdrop[0]['process']==renderer[0]['process'] and backdrop[0]['theme']==16974383
+        ar_service=[a for t,a in entries if t=='service' and a.get('name')=='dev.beampro.port.ArSessionService']
+        assert len(ar_service)==1 and ar_service[0]['exported']==0
+        assert ar_service[0]['process']==renderer[0]['process'] and ar_service[0]['foregroundServiceType']==16
         definitions = {}; duplicate = []
         for name in z.namelist():
             if not (name.startswith("classes") and name.endswith(".dex")): continue
@@ -129,7 +145,7 @@ def verify(apk):
                 definitions[cls] = name
         assert not duplicate, duplicate
         for required in ["dev/beampro/adb/LocalAdb", "dev/beampro/adb/AdbBootstrap", "dev/beampro/adb/LocalBridgeProvider", "dev/beampro/adb/PhoneSetupHelp", "io/github/muntashirakon/crypto/spake2/Spake2Context", "org/conscrypt/Conscrypt", "dev/beampro/settings/AdaptiveLayout", "dev/beampro/settings/AppVersion",
-                         "dev/beampro/settings/HelpPage", "dev/beampro/settings/DebugData",
+                         "dev/beampro/settings/HelpPage", "dev/beampro/settings/MenuActivity", "dev/beampro/settings/DebugData",
                          "dev/beampro/settings/DebugArchive", "dev/beampro/settings/DebugFileProvider"]:
             assert "L" + required + ";" in definitions
         assert VERSION["version_name"].encode() in z.read(definitions["Ldev/beampro/settings/AppVersion;"])
@@ -137,23 +153,34 @@ def verify(apk):
         assert b"dev.beampro.portprobe.bridge" not in z.read("classes4.dex")
         assert "Ldev/beampro/port/DisplayStartupCompat;" in definitions
         assert "Ldev/beampro/port/PresentationOnlyCompat;" in definitions
+        assert "Ldev/beampro/port/ArSessionService;" in definitions
         assert "Ldev/beampro/settings/ExperimentalPresentation;" not in definitions
         assert "Ldev/beampro/port/StereoPresentationCompat;" in definitions
         assert "Ldev/beampro/port/ArBackdropActivity;" in definitions
         assert "Ldev/beampro/port/HeadsetIconCompat;" in definitions
         assert "Ldev/beampro/port/AppColorCompat;" in definitions
+        assert "Ldev/beampro/port/AppSurfacePolicy;" in definitions
         assert "Ldev/beampro/port/UsbPermissionCompat;" in definitions
         assert "Ldev/beampro/port/GlassesConnectionCompat;" in definitions
+        assert "Ldev/beampro/port/ConnectionHandoff;" in definitions
         assert "Ldev/beampro/port/PingCallbackCompat;" in definitions
         assert "Ldev/beampro/port/EthernetReadinessCompat;" in definitions
         assert "Ldev/beampro/port/GlassesStartupCompat;" in definitions
+        assert "Ldev/beampro/port/RogR1Compat;" in definitions
+        assert "Ldev/beampro/compat/GlassesIdentity;" in definitions
+        assert z.read("assets/settings/widget_rog_r1.png") == (ROOT / "branding/glasses/r1/widget_rog_r1.png").read_bytes()
+        assert "Ldev/beampro/port/PhonePointerCompat;" in definitions
+        assert POINTER_MARKER in z.read(POINTER_LIBRARY)
+        assert b"il2cpp_runtime_invoke" in z.read(POINTER_LIBRARY)
+        assert b"nativeReadyFrame" not in z.read(POINTER_LIBRARY), "Startup must not depend on optional pointer internals"
         assert "Ldev/beampro/settings/NetworkDiagnostics;" in definitions
         assert "Ldev/beampro/settings/DebugNetwork;" in definitions
         assert "Ldev/beampro/adb/AutoGlassesReceiver;" in definitions
         assert "Ldev/beampro/settings/TermsConsent;" in definitions
         assert "Ldev/beampro/settings/ExperimentalStereo;" in definitions
         assert b"force-3d-sbs" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
-        assert b"force-2d-60" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
+        assert b"force-2d-60" not in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
+        assert b"Use 60 Hz in 2D" not in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
         for cls in ('AppUpdater', 'UpdateClient', 'ReleaseVersion', 'UpdateInstallActivity', 'UpdateFileProvider'):
             assert 'Ldev/beampro/settings/' + cls + ';' in definitions
         assert 'Ldev/beampro/settings/AppUpdateChecks;' not in definitions
@@ -166,6 +193,9 @@ def verify(apk):
                         str(Path(__file__).with_name("VerifyConnectionStartupDex.java")), str(apk)], check=True)
         subprocess.run([str(java / "bin/java"), "--class-path",
                         str(BASE.parents[1] / "tools/jadx-1.5.6/lib/jadx-1.5.6-all.jar"),
+                        str(Path(__file__).with_name("VerifyConnectionHandoffDex.java")), str(apk)], check=True)
+        subprocess.run([str(java / "bin/java"), "--class-path",
+                        str(BASE.parents[1] / "tools/jadx-1.5.6/lib/jadx-1.5.6-all.jar"),
                         str(Path(__file__).with_name("VerifySkipOtaDex.java")), str(apk)], check=True)
         with tempfile.TemporaryDirectory() as work:
             legacy_main = repackage_dex(z.read("classes.dex"), Path(work) / "identity-main", java, restore=True)
@@ -175,7 +205,11 @@ def verify(apk):
             controller_base=patch_controller_usb_permission(presentation_base,Path(work)/"controller-base",java)
             connection_base=patch_connection_startup(controller_base,Path(work)/"connection-base",java)
             ota_base=patch_skip_ota(connection_base,Path(work)/"ota-base",java)
-            stereo=patch_stereo_dex(legacy_main,Path(work)/"stereo",java,restore=True,baseline=ota_base)
+            stereo_base=patch_stereo_dex(ota_base,Path(work)/"stereo-base",java)
+            home_base=patch_home_button(stereo_base,Path(work)/"home-base",java)
+            legacy_main=patch_input_compat(legacy_main,Path(work)/"keyboard-input",java,restore=True,baseline=home_base)
+            home=patch_home_button(legacy_main,Path(work)/"home-button",java,restore=True,baseline=stereo_base)
+            stereo=patch_stereo_dex(home,Path(work)/"stereo",java,restore=True,baseline=ota_base)
             ota=patch_skip_ota(stereo,Path(work)/"skip-ota",java,restore=True,baseline=connection_base)
             connection=patch_connection_startup(ota,Path(work)/"connection",java,restore=True,baseline=controller_base)
             controller=patch_controller_usb_permission(connection,Path(work)/"controller",java,restore=True,baseline=presentation_base)
@@ -190,25 +224,41 @@ def verify(apk):
             color_base=patch_color_dex(icon_base,Path(work)/"color-base",java)
             usb_base=patch_usb_permission(color_base,Path(work)/"usb-base",java)
             audio_base=patch_disconnect_audio(usb_base,Path(work)/"audio-base",java)
-            ping_base=patch_ping_cancellation(audio_base,Path(work)/"ping-base",java)
+            mode_base=patch_controller_mode(audio_base,Path(work)/"mode-base",java)
+            ping_base=patch_ping_cancellation(mode_base,Path(work)/"ping-base",java)
             glasses_base=patch_glasses_startup(ping_base,Path(work)/"glasses-base",java)
-            restored=patch_ethernet_ping(legacy_icons,Path(work)/"ethernet-ping",java,restore=True,baseline=glasses_base)
+            ethernet_base=patch_ethernet_ping(glasses_base,Path(work)/"ethernet-base",java)
+            notifications_base=patch_notifications(ethernet_base,Path(work)/"notifications-base",java)
+            rog_base=patch_rog_r1(notifications_base,Path(work)/"rog-base",java)
+            legacy_icons=patch_input_compat(legacy_icons,Path(work)/"pointer-input",java,restore=True,baseline=rog_base)
+            legacy_icons=patch_rog_r1(legacy_icons,Path(work)/"rog-r1",java,restore=True,baseline=notifications_base)
+            restored=patch_notifications(legacy_icons,Path(work)/"notifications",java,restore=True,baseline=ethernet_base)
+            restored=patch_ethernet_ping(restored,Path(work)/"ethernet-ping",java,restore=True,baseline=glasses_base)
             restored=patch_glasses_startup(restored,Path(work)/"glasses-startup",java,restore=True,baseline=ping_base)
-            restored=patch_ping_cancellation(restored,Path(work)/"ping-cancellation",java,restore=True,baseline=audio_base)
+            restored=patch_ping_cancellation(restored,Path(work)/"ping-cancellation",java,restore=True,baseline=mode_base)
+            restored=patch_controller_mode(restored,Path(work)/"controller-mode",java,restore=True,baseline=audio_base)
             restored=patch_disconnect_audio(restored,Path(work)/"disconnect-audio",java,restore=True,baseline=usb_base)
             restored=patch_usb_permission(restored,Path(work)/"usb",java,restore=True,baseline=color_base)
             restored=patch_color_dex(restored,Path(work)/"colors",java,restore=True,baseline=icon_base)
             restored = patch_icon_resolution(restored,Path(work)/"icons",java,restore=True,baseline=base.read("classes2.dex"))
             assert restored == base.read("classes2.dex"), "Headset icon hook scope differs from the baseline"
-            native = patch_startup_tutorial(patch_stereo_native(patch_binary_identity(LIBRARY, z.read(LIBRARY), restore=True), restore=True), restore=True)
+            routed = patch_binary_identity(LIBRARY, z.read(LIBRARY), restore=True)
+            surface_report = verify_surface_routing(routed)
+            routed = patch_surface_routing(routed, restore=True)
+            routing_report = verify_overlay_routing(routed)
+            native = patch_startup_tutorial(patch_stereo_native(patch_overlay_routing(routed, restore=True), restore=True), restore=True)
             assert patch_color_native(native,restore=True)==base.read(LIBRARY), "Native color/tutorial/stereo patch scope differs"
         mode_library = z.read(MODE_LIBRARY)
-        overlay_report = verify_overlay_color(mode_library)
-        mode_only = patch_overlay_color(mode_library, restore=True)
-        mode_report = verify_display_mode(mode_only)
-        assert patch_display_mode(mode_only, restore=True) == base.read(MODE_LIBRARY)
+        egl_report = verify_egl_colorspace(mode_library)
+        mode_library = patch_egl_colorspace(mode_library, restore=True)
+        mode_report = verify_display_mode(mode_library)
+        assert patch_display_mode(mode_library, restore=True) == base.read(MODE_LIBRARY)
+        overlay_report = {'compositor_color_patches_enabled': False,
+                          'stock_compositor_color_pipeline_verified': True}
+        assert app_name_values(z.read("resources.arsc")) == (APP_NAME,) * len(app_name_values(base.read("resources.arsc")))
         for name in ("resources.arsc", METADATA):
-            assert patch_binary_identity(name, z.read(name), restore=True) == base.read(name), name
+            expected = patch_resources(base.read(name)) if name == "resources.arsc" else base.read(name)
+            assert patch_binary_identity(name, z.read(name), restore=True) == expected, name
         # Scan all runtime payloads, including Unity metadata and libraries. The
         # corresponding-source ZIP intentionally documents the original identity.
         for name in z.namelist():
@@ -222,8 +272,12 @@ def verify(apk):
         with zipfile.ZipFile(io.BytesIO(helper)) as h:
             server = h.read("classes.dex")
             assert "Ldev/beampro/bridge/XrealUsbPermissions;" in classes(server)
+            assert "Ldev/beampro/compat/GlassesIdentity;" in classes(server)
             assert "Ldev/beampro/bridge/AutoArEntry;" in classes(server)
             assert "Ldev/beampro/bridge/GlassesNetworkProbe;" in classes(server)
+            assert "Ldev/beampro/bridge/GlassesEthernet;" in classes(server)
+            assert "Ldev/beampro/bridge/GlassesEthernet$Worker;" in classes(server)
+            assert b"setEthernetEnabled" in server and b"UNBOUND_ETHERNET_ENABLED" in server
             assert b"dev.beampro.bridge.GLASSES_PING" in server
             assert "Ldev/beampro/settings/NetworkDiagnostics;" in classes(server)
             assert b"dev.beampro.bridge.NETWORK_DIAGNOSTICS" in server
@@ -232,6 +286,17 @@ def verify(apk):
             assert b"dev.beampro.bridge.DISPLAY_DIAGNOSTICS" in server
             assert b"SurfaceFlinger" in server and b"createPipe" in server
             assert "Ldev/beampro/settings/DebugDisplay;" in definitions
+            assert "Ldev/beampro/settings/StartupTrace;" in definitions
+            diagnostics = z.read(definitions["Ldev/beampro/settings/DebugData;"])
+            startup_archive = z.read(definitions["Ldev/beampro/settings/DebugArchive;"])
+            assert b"glasses-startup.txt" in startup_archive and b"glasses-control.txt" in startup_archive
+            assert b"captureControl" in diagnostics and b"connectionEvent" in diagnostics
+            assert b"Glasses control channel" in server and b"Interface counter deltas" in server
+            for marker in (b"USB/DisplayPort link", b"UsbPortManager:V", b"/system/bin/dmesg", b"/sys/class/drm/card*-DP-*",
+                           b"displayport/pin_assignment", b"display-policy.properties"):
+                assert marker in server and marker in diagnostics, marker
+            for marker in (b"display-link.txt", b"captureLink", b"baseline before reproducing"):
+                assert marker in diagnostics, marker
             assert b"BEAM_XREAL_USB_GRANTED" in server and b"dev.beampro.bridge.XREAL_USB" in server
             assert b"AUTO_DESKTOP" not in server and b"presentationOnly" not in server
             assert AUTHORITY.encode() in server and b"dev.beampro.portprobe.bridge" not in server
@@ -250,6 +315,8 @@ def verify(apk):
                                 str(Path(__file__).with_name("VerifyProviderCallDex.java")),str(dex)],check=True)
                 client=Path(work)/"client.dex";client.write_bytes(z.read("classes4.dex"))
                 subprocess.run([str(java/"bin/java"),"--class-path",str(BASE.parents[1]/"tools/jadx-1.5.6/lib/jadx-1.5.6-all.jar"),
+                                str(Path(__file__).with_name("VerifyPhoneScreenDex.java")),str(dex),str(client)],check=True)
+                subprocess.run([str(java/"bin/java"),"--class-path",str(BASE.parents[1]/"tools/jadx-1.5.6/lib/jadx-1.5.6-all.jar"),
                                 str(Path(__file__).with_name("VerifyUsbPermissionDex.java")),str(dex),str(client),str(apk)],check=True)
                 subprocess.run([str(java/"bin/java"),"--class-path",str(BASE.parents[1]/"tools/jadx-1.5.6/lib/jadx-1.5.6-all.jar"),
                                 str(Path(__file__).with_name("VerifyAutoArEntryDex.java")),str(dex),str(apk)],check=True)
@@ -260,16 +327,39 @@ def verify(apk):
         with zipfile.ZipFile(io.BytesIO(z.read("assets/unbound-adb/pairing-sources.zip"))) as sources:
             assert json.loads(sources.read("version.json")) == VERSION
             assert sources.read("tools/app_version.py")
+            for name in ("compat/src/dev/beampro/compat/GlassesIdentity.java",
+                         "port-client/src/dev/beampro/port/RogR1Compat.java",
+                         "tools/rog_r1.py", "tools/PatchRogR1Dex.java",
+                         "tools/egl_colorspace_compat.py",
+                         "port-client/src/dev/beampro/port/ArSessionService.java",
+                         "port-client/src/dev/beampro/port/ConnectionHandoff.java",
+                         "port-client/src/dev/beampro/port/ConnectionAnimation.java",
+                         "port-client/src/dev/beampro/port/GlassesConnectionCompat.java",
+                         "port-client/src/dev/beampro/port/PhonePointerCompat.java",
+                         "port-client/src/dev/beampro/port/HomeButtonCompat.java",
+                         "port-client/src/dev/beampro/port/KeyboardCompat.java",
+                         "port-client/src/dev/beampro/port/SettingsCompat.java",
+                         "port-client/src/dev/beampro/port/PresentationOnlyCompat.java",
+                         "tools/PatchPresentationDex.java", "tools/embedded_adb_manifest.py", "tools/permission_manifest.py",
+                         "embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java"):
+                assert sources.read(name) == (ROOT / name).read_bytes(), "Bundled runtime source differs"
             for name in ("skip_ota.py", "PatchSkipOtaDex.java", "startup_tutorial.py", "updater_manifest.py", "debug_manifest.py",
                          "experimental_stereo.py", "experimental_stereo.S", "experimental_stereo_native.json", "PatchExperimentalStereoDex.java",
                          "package_identity.py", "RepackageDex.java", "ping_cancellation.py", "PatchPingCancellationDex.java",
                          "glasses_startup.py", "PatchGlassesStartupDex.java", "ethernet_ping.py", "PatchEthernetPingDex.java",
-                         "display_mode_compat.py", "hardware_buffer_texture.py"):
+                         "notifications.py", "PatchNotificationsDex.java",
+                         "display_mode_compat.py", "overlay_routing.py", "app_surface_routing.py",
+                         "app_surface_routing.S", "app_surface_routing_native.json", "unity_shader_loader.py", "hardware_buffer_texture.py", "phone_pointer.py",
+                         "controller_mode.py", "PatchControllerModeDex.java", "home_button.py", "PatchHomeButtonDex.java",
+                         "input_compat.py", "PatchInputCompatDex.java"):
                 assert sources.read("tools/" + name) == Path(__file__).with_name(name).read_bytes(), "Bundled patch source differs"
             assert sources.read("native/hardware-buffer-texture/library.c") == (ROOT / "native/hardware-buffer-texture/library.c").read_bytes()
+            for name in ("library.c", "pointer_state.h"):
+                assert sources.read("native/phone-pointer/" + name) == (ROOT / "native/phone-pointer" / name).read_bytes()
         changed = [n for n in base.namelist() if not n.upper().startswith("META-INF/") and base.read(n) != z.read(n)]
         color_report=verify_app_shader(z,base)
         color_report.update(verify_direct_oes_shaders(z,base))
+        color_report.update(verify_native_shader_loading(z))
         assert color_report['automatic_decode_selection'] and color_report['direct_oes_software_uniform']
         expected={"classes.dex", "classes2.dex", "classes3.dex", "classes4.dex", "classes5.dex", "AndroidManifest.xml", "resources.arsc", METADATA, APP_SHADER,*OES_SHADERS,LIBRARY,MODE_LIBRARY,TEXTURE_LIBRARY}
         assert set(changed) == expected, changed
@@ -286,17 +376,24 @@ def verify(apk):
             "help_menu_and_private_debug_zip_provider_packaged": True,
             "bounded_network_diagnostics_in_app_and_helper": True,
             "bounded_display_and_surfaceflinger_dumps_over_pipe": True,
+            "display_link_sources_and_retained_snapshots_in_app_and_helper": True,
             "sdk_ping_cancellation_callback_guard_wired": True,
             "sdk_ethernet_probe_delegates_to_fixed_shell_ping": True,
+            "notification_delivery_uses_native_app_fallback_with_exact_dex_scope": True,
             "bundled_source_version_matches_package": True,
             "xreal_usb_request_hook_restores_exact_baseline": True,
             "xreal_usb_helper_and_deferred_callback_wired": True,
+            "phone_screen_client_helper_routing_and_distinct_transactions_verified": True,
+            "phone_screen_pointer_pose_raycast_and_visibility_control_packaged": True,
             "android_11_provider_contract_adapter_wired": True,
             "manufacturer_setup_help_packaged": True,
             "class_definitions": len(definitions), "duplicate_classes": 0, "original_permissions_preserved": True,
             "native_libraries_unchanged_except_audited_color_tutorial_stereo_mode_and_overlay": True,
             "display_mode_compatibility": mode_report,
+            "egl_colorspace_compatibility": egl_report,
             "overlay_color": overlay_report,
+            "overlay_routing": routing_report,
+            "app_surface_routing": surface_report,
             "automatic_first_use_tutorial_disabled_with_exact_native_scope": True,
             "experimental_stereo_default_off_and_both_selectors_scoped": True,
             "all_original_resources_except_audited_app_shader_and_package_identity_identical": True,
@@ -307,8 +404,11 @@ def verify(apk):
             "display_startup_hooks_restore_exact_baseline": True,
             "ar_backdrop_renderer_process_and_fullscreen_theme_verified": True,
             "protected_disconnect_audio_broadcast_removed_with_exact_scope": True,
+            "controller_pointer_flag_in_private_state_with_exact_dex_scope": True,
             "connection_recovery_hooks_restore_exact_baseline": True,
             "connection_recovery_production_calls_verified": True,
+            "connection_handoff_waits_for_controller_and_glasses_draws": True,
+            "startup_independent_of_optional_pointer_internals": True,
             "type_11_startup_query_hook_restores_exact_baseline": True,
             "skip_ota_always_enabled_and_forced_update_ui_bypassed": True,
             "skip_ota_hooks_restore_exact_baseline": True,
@@ -319,6 +419,8 @@ def verify(apk):
             "headless_recent_preview_capture_verified": True,
             "managed_display_startup_and_watchdog_code_verified": True,
             "direct_presentation_always_on": True,
+            "background_ar_pause_and_focus_hooks_verified": True,
+            "ar_foreground_service_private_in_renderer_process": True,
             "desktop_routing_removed": True,
             "legacy_xreal_connected_display_auto_enable_code_verified": True,
             "direct_snapshot_reader_wired_in_production_dex": True,

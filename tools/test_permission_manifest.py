@@ -4,7 +4,7 @@ import zipfile
 from pathlib import Path
 
 from build_port_bootstrap import chunks
-from permission_manifest import ACTIVITY, patch_manifest
+from permission_manifest import ACTIVITY, MENU_ACTIVITY, MENU_CONFIG_CHANGES, MENU_ORIGINAL_ACTIVITIES, MENU_THEME_RESOURCE, patch_manifest, patch_menu_manifest
 
 
 class PermissionManifestTests(unittest.TestCase):
@@ -44,6 +44,20 @@ class PermissionManifestTests(unittest.TestCase):
 
     def test_rejects_a_second_setup_activity(self):
         with self.assertRaises(AssertionError): patch_manifest(patch_manifest(self.original))
+
+    def test_native_menus_are_private_resizable_and_preserve_existing_components(self):
+        from verify_embedded_adb import elements, verify_attribute_order
+        patched = patch_menu_manifest(self.original)
+        before, after = elements(self.original), elements(patched)
+        before = [(tag, {**attrs, 'theme': MENU_THEME_RESOURCE}
+                   if tag == 'activity' and attrs.get('name') in MENU_ORIGINAL_ACTIVITIES else attrs)
+                  for tag, attrs in before]
+        self.assertEqual([entry for entry in after if entry not in before], [
+            ('activity', {'name': MENU_ACTIVITY, 'exported': 0, 'configChanges': MENU_CONFIG_CHANGES})])
+        for entry in before:
+            self.assertIn(entry, after)
+        verify_attribute_order(patched)
+        self.assertEqual(patch_menu_manifest(patched), patched)
 
 
 if __name__ == '__main__': unittest.main()

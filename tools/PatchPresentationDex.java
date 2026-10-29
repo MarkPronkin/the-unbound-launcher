@@ -14,11 +14,12 @@ import com.android.tools.smali.dexlib2.writer.pool.DexPool;
 import java.nio.file.*;
 import java.util.*;
 
-/** Guards around five SDK entry/lifecycle methods route AR through the phone-owned Presentation path;
+/** Guards around SDK entry/lifecycle methods route AR through the phone-owned Presentation path;
  *  each original body stays intact behind its guard, and the exact baseline is restorable. */
 public final class PatchPresentationDex {
     static final String XR="Lai/nreal/activitylife/NRXRApp;", COMPAT="Ldev/beampro/port/PresentationOnlyCompat;";
     static final String PHONE="Lai/nreal/nebula/space/LaunchSpaceAcrivity;";
+    static final Set<String> PHONE_TARGETS=Set.of("onWindowFocusChanged","onPause","onStop");
     static final Set<String> TARGETS=Set.of("startUnityActivityInternal","moveToVirtualDisplay",
             "readyForDynamicSwitchDPImpl","readyForRestartSessionImpl","getFakeActivity");
     static byte[] bytes(ClassDef cls)throws Exception {
@@ -28,7 +29,7 @@ public final class PatchPresentationDex {
         return bytes(new ImmutableClassDef(m.getDefiningClass(),1,"Ljava/lang/Object;",List.of(),null,Set.of(),List.of(),List.of(m)));
     }
     static Method patched(Method m) {
-        if(m.getDefiningClass().equals(PHONE))return phoneFocus(m);
+        if(m.getDefiningClass().equals(PHONE))return phoneLifecycle(m);
         String name=m.getName();boolean getter=name.equals("getFakeActivity"),start=name.equals("startUnityActivityInternal");
         List<String> expected=start?List.of("Landroid/content/Intent;"):List.of();
         String result=getter?"Landroid/app/Activity;":name.startsWith("readyFor")?"Z":"V";
@@ -55,24 +56,28 @@ public final class PatchPresentationDex {
         return new ImmutableMethod(m.getDefiningClass(),name,m.getParameters(),m.getReturnType(),m.getAccessFlags(),
                 m.getAnnotations(),m.getHiddenApiRestrictions(),code);
     }
-    static Method phoneFocus(Method m) {
-        if(!m.getName().equals("onWindowFocusChanged")||!m.getParameterTypes().equals(List.of("Z"))||!m.getReturnType().equals("V"))
-            throw new IllegalStateException("Unexpected phone focus signature");
+    static Method phoneLifecycle(Method m) {
+        boolean focus=m.getName().equals("onWindowFocusChanged"),stop=m.getName().equals("onStop");
+        if(!PHONE_TARGETS.contains(m.getName())||!m.getParameterTypes().equals(focus?List.of("Z"):List.of())||!m.getReturnType().equals("V"))
+            throw new IllegalStateException("Unexpected phone lifecycle signature");
         // The SDK overwrites p0 with mUnityPlayer before this call, so only the call's own registers are reliable.
-        var original=m.getImplementation();int hits=0;
+        var original=m.getImplementation();int focuses=0,pauses=0;
         List<Instruction> code=new ArrayList<>();
         for(Instruction instruction:original.getInstructions()) {
             if(instruction instanceof ReferenceInstruction ref&&ref.getReference() instanceof MethodReference call
-                    &&call.getDefiningClass().equals("Lcom/unity3d/player/UnityPlayer;")&&call.getName().equals("windowFocusChanged")) {
-                if(!(instruction instanceof Instruction35c invoke)||invoke.getRegisterCount()!=2
-                        ||instruction.getOpcode()!=Opcode.INVOKE_VIRTUAL||!call.getParameterTypes().equals(List.of("Z")))
-                    throw new IllegalStateException("Unexpected Unity focus invocation");
-                instruction=new ImmutableInstruction35c(Opcode.INVOKE_STATIC,2,invoke.getRegisterC(),invoke.getRegisterD(),0,0,0,
-                        new ImmutableMethodReference(COMPAT,"windowFocus",List.of("Ljava/lang/Object;","Z"),"V"));hits++;
+                    &&call.getDefiningClass().equals("Lcom/unity3d/player/UnityPlayer;")
+                    &&Set.of("windowFocusChanged","pause").contains(call.getName())) {
+                boolean pause=call.getName().equals("pause");
+                if(!(instruction instanceof Instruction35c invoke)||invoke.getRegisterCount()!=(pause?1:2)
+                        ||instruction.getOpcode()!=Opcode.INVOKE_VIRTUAL||!call.getParameterTypes().equals(pause?List.of():List.of("Z"))
+                        ||!call.getReturnType().equals("V"))throw new IllegalStateException("Unexpected Unity lifecycle invocation");
+                instruction=new ImmutableInstruction35c(Opcode.INVOKE_STATIC,pause?1:2,invoke.getRegisterC(),pause?0:invoke.getRegisterD(),0,0,0,
+                        new ImmutableMethodReference(COMPAT,pause?"pause":"windowFocus",pause?List.of("Ljava/lang/Object;"):List.of("Ljava/lang/Object;","Z"),"V"));
+                if(pause)pauses++;else focuses++;
             }
             code.add(instruction);
         }
-        if(hits!=1)throw new IllegalStateException("Missing Unity focus call");
+        if(focuses!=(stop?0:1)||pauses!=(focus?0:stop?2:1))throw new IllegalStateException("Unexpected Unity lifecycle call counts");
         return new ImmutableMethod(m.getDefiningClass(),m.getName(),m.getParameters(),m.getReturnType(),m.getAccessFlags(),m.getAnnotations(),
                 m.getHiddenApiRestrictions(),new ImmutableMethodImplementation(original.getRegisterCount(),code,original.getTryBlocks(),original.getDebugItems()));
     }
@@ -84,10 +89,10 @@ public final class PatchPresentationDex {
         for(ClassDef cls:baseline.getClasses()) {
             reference.put(cls.getType(),cls);
             for(Method method:cls.getMethods())if((cls.getType().equals(XR)&&TARGETS.contains(method.getName()))
-                    ||(cls.getType().equals(PHONE)&&method.getName().equals("onWindowFocusChanged")))
+                    ||(cls.getType().equals(PHONE)&&PHONE_TARGETS.contains(method.getName())))
                 if(targets.put(cls.getType()+"->"+method.getName(),method)!=null)throw new IllegalStateException("Duplicate method");
         }
-        if(targets.size()!=6)throw new IllegalStateException("Missing presentation lifecycle methods");
+        if(targets.size()!=8)throw new IllegalStateException("Missing presentation lifecycle methods");
         var input=DexFileFactory.loadDexFile(args[1],Opcodes.forApi(33));List<ClassDef> output=new ArrayList<>();Set<String> edits=new HashSet<>();
         for(ClassDef cls:input.getClasses()) {
             if(!cls.getType().equals(XR)&&!cls.getType().equals(PHONE)){output.add(cls);continue;}
@@ -111,6 +116,6 @@ public final class PatchPresentationDex {
             if(!reference.isEmpty())throw new IllegalStateException("Missing original class");
             Files.write(Path.of(args[2]),Files.readAllBytes(Path.of(args[3])));
         } else DexPool.writeTo(args[2],new ImmutableDexFile(input.getOpcodes(),output));
-        System.out.println(args[0]+": verified five Presentation lifecycle guards and phone focus forwarding; original bodies kept and restorable");
+        System.out.println(args[0]+": verified five Presentation entry guards and three phone focus/pause hooks; original bodies kept and restorable");
     }
 }

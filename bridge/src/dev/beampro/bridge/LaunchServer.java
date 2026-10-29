@@ -57,7 +57,8 @@ public final class LaunchServer {
         XrealUsbPermissions usb = ENABLE_DISPLAY_MANAGEMENT ? new XrealUsbPermissions(packages, probeUid) : null;
         AutoArEntry autoEntry = ENABLE_DISPLAY_MANAGEMENT ? new AutoArEntry(packages, probeUid, usb) : null;
         PhoneScreenPower phoneScreen = new PhoneScreenPower(shell);
-        GlassesNetworkProbe glassesNetwork = new GlassesNetworkProbe(probeUid);
+        TrackpadGestures trackpadGestures = new TrackpadGestures(new java.io.File("/data/local/tmp"), probeUid);
+        GlassesNetworkProbe glassesNetwork = new GlassesNetworkProbe(packages, probeUid);
         DisplayDumpPipe displayDumps = new DisplayDumpPipe(probeUid);
         AppClassification classification = new AppClassification(packages, probeUid,
                 new java.io.File("/data/local/tmp/unbound-category-" + probeUid + ".bin"));
@@ -80,7 +81,15 @@ public final class LaunchServer {
                     if (code == GlassesNetworkProbe.TRANSACTION) {
                         data.enforceInterface(GlassesNetworkProbe.TOKEN);
                         ShellCommand.Result result;
-                        try { result=glassesNetwork.ping(caller); }
+                        try {
+                            // Legacy callers keep a read-only ping; new callers identify the attachment.
+                            if (data.dataAvail()==0) result=glassesNetwork.ping(caller);
+                            else {
+                                String name=data.readString();int vendor=data.readInt(),product=data.readInt(),deviceId=data.readInt();
+                                if (data.dataAvail()!=0) throw new SecurityException("Unexpected glasses readiness data");
+                                result=glassesNetwork.ping(caller,name,vendor,product,deviceId);
+                            }
+                        }
                         catch (SecurityException denied) { throw denied; }
                         catch (Exception error) { result=new ShellCommand.Result(-1,false,error.toString()); }
                         reply.writeNoException();reply.writeInt(result.exitCode);reply.writeInt(result.timedOut?1:0);
@@ -122,6 +131,15 @@ public final class LaunchServer {
                         try { granted=usb.grant(caller, name, vendor, product, deviceId); }
                         catch (Exception failure) { failure.printStackTrace(System.err);error="XREAL USB access: "+failure; }
                         reply.writeNoException();reply.writeString(error);reply.writeInt(granted?1:0);
+                        return true;
+                    }
+                    if (code == TrackpadGestures.TRANSACTION) {
+                        data.enforceInterface(TrackpadGestures.TOKEN);
+                        if (caller != probeUid) throw new SecurityException("Trackpad gestures belong to the installed launcher");
+                        String error = null;
+                        try { trackpadGestures.request(data.readInt(), data.readStrongBinder()); }
+                        catch (Exception failure) { error = failure.toString(); }
+                        reply.writeNoException(); reply.writeString(error);
                         return true;
                     }
                     if (code == PhoneScreenPower.TRANSACTION) {

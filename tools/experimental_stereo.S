@@ -1,6 +1,6 @@
 // Tail filter for GlassUtil.GetHomeGlassModeFromSettings. The original model
 // selector runs first. Only mono EGlassMode values 1, 5, 10 and 11 change.
-// Preference 1 selects SBS 60 Hz; preference 2 selects mono 60 Hz.
+// Only preference 1 selects SBS 60 Hz; retired choices retain the default.
 .text
 experimental_stereo:
     cmp w0, #1
@@ -36,14 +36,8 @@ read_flag:
     b.ne done
     ldrb w10, [sp, #48]
     cmp w10, #1
-    b.eq stereo
-    cmp w10, #2
     b.ne done
-    mov x10, #1                 // Legacy mono 60 Hz.
-    b store_choice
-stereo:
     mov x10, #3                 // Legacy stereo SBS 60 Hz.
-store_choice:
     str x10, [sp]
 done:
     ldp x0, x1, [sp]

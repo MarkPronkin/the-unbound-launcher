@@ -20,15 +20,18 @@ public final class PortStatus {
     public static void install(Context context) {
         UsbPermissionCompat.install(context);
         GlassesConnectionCompat.install(context);
+        ConnectionHandoff.install(context);
         DisplayStartupCompat.install(context);
         PresentationOnlyCompat.install(context);
         ArKeepAwake.install(context);
         PhoneScreenCompat.install(context);
+        TrackpadGestureCompat.install(context);
         QuickAccessCompat.install(context);
         RecentAppsCompat.install(context);
         WirelessCastCompat.install(context);
         Context app = context.getApplicationContext();
         if (!android.app.Application.getProcessName().equals(app.getPackageName())) return;
+        AppSurfacePolicy.install(app);
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             final boolean[] finished = {false};
             ServiceConnection connection = new ServiceConnection() {

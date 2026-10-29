@@ -13,10 +13,12 @@ public final class EthernetReadinessTest {
     public static class Helper {public Handler mSdkHandler=new Handler();public Runnable mRunnablePing=()->{};}
     public static class Poll {public Helper this$0;Poll(Helper h){this$0=h;}}
     static class Remote implements IBinder {
-        int calls,exit;boolean alive=true,supported=true,timeout;String output="reply from glasses";Runnable before;
+        int calls,exit;boolean alive=true,supported=true,timeout,legacy;String output="reply from glasses";Runnable before;
         public boolean isBinderAlive(){return alive;}
         public boolean transact(int code,Parcel data,Parcel reply,int flags){
             check(code==0x00FFFFF4&&data.readString().equals("dev.beampro.bridge.GLASSES_PING"),"Use only the fixed readiness transaction");
+            if(!legacy)check(data.readString().equals("glasses")&&data.readInt()>0&&data.readInt()>0&&data.readInt()==12,
+                    "Identify the exact USB attachment for helper-side Ethernet recovery");
             calls++;if(!supported)return false;if(before!=null)before.run();
             reply.writeInt(exit);reply.writeInt(timeout?1:0);reply.writeString(output);return true;
         }
@@ -35,6 +37,7 @@ public final class EthernetReadinessTest {
         s.callback.onPingResult(true);s.close();check(s.results.get()==1,"Normal completion remains once-only");
         s=new Setup();s.remote.exit=2;check(!s.ping(),"A failed ping cannot report readiness");s.close();
         s=new Setup();s.remote.timeout=true;check(!s.ping(),"Timeout is failure even with exit zero");s.close();
+        s=new Setup();s.remote.legacy=true;check(s.ping(),"An older helper can ignore the added identity payload and retain its ping behavior");s.close();
         s=new Setup();s.context.resolver.remote=null;check(!s.ping(),"An absent helper cannot report readiness");s.close();
         s=new Setup();s.remote.supported=false;check(!s.ping(),"An older helper cannot report readiness");s.close();
         s=new Setup();s.remote.alive=false;check(!s.ping(),"A dead helper cannot report readiness");s.close();
@@ -63,6 +66,15 @@ public final class EthernetReadinessTest {
 
         s=new Setup();s.remote.output=new String(new char[2049]);check(!s.ping(),"Reject oversized helper responses");s.close();
         s=new Setup();check(s.ping(),"A new request succeeds after cancellation drains");s.close();
+        for(int product:new int[]{0x1d9c,0x1d9d}) {
+            s=new Setup();s.context.usb.devices.put("glasses",new UsbDevice("glasses",0x0b05,product,12));
+            check(s.ping(),"R1 USB configurations use the existing Ethernet readiness probe");s.close();
+        }
+        s=new Setup();s.context.usb.devices.put("glasses",new UsbDevice("glasses",0x0b05,0x1d9e,12));
+        check(!s.ping()&&s.remote.calls==0,"Other ASUS USB products do not enable glasses networking");s.close();
+        s=new Setup();s.context.usb.devices.put("glasses",new UsbDevice("glasses",0x0b05,0x1d9c,12));
+        final Setup vendorSwap=s;s.remote.before=()->vendorSwap.context.usb.devices.put("glasses",new UsbDevice("glasses",13080,0x1d9c,12));
+        check(!s.ping(),"Vendor replacement cannot reuse a positive R1 ping");s.close();
         System.out.println("PASS Ethernet readiness assertions: "+checks);
     }
 }

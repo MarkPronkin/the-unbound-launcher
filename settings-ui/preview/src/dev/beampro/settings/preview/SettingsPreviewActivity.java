@@ -23,6 +23,12 @@ public class SettingsPreviewActivity extends Activity {
     public int launches, privacyClicks, termsClicks;
     public Intent externalLaunch;
     public Intent shareLaunch;
+    public Bundle menuLaunchOptions;
+
+    @Override public void startActivity(Intent intent, Bundle options) {
+        menuLaunchOptions = options == null ? null : new Bundle(options);
+        super.startActivity(intent, options);
+    }
 
     @Override public void startActivity(Intent intent) {
         if (Intent.ACTION_VIEW.equals(intent.getAction())) { externalLaunch = intent; return; }
@@ -43,7 +49,7 @@ public class SettingsPreviewActivity extends Activity {
         mCastScreenView = row("Default Air Casting", "", true, "mirroring");
         mScreenColorView = row("Screen color", "Adjust the color of your display", true, "color");
         mScreenColorView.setVisibility(View.GONE);
-        mSleepTimeView = row("Sleep timeout", "", false, "sleep"); mSleepTimeView.setVisibility(View.GONE);
+        mSleepTimeView = row("Automatic sleep time", "", false, "sleep"); mSleepTimeView.setVisibility(View.GONE);
         mDevOptionView = row("Developer options", "", false, "dev"); mDevOptionView.setVisibility(View.GONE);
         mForceOtaView = row("Firmware recovery", "", false, "firmware"); mForceOtaView.setVisibility(View.GONE);
         Row permissions = row("authority management", "", false, "permissions");

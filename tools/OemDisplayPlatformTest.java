@@ -9,7 +9,7 @@ import java.util.*;
 public final class OemDisplayPlatformTest {
     static int checks;
     static void check(boolean value,String message){checks++;if(!value)throw new AssertionError(message);}
-    public static final class Product {public String getManufacturerPnpId(){return "MRG";}}
+    public static final class Product {String manufacturer="DEL";public String getManufacturerPnpId(){return manufacturer;}}
     public static final class Info {
         public int type=2;
         public String uniqueId="local:glasses";
@@ -54,12 +54,24 @@ public final class OemDisplayPlatformTest {
         ManagedDisplayPolicy.Platform platform=(ManagedDisplayPolicy.Platform)ctor.newInstance();
         check(platform.enableWithoutDesktopPreference()==(caps.contains("enable")&&!routing),"Independent enable capability");
         ManagedDisplayPolicy policy=new ManagedDisplayPolicy(platform);policy.tick(0);
+        check(!calls.contains("enableConnectedDisplay")&&!calls.contains("setConnectionPreference")
+                &&!calls.contains("setUserPreferredDisplayMode")&&mirror[0].equals("0"),
+                "Ordinary monitors retain desktop/mirroring on every OEM capability combination");
+        info.deviceProductInfo.manufacturer="MRG";policy.tick(1);
         check(calls.contains("enableConnectedDisplay")==caps.contains("enable"),"Automatic enable only when available");
         check(calls.contains("getConnectionPreference")==routing,"Complete routing capability only");
         check(calls.contains("setConnectionPreference")==routing,"Route identified XREAL glasses to Mirror");
         check((preferred[0]!=null)==modes,"Complete temporary mode capability only");
         policy.close();check(preferred[0]==null,"Temporary mode restored");
         check(!routing||choice[0]==1,"Restore the previous connection choice");
+        policy.tick(2); // Reacquire, then replace the glasses with an ordinary monitor.
+        info.deviceProductInfo.manufacturer="DEL";info.uniqueId="local:monitor";
+        preferred[0]=new Display.Mode(1920,1080,60);policy.tick(3);
+        check(mirror[0].equals("0")&&(!routing||choice[0]==1),"Restore global and glasses routing on the first monitor snapshot");
+        check(preferred[0]!=null&&preferred[0].getPhysicalWidth()==1920,"Keep the replacement monitor's mode");
+        int mutations=calls.size();policy.tick(4);policy.close();
+        check(calls.subList(mutations,calls.size()).stream().noneMatch(name->name.startsWith("set")||name.equals("enableConnectedDisplay")),
+                "Monitor-only polling and shutdown never mutate display policy");
         check(android.content.Context.factoryCalls==0,"No app-bound service factories");
         System.out.println("PASS OEM API combination: "+args[0]+" assertions="+checks);
     }

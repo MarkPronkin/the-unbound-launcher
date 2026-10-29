@@ -93,6 +93,13 @@ public class XrealUsbPermissionsTest {
     modern.reject=true;try{pixel.grant(10123,"one",13080,1080,12);throw new AssertionError("accepted rejection");}
     catch(java.lang.reflect.InvocationTargetException expected){check(expected.getCause() instanceof SecurityException);}
     check(modern.calls==1); // A modern failure must never fall back to the legacy overload.
+    for(int product:new int[]{0x1d9c,0x1d9d}) {
+      legacy.devices.clear();legacy.devices.put("r1",new UsbDevice("r1",0x0b05,product,14));
+      check(old.grant(10123,"r1",0x0b05,product,14));
+      check(!old.grant(10123,"r1",0x0b05,product,15));
+      denied(()->old.grant(10123,"r1",0x0b05,0x1d9e,14));
+      denied(()->old.grant(10124,"r1",0x0b05,product,14));
+    }
     System.out.println("PASS XREAL USB server assertions: "+checks);
   }
 }'''
@@ -113,7 +120,7 @@ public class UsbPermissionCompatTest {
       calls++;if(failOnce){failOnce=false;throw new RemoteException();}if(!supported)return false;
       check(code==0x00FFFFF8&&data.readString().equals("dev.beampro.bridge.XREAL_USB"));
       String name=data.readString();UsbDevice live=usb.devices.get(name);
-      check(live!=null&&data.readInt()==13080&&data.readInt()==live.getProductId()&&data.readInt()==live.getDeviceId());
+      check(live!=null&&data.readInt()==live.getVendorId()&&data.readInt()==live.getProductId()&&data.readInt()==live.getDeviceId());
       reply.writeString(error);reply.writeInt(grant?1:0);if(grant&&error==null)usb.granted=true;return true;}}
   static int sequence;static class Setup {
     Context context=new Context();UsbManager usb=new UsbManager();PendingIntent callback=new PendingIntent();
@@ -144,6 +151,13 @@ public class UsbPermissionCompatTest {
     Setup early=new Setup(true);UsbPermissionCompat.requestPermission(early.usb,early.device,early.callback);manual.step();
     check(early.usb.requests==0&&early.callback.responses==0);
     UsbPermissionCompat.install(early.context);manual.step();manual.step();early.success();
+    for(int product:new int[]{0x1d9c,0x1d9d}) {
+      Setup r1=new Setup(true);r1.usb.devices.clear();
+      r1.device=new UsbDevice("r1"+product,0x0b05,product,12);r1.usb.devices.put(r1.device.getDeviceName(),r1.device);
+      r1.request();manual.step();r1.success();check(r1.remote.calls==1);
+    }
+    Setup asus=new Setup(true);asus.device=new UsbDevice("asus-other",0x0b05,0x1d9e,12);asus.request();
+    check(asus.remote.calls==0&&asus.usb.dialogs==1);
     check(manual.jobs.isEmpty());manual.shutdownNow();
     System.out.println("PASS XREAL USB client assertions: "+checks);
   }
@@ -207,7 +221,7 @@ class UsbPermissionTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text)
                 paths.append(str(path))
-            sources=[str(source)]
+            sources=[str(source),str(ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java")]
             if source.name=='XrealUsbPermissions.java' and not name.endswith('UsbWorkerModeTest'):
                 sources.append(str(ROOT/'bridge/src/dev/beampro/bridge/ShellCommand.java'))
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', str(work), *paths, *sources], check=True)

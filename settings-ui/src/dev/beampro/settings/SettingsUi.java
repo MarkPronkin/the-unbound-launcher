@@ -12,6 +12,9 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.os.Bundle;
 import android.os.Parcelable;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -28,9 +31,9 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Phone settings only. The original views remain the source of state and actions. */
+/** Phone settings. Legacy controls retain their callbacks; offline preferences use shared models. */
 public final class SettingsUi {
-    public static final String APP_NAME = "The Unbound Launcher";
+    public static final String APP_NAME = "Unbound Launcher";
     private static final String TAG = "PortSettingsUi";
     private static final int PAGE_ID = 0x00bea001;
     private static final int SCROLL_ID = 0x00bea002;
@@ -41,6 +44,7 @@ public final class SettingsUi {
     private SettingsUi() {}
 
     public static void install(Activity activity) {
+        MenuTransitions.install(activity);
         DebugData.initialize(activity.getApplication());
         if (activity.findViewById(PAGE_ID) instanceof Page) return;
         try {
@@ -81,6 +85,7 @@ public final class SettingsUi {
         DebugData.get(activity).event("Glasses connected: type=" + type);
         activity.runOnUiThread(() -> {
             activity.getWindow().getDecorView().setTag(GLASSES_TYPE_TAG, Integer.valueOf(type));
+            SleepTimer.get(activity).refresh(true, true);
             refresh(activity);
         });
     }
@@ -89,6 +94,7 @@ public final class SettingsUi {
         DebugData.get(activity).event("Glasses disconnected");
         activity.runOnUiThread(() -> {
             activity.getWindow().getDecorView().setTag(GLASSES_TYPE_TAG, Integer.valueOf(0));
+            SleepTimer.get(activity).refresh(false, false);
             refresh(activity);
         });
     }
@@ -169,14 +175,13 @@ public final class SettingsUi {
         LinearLayout body, settingsBody, launchBody;
         TextView connectionTitle, connectionDescription;
         Status status;
-        AboutPage aboutPage;
-        HelpPage helpPage;
         final AppDetection detection;
         final Runnable detectionChanged = this::syncDetection;
         Row detectionRow;
+        Row sleepRow;
         SignatureSwitch detectionToggle;
         boolean syncingDetection;
-        SignatureSwitch stereoToggle, mono60Toggle;
+        SignatureSwitch stereoToggle;
         boolean syncingStereo;
         Button launch;
         ImageView glasses;
@@ -185,8 +190,6 @@ public final class SettingsUi {
         int artworkType = Integer.MIN_VALUE;
         final Runnable rebuild = () -> {
             build();
-            if (aboutPage != null && aboutPage.isShowing()) aboutPage.render();
-            if (helpPage != null && helpPage.isShowing()) helpPage.render();
         };
 
         State(Activity activity) {
@@ -229,8 +232,6 @@ public final class SettingsUi {
                 activity.getApplication().unregisterComponentCallbacks(this);
                 detection.remove(detectionChanged);
                 page.removeCallbacks(rebuild);
-                if (aboutPage != null) aboutPage.dismiss();
-                if (helpPage != null) helpPage.dismiss();
             }
         }
 
@@ -337,7 +338,7 @@ public final class SettingsUi {
                     } else if (source == view(activity, "mScreenColorView")) {
                         experience.add(new Binding(source, "color", false));
                     } else if (source == view(activity, "mSleepTimeView")) {
-                        experience.add(new Binding(source, "sleep", false));
+                        sleepTimer(experience);
                     } else if (source == view(activity, "mForceOtaView")) {
                         advanced.add(new Binding(source, "update", false));
                     } else if (source == view(activity, "mDevOptionView")) {
@@ -439,6 +440,13 @@ public final class SettingsUi {
             section.card.addView(row);
         }
 
+        void sleepTimer(Section section) {
+            sleepRow = new Row(activity, "sleep", "Automatic sleep time", SleepTimer.get(activity).summary());
+            sleepRow.setTag("automatic-sleep");
+            sleepRow.chevron().onClick(v -> MenuActivity.open(activity, MenuActivity.SLEEP));
+            section.card.addView(sleepRow);
+        }
+
         void link(Section section, String glyph, String title, String subtitle, View.OnClickListener action) {
             section.card.addView(new Row(activity, glyph, title, subtitle).chevron().onClick(action));
         }
@@ -504,7 +512,6 @@ public final class SettingsUi {
                 if (syncingStereo) return;
                 try {
                     ExperimentalStereo.save(activity, enabled);
-                    syncDisplayOverrides();
                     Toast.makeText(activity, "Reconnect your glasses to apply the change.", Toast.LENGTH_LONG).show();
                 } catch (Exception failure) {
                     syncingStereo = true;
@@ -519,61 +526,16 @@ public final class SettingsUi {
             row.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             section.card.addView(row);
-            String monoDescription = "Try this if the glasses go black when AR Space starts in 2D. "
-                    + "Uses 60 Hz and turns off Force 3D. Reconnect your glasses after changing.";
-            Row mono = new Row(activity, "mirror", "Use 60 Hz in 2D", monoDescription);
-            mono.setTag("experimental-mono-60");
-            mono60Toggle = new SignatureSwitch(activity);
-            mono60Toggle.setTag("force-2d-60");
-            mono60Toggle.setContentDescription("Use 60 Hz in 2D. " + monoDescription);
-            LinearLayout.LayoutParams monoParams = new LinearLayout.LayoutParams(dp(52), dp(48));
-            monoParams.setMarginStart(dp(12)); mono.addView(mono60Toggle, monoParams);
-            mono60Toggle.setChecked(ExperimentalStereo.mono60Enabled(activity));
-            mono60Toggle.setOnCheckedChangeListener((button, enabled) -> {
-                if (syncingStereo) return;
-                try {
-                    ExperimentalStereo.saveMono60(activity, enabled);
-                    Toast.makeText(activity, "Reconnect your glasses to apply the change.", Toast.LENGTH_LONG).show();
-                } catch (Exception failure) {
-                    Log.w(TAG, "Cannot save 2D refresh setting", failure);
-                    Toast.makeText(activity, "Could not save 2D refresh. " + failure.getMessage(), Toast.LENGTH_LONG).show();
-                } finally { syncDisplayOverrides(); }
-            });
-            mono.onClick(v -> mono60Toggle.toggle());
-            mono.title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            mono.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            mono.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-            section.card.addView(mono);
-        }
-
-        void syncDisplayOverrides() {
-            syncingStereo = true;
-            try {
-                if (stereoToggle != null) stereoToggle.setChecked(ExperimentalStereo.enabled(activity));
-                if (mono60Toggle != null) mono60Toggle.setChecked(ExperimentalStereo.mono60Enabled(activity));
-            } finally { syncingStereo = false; }
         }
 
         void about(Section section) {
-            link(section, "info", "About", "Project information and legal", v -> {
-                if (aboutPage == null) {
-                    aboutPage = new AboutPage(activity,
-                            () -> openLegal("mPPView"), () -> openLegal("mTosView"));
-                }
-                aboutPage.show();
-            });
+            link(section, "info", "About", "Project information and legal",
+                    v -> MenuActivity.open(activity, MenuActivity.ABOUT));
         }
 
         void help(Section section) {
-            link(section, "help", "Help", "Support and debugging", v -> {
-                if (helpPage == null) helpPage = new HelpPage(activity);
-                helpPage.show();
-            });
-        }
-
-        void openLegal(String fieldName) {
-            View target = view(view(activity, fieldName), "mLlRoot");
-            if (target != null) target.performClick();
+            link(section, "help", "Help", "Support and debugging",
+                    v -> MenuActivity.open(activity, MenuActivity.HELP));
         }
 
         void sync() {
@@ -584,6 +546,12 @@ public final class SettingsUi {
                 for (Section section : sections) section.sync();
                 if (!permissions) {
                     boolean connected = visible(originalInfo);
+                    SleepTimer timer = SleepTimer.get(activity);
+                    timer.refresh(connected, false);
+                    if (sleepRow != null) {
+                        sleepRow.subtitle.setText(timer.summary());
+                        sleepRow.setContentDescription("Automatic sleep time, " + timer.summary());
+                    }
                     status.set(connected ? "Connected via USB-C" : "Not connected",
                             connected ? POSITIVE : TEXT_TERTIARY, TEXT_SECONDARY);
                     Object reportedType = activity.getWindow().getDecorView().getTag(GLASSES_TYPE_TAG);
@@ -598,9 +566,13 @@ public final class SettingsUi {
                         model = GlassesArtwork.forType(preferences.getInt("last_glasses_type", 7));
                         if (model.asset == null) model = GlassesArtwork.forType(7);
                     }
-                    connectionTitle.setText(model.name);
+                    if (model.type == 1003) {
+                        SpannableString title = new SpannableString(model.name);
+                        title.setSpan(new ForegroundColorSpan(GlassesArtwork.ROG_RED), 6, model.name.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                        connectionTitle.setText(title);
+                    } else connectionTitle.setText(model.name);
                     if (artworkType != model.type) {
-                        glasses.setImageDrawable(model.asset == null ? null : GlassesArtwork.load(activity, model.asset + ".webp"));
+                        glasses.setImageDrawable(model.asset == null ? null : GlassesArtwork.load(activity, model.filename()));
                         glasses.setContentDescription(model.asset == null ? null : model.name + " glasses");
                         glasses.setScaleType(model.widget ? (shortLandscape ? ImageView.ScaleType.CENTER_CROP : ImageView.ScaleType.FIT_XY)
                                 : ImageView.ScaleType.FIT_CENTER);

@@ -63,6 +63,13 @@ public final class AutoArEntryTest {
         check(relocked.launches==0,"Recheck the lock screen after the isolated USB grant");
         relocked.duringGrant=null;relocked.unlocked=true;relocked.advance(1000);
         check(relocked.launches==1,"Resume after a lock that raced the USB grant");
+        for(int product:new int[]{0x1d9c,0x1d9d}) {
+            Platform rog=new Platform();AutoArEntry r1=new AutoArEntry(rog,10123);
+            r1.request(10123,new AutoArEntry.Key("r1",0x0b05,product,10),true);rog.advance(750);
+            check(rog.launches==1&&rog.grants==1,"Both exact R1 USB configurations support automatic entry");
+        }
+        rejected(()->secure.request(10123,new AutoArEntry.Key("asus-monitor",0x0b05,0x1d9e,10),true));
+        rejected(()->secure.request(10123,new AutoArEntry.Key("wrong-vendor",999,0x1d9c,10),true));
         System.out.println("PASS automatic AR entry assertions: "+checks);
     }
 }

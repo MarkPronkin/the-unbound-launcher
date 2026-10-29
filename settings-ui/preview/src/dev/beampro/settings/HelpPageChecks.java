@@ -33,6 +33,9 @@ public final class HelpPageChecks extends Instrumentation {
     DebugData data;
     SettingsPreviewActivity activity;
     Uri saved;
+    MenuActivity menu;
+    Intent externalLaunch, shareLaunch;
+    ActivityMonitor external;
     @Override public void onCreate(Bundle args) { super.onCreate(args); start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
@@ -40,11 +43,20 @@ public final class HelpPageChecks extends Instrumentation {
             activity = (SettingsPreviewActivity) startActivitySync(new Intent(getTargetContext(), SettingsPreviewActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             data = DebugData.get(activity);
+            File[] previous = new File(getTargetContext().getFilesDir(), "debug/exports").listFiles();
+            if (previous != null) for (File file : previous) file.delete();
+            external = new ActivityMonitor() {
+                @Override public ActivityResult onStartActivity(Intent intent) {
+                    if (Intent.ACTION_VIEW.equals(intent.getAction())) { externalLaunch = intent; return new ActivityResult(0, null); }
+                    if (Intent.ACTION_CHOOSER.equals(intent.getAction())) { shareLaunch = intent; return new ActivityResult(0, null); }
+                    return null;
+                }
+            };
+            addMonitor(external);
+            runOnMainSync(() -> data.setEnabled(false));
+            menu = MenuChecks.open(this, activity, "Help");
+            help = (HelpPage)menu.page;
             runOnMainSync(() -> {
-                data.setEnabled(false);
-                row(text(activity.findViewById(android.R.id.content), "Help")).performClick();
-                try { help = (HelpPage) field(field(activity.findViewById(0x00bea001), "state"), "helpPage"); }
-                catch (Exception error) { throw new RuntimeException(error); }
                 require(help.isShowing(), "Help opens a menu");
                 View page = page();
                 require(text(page, "Get help") != null, "Get help is available");
@@ -52,8 +64,8 @@ public final class HelpPageChecks extends Instrumentation {
                 require(!toggle("debug-enabled").isChecked() && !toggle("debug-collecting").isChecked(), "debugging is opt-in");
                 require(!page.findViewWithTag("debug-share").isEnabled(), "share disabled until file exists");
                 page.findViewWithTag("get-help").performClick();
-                require(activity.externalLaunch != null && Intent.ACTION_VIEW.equals(activity.externalLaunch.getAction())
-                        && "https://discord.gg/J7t64xupfQ".equals(activity.externalLaunch.getDataString()), "Get help opens Discord invite");
+                require(externalLaunch != null && Intent.ACTION_VIEW.equals(externalLaunch.getAction())
+                        && "https://discord.gg/J7t64xupfQ".equals(externalLaunch.getDataString()), "Get help opens Discord invite");
                 toggle("debug-enabled").performClick();
                 require(toggle("debug-collecting").isEnabled(), "debug mode enables collection control");
                 toggle("debug-collecting").performClick();
@@ -72,6 +84,19 @@ public final class HelpPageChecks extends Instrumentation {
                 Log.i("HelpPageChecks", marker); SystemClock.sleep(100);
             }
             require(logsContain(marker), "real app-UID logcat data captured");
+            DebugData.connectionEvent(activity,"one-s-first","begin","model=9; fixture first attempt");
+            DebugData.connectionEvent(activity,"one-s-first","sdk_start","fixture passive state capture");
+            Log.i("XREAL","[NRService] NRSDK Version: 3.1.2.fixture");
+            Log.i("XREAL","[NRService] HMD version: system:3563, software:fixture");
+            Log.e("XREAL","[NRService] 333 get rsp timeout");
+            Log.d("myGlasses","(NRServiceControl.java:263)#startSdk | [startupState=, -1]");
+            DebugData.connectionEvent(activity,"one-s-first","failure","fixture startup-state timeout");
+            deadline=SystemClock.uptimeMillis()+5000;
+            while(!logsContain("333 get rsp timeout")&&SystemClock.uptimeMillis()<deadline)SystemClock.sleep(50);
+            require(logsContain("333 get rsp timeout"),"native-style timeout reaches the startup collector");
+            DebugData.connectionEvent(activity,"one-s-retry","begin","fixture retry; 1s-second-attempt-marker");
+            DebugData.connectionEvent(activity,"one-s-retry","sdk_start","fixture retry");
+            data.files.submit(() -> {}).get(30, java.util.concurrent.TimeUnit.SECONDS);
             DebugData.connectionFailure(activity, "test USB network disconnect");
             data.files.submit(() -> {}).get(30, java.util.concurrent.TimeUnit.SECONDS);
             runOnMainSync(() -> {
@@ -79,6 +104,7 @@ public final class HelpPageChecks extends Instrumentation {
                 require(!data.enabled() && !data.collecting(), "turning debug mode off stops collection");
             });
             long size = data.bytes();
+            DebugData.connectionEvent(activity,"one-s-stopped","failure","opt-out-startup-marker");
             Log.i("HelpPageChecks", "after-collection-stop"); SystemClock.sleep(150);
             require(data.bytes() == size, "no new bytes after stop");
             runOnMainSync(() -> page().findViewWithTag("debug-create").performClick());
@@ -91,6 +117,12 @@ public final class HelpPageChecks extends Instrumentation {
                 String network = read(zip.getInputStream(zip.getEntry("network-diagnostics.txt")));
                 require(network.contains("test USB network disconnect") && network.contains("app UID"), "failure network snapshot survives stopping collection");
                 require(network.contains("169.254.2.1") && network.contains("Helper diagnostics unavailable"), "missing or older helper preserves ping diagnostics and export");
+                String link = read(zip.getInputStream(zip.getEntry("display-link.txt")));
+                require(link.contains("baseline before reproducing") && link.contains("test USB network disconnect"), "baseline and failure link snapshots survive stopping collection");
+                String startup=read(zip.getInputStream(zip.getEntry("glasses-startup.txt")));
+                require(startup.contains("333 get rsp timeout")&&startup.contains("3.1.2.fixture")&&startup.contains("system:3563"),"export retains SDK, firmware and native timeout evidence");
+                require(startup.contains("First failure window")&&startup.contains("one-s-first")&&startup.contains("one-s-retry"),"first failure remains alongside a separately identified retry");
+                require(!startup.contains("opt-out-startup-marker"),"disabled collection cannot add startup events");
             }
             runOnMainSync(() -> data.setEnabled(true));
             File fresh = data.files.submit(() -> data.export()).get(30, java.util.concurrent.TimeUnit.SECONDS);
@@ -99,10 +131,12 @@ public final class HelpPageChecks extends Instrumentation {
                 require(network.contains("Debug export requested") && network.contains("test USB network disconnect"), "fresh export keeps both failure and current network evidence");
                 require(read(zip.getInputStream(zip.getEntry("display.txt"))).contains("Helper display diagnostics unavailable"), "missing helper leaves an explanation in display.txt");
                 require(read(zip.getInputStream(zip.getEntry("surfaceflinger.txt"))).contains("Helper display diagnostics unavailable"), "missing helper leaves an explanation in surfaceflinger.txt");
+                require(read(zip.getInputStream(zip.getEntry("display-link.txt"))).contains("Debug export requested"), "new ZIP includes current display-link evidence or its availability explanation");
+                require(read(zip.getInputStream(zip.getEntry("glasses-control.txt"))).contains("Glasses control channel"),"control snapshot includes unavailable-helper evidence in a usable export");
             }
             runOnMainSync(() -> data.setEnabled(false));
             runOnMainSync(() -> page().findViewWithTag("debug-share").performClick());
-            Intent share = activity.shareLaunch.getParcelableExtra(Intent.EXTRA_INTENT);
+            Intent share = shareLaunch.getParcelableExtra(Intent.EXTRA_INTENT);
             require(Intent.ACTION_SEND.equals(share.getAction()) && "application/zip".equals(share.getType()), "Share opens Android share chooser with ZIP");
             require((share.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0
                     && (share.getFlags() & Intent.FLAG_GRANT_WRITE_URI_PERMISSION) == 0, "temporary read permission only");
@@ -127,21 +161,29 @@ public final class HelpPageChecks extends Instrumentation {
             try (InputStream input = getTargetContext().getContentResolver().openInputStream(saved)) {
                 require(digest(input).equals(digest(new FileInputStream(export))), "Downloads copy matches exported ZIP");
             }
-            sendKeyDownUpSync(KeyEvent.KEYCODE_BACK); waitForIdleSync();
+            sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
+            await(() -> !help.isShowing(), "system back exit animation finishes");
             require(!help.isShowing() && !activity.isFinishing(), "system back returns to settings");
+            MenuChecks.awaitClosed(this, menu);
+            menu = MenuChecks.open(this, activity, "Help");
+            help = (HelpPage)menu.page;
             runOnMainSync(() -> {
-                row(text(activity.findViewById(android.R.id.content), "Help")).performClick();
+                require(page().findViewWithTag("debug-share").isEnabled(), "completed export remains available after reopening Help");
                 page().findViewWithTag("help-back").performClick();
-                require(!help.isShowing(), "toolbar back returns to settings");
-                row(text(activity.findViewById(android.R.id.content), "Help")).performClick();
-                activity.finish();
             });
-            await(() -> activity.isDestroyed() && !help.isShowing(), "Help dismissed with owning activity");
+            await(() -> !help.isShowing(), "toolbar exit animation finishes");
+            MenuChecks.awaitClosed(this, menu);
+            require(!activity.isFinishing(), "toolbar Back returns to settings");
+            runOnMainSync(activity::finish);
+            await(() -> activity.isDestroyed(), "settings closes without a leaked menu window");
             result.putString("stream", "Help/debug runtime checks passed: " + passed + "\n"); finish(-1, result);
         } catch (Throwable error) {
             Log.e("HelpPageChecks", "Failed after " + passed, error);
             result.putString("stream", "Help/debug failed after " + passed + ": " + error + "\n"); finish(0, result);
         } finally {
+            if (external != null) removeMonitor(external);
+            if (menu != null) runOnMainSync(menu::finish);
+            if (activity != null) runOnMainSync(activity::finish);
             if (data != null) runOnMainSync(() -> data.setEnabled(false));
             if (saved != null) getTargetContext().getContentResolver().delete(saved, null, null);
         }
