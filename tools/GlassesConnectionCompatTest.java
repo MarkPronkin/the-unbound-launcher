@@ -27,6 +27,7 @@ public final class GlassesConnectionCompatTest {
         java.lang.reflect.Field active=GlassesConnectionCompat.class.getDeclaredField("current");active.setAccessible(true);
         if(active.get(null)!=null)throw new AssertionError("previous session was not cleaned up");
         Handler.clear();SystemClock.now=0;ConnectionAnimation.defer=false;ConnectionHandoff.defer=false;FirmwareWarningView.last=null;
+        ConnectionHandoff.last=null;ai.nreal.nebula.util.helper.DbHelpUtil.mirroring=false;
         Context.app=new Application();Context.displays=new DisplayManager();Context.manager=new ActivityManager();Context.usb=new UsbManager();
         Context.usb.devices.put("glasses",new UsbDevice(13080));XREALManager.instance=new XREALManager();
         dev.beampro.settings.DebugData.events.clear();dev.beampro.settings.DebugData.fail=false;
@@ -34,6 +35,17 @@ public final class GlassesConnectionCompatTest {
     }
     static void close(Presenter p){GlassesConnectionCompat.cancel(p.mActivity);Handler.advance(0);}
     public static void main(String[] args)throws Exception {
+        Presenter mirror=fixture();XREALManager mirrorManager=XREALManager.instance;
+        ai.nreal.nebula.util.helper.DbHelpUtil.mirroring=true;
+        check(GlassesConnectionCompat.startInScreenMirroring(mirror.mActivity),"Read the original persisted mirroring choice");
+        GlassesConnectionCompat.begin(mirror);Handler.advance(0);
+        check(mirror.success==1&&mirrorManager.launches==0&&ConnectionHandoff.last==null,
+                "Mirroring SDK success closes the connection flow without launching or waiting for AR");
+        check(ConnectionAnimation.last.disposed&&!ConnectionAnimation.last.failed,"Mirroring removes the loading animation");
+        Handler.advance(90000);
+        check(!ConnectionAnimation.last.failed&&mirror.success==1,"Mirroring cannot later time out waiting for AR output");
+        close(mirror);
+        check(mirrorManager.mNRServiceControl.stops==0,"Successful mirroring cleanup leaves the SDK connection intact");
         for(String firmware:new String[]{"1.8.0.20260101000000","2.0.0.20260901182643","1.9.1.20260914175625-beta",""}) {
             Presenter blocked=fixture();XREALManager manager=XREALManager.instance;manager.mOtaManager.software=firmware;
             GlassesConnectionCompat.begin(blocked);Handler.advance(0);

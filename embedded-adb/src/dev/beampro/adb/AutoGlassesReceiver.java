@@ -25,7 +25,16 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
         return PACKAGE.equals(context.getPackageName())
             && context.getSharedPreferences("unbound-adb",0).getBoolean("setup-complete",false)
             && dev.beampro.settings.TermsConsent.hasAccepted(context)
-            && Settings.canDrawOverlays(context);
+            && Settings.canDrawOverlays(context)
+            && arEnabled(context);
+    }
+    private static boolean arEnabled(Context context) {
+        try {
+            boolean mirroring=(Boolean)Class.forName("dev.beampro.port.GlassesConnectionCompat")
+                .getMethod("startInScreenMirroring",Context.class).invoke(null,context);
+            if(mirroring)Log.i(TAG,"Screen mirroring selected; skipping automatic AR entry");
+            return !mirroring;
+        } catch(Exception error) { Log.w(TAG,"Cannot read the connection preference; skipping automatic AR entry",error);return false; }
     }
     private static boolean glasses(UsbDevice device) {
         if(device==null)return false;

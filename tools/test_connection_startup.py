@@ -11,6 +11,11 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 
 STUBS = dict(DISPLAY_STUBS)
 STUBS.update({
+    'ai/nreal/nebula/util/helper/DbHelpUtil.java': '''package ai.nreal.nebula.util.helper;
+      public class DbHelpUtil {public static boolean mirroring;
+        public static Boolean getBoolean(android.content.Context c,String key,boolean fallback){
+          if(!key.equals("castScreen")||fallback)throw new AssertionError("Wrong mirroring preference");return mirroring;}}
+    ''',
     'dev/beampro/port/FirmwareWarningView.java': '''package dev.beampro.port;
       public class FirmwareWarningView {public static FirmwareWarningView last;public FirmwarePolicy.Result result;
         public Runnable exit,proceed;public boolean checking;
@@ -122,7 +127,7 @@ STUBS.update({
                if(GlassesConnectionCompat.acceptSdkCallback(cb)){if(ok){mNRServiceControl.started=true;GlassesConnectionCompat.launch(this);}cb.onResult(ok?0:1);}});return;}
          if(waitingDisplay){mNRServiceControl.started=true;mDisplayEvent=new Event();return;}
          if(nextResult<0)return;int r=nextResult;nextResult=0;
-         if(r==0){mNRServiceControl.started=true;GlassesConnectionCompat.launch(this);}cb.onResult(r);}
+         if(r==0){mNRServiceControl.started=true;if(!ai.nreal.nebula.util.helper.DbHelpUtil.mirroring)GlassesConnectionCompat.launch(this);}cb.onResult(r);}
        public void goLauncher(){hasGoLauncher=true;launches++;}public boolean isHasGoLauncher(){return hasGoLauncher;}
        private int getFinalDisplayConfig(){return target;}public void unregisterGlasses(Object o){unregistered++;}
        public void lateSuccess(){if(GlassesConnectionCompat.acceptSdkCallback(callback)){GlassesConnectionCompat.launch(this);callback.onResult(0);}}

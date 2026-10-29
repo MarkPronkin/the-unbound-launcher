@@ -4,6 +4,7 @@
     <queries><package android:name="dev.beampro.controllerresources" /></queries>
     <application android:label="Controller checks" android:debuggable="true" android:theme="@android:style/Theme.Material.NoActionBar">
         <activity android:name="ai.nreal.nebula.space.LaunchSpaceAcrivity" android:exported="true" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" />
+        <activity android:name="dev.beampro.controllerpreview.GamepadActivity" android:exported="true" android:allowEmbedded="true" />
     </application>
     <instrumentation android:name="dev.beampro.controllerpreview.ControllerScreenChecks" android:targetPackage="dev.beampro.controllerpreview" />
 </manifest>

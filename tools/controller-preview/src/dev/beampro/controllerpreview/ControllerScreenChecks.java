@@ -1,6 +1,7 @@
 package dev.beampro.controllerpreview;
 
 import android.app.Instrumentation;
+import android.app.ActivityOptions;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
@@ -9,6 +10,8 @@ import android.graphics.Rect;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.MotionEvent;
+import android.view.KeyEvent;
+import android.view.InputDevice;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -36,6 +39,7 @@ public final class ControllerScreenChecks extends Instrumentation {
         JSONObject report = new JSONObject();
         try {
             setInTouchMode(true);
+            getUiAutomation().adoptShellPermissionIdentity();
             activity = (LaunchSpaceAcrivity) startActivitySync(new Intent(getTargetContext(), LaunchSpaceAcrivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             output = new File(activity.getExternalFilesDir(null), "controller"); output.mkdirs();
@@ -81,6 +85,7 @@ public final class ControllerScreenChecks extends Instrumentation {
                 settle();
                 runOnMainSync(() -> require(proxy() != null, "Cancel restores the integrated action"));
             }
+            checkGamepadFocus();
             // Drawer and original lock UI must take precedence over the invisible compatibility target.
             runOnMainSync(() -> {
                 View drawer = activity.controller.findViewById(0x7f0900c6);
@@ -117,6 +122,87 @@ public final class ControllerScreenChecks extends Instrumentation {
             result.putString("stream", "Controller screen checks failed after " + passed + ": " + android.util.Log.getStackTraceString(error));
             finish(0, result);
         }
+    }
+
+    private void checkGamepadFocus() throws Exception {
+        ActivityOptions options = ActivityOptions.makeBasic();
+        options.setLaunchDisplayId(activity.glasses.getDisplay().getDisplayId());
+        runOnMainSync(() -> activity.startActivity(new Intent(activity, GamepadActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK), options.toBundle()));
+        settle();
+        require(GamepadActivity.focused, "spatial game owns global input focus");
+        gamepad();
+        int losses = GamepadActivity.focusLosses;
+        Rect target = new Rect();
+        runOnMainSync(() -> require(activity.<PhoneScreenControl>findViewById(PhoneScreenControl.ID)
+                .touchBounds(activity.getWindow().getDecorView(), target), "screen-off action available beside a focused game"));
+        tap(target.centerX(), target.centerY()); settle();
+        runOnMainSync(() -> {
+            View cancel = findWindowView(android.R.id.button2);
+            require(cancel != null, "confirmation opens while game is focused");
+            WindowManager.LayoutParams params = (WindowManager.LayoutParams) cancel.getRootView().getLayoutParams();
+            require((params.flags & WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) != 0, "confirmation cannot take gamepad focus");
+        });
+        require(GamepadActivity.focused && GamepadActivity.focusLosses == losses, "opening confirmation preserves game focus");
+        gamepad();
+        runOnMainSync(() -> findWindowView(android.R.id.button2).performClick()); settle();
+
+        // Exercise the production touch guard without powering down emulator displays
+        // or requiring the native Unity pointer/helper in this isolated fixture.
+        Class<?> type = Class.forName("dev.beampro.port.PhoneScreenCompat$Session");
+        java.lang.reflect.Constructor<?> constructor = type.getDeclaredConstructor(android.app.Activity.class);
+        constructor.setAccessible(true);
+        Object[] session = new Object[1];
+        runOnMainSync(() -> {
+            try { session[0] = constructor.newInstance(activity); invoke(session[0], "block"); }
+            catch (Exception error) { throw new IllegalStateException(error); }
+        });
+        try {
+            settle();
+            require(GamepadActivity.focused && GamepadActivity.focusLosses == losses, "screen-off guard preserves game focus");
+            gamepad();
+            tap(200, 200); settle();
+            require(GamepadActivity.focused && GamepadActivity.focusLosses == losses, "blocked phone touches leave the game focused");
+            gamepad();
+            java.lang.reflect.Field blocked = type.getDeclaredField("blockedTouches"); blocked.setAccessible(true);
+            require(blocked.getInt(session[0]) >= 2, "non-focusable guard still consumes phone down/up events");
+        } finally {
+            runOnMainSync(() -> { invoke(session[0], "unblock"); invoke(session[0], "close"); });
+            runOnMainSync(() -> GamepadActivity.instance.finish()); settle();
+        }
+    }
+
+    private void gamepad() {
+        int before = GamepadActivity.releases;
+        long now = SystemClock.uptimeMillis();
+        for (int action : new int[]{KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP}) {
+            KeyEvent event = new KeyEvent(now, SystemClock.uptimeMillis(), action, KeyEvent.KEYCODE_BUTTON_A,
+                    0, 0, -1, 0, 0, InputDevice.SOURCE_GAMEPAD);
+            require(getUiAutomation().injectInputEvent(event, true), "global gamepad button injected");
+        }
+        settle();
+        require(GamepadActivity.releases == before + 1, "global gamepad button reaches the spatial game");
+        int motions = GamepadActivity.motions;
+        MotionEvent.PointerProperties properties = new MotionEvent.PointerProperties(); properties.id = 0;
+        MotionEvent.PointerCoords coordinates = new MotionEvent.PointerCoords();
+        coordinates.setAxisValue(MotionEvent.AXIS_X, .5f); coordinates.setAxisValue(MotionEvent.AXIS_Y, -.5f);
+        MotionEvent joystick = MotionEvent.obtain(now, SystemClock.uptimeMillis(), MotionEvent.ACTION_MOVE, 1,
+                new MotionEvent.PointerProperties[]{properties}, new MotionEvent.PointerCoords[]{coordinates},
+                0, 0, 1, 1, -1, 0, InputDevice.SOURCE_JOYSTICK, 0);
+        try {
+            MotionEvent.class.getMethod("setDisplayId", int.class).invoke(joystick, -1);
+            require(getUiAutomation().injectInputEvent(joystick, true), "global joystick motion injected");
+        } catch (Exception error) { throw new IllegalStateException(error); }
+        finally { joystick.recycle(); }
+        settle();
+        require(GamepadActivity.motions == motions + 1, "global joystick motion reaches the spatial game");
+    }
+
+    private void invoke(Object target, String name) {
+        try {
+            java.lang.reflect.Method method = target.getClass().getDeclaredMethod(name);
+            method.setAccessible(true); method.invoke(target);
+        } catch (Exception error) { throw new IllegalStateException(error); }
     }
 
     private void render(String mode, int widthDp, int heightDp, float font, String filename) {

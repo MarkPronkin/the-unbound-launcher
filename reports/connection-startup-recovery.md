@@ -1,5 +1,49 @@
 # Glasses connection recovery and automatic entry
 
+## Respect Start in screen mirroring — build 2952
+
+With **Start in screen mirroring** enabled, plugging in the glasses could still
+open the connection screen and leave it waiting for AR Space. Closing the screen
+then allowed ordinary mirroring, as reported on the Pixel 8 Pro.
+
+The USB receiver checked setup, consent, overlay permission and active sessions,
+but never read the original `castScreen` preference. Separately, the stock SDK
+reports success for mirroring without launching an AR renderer; the recovery
+adapter treated every success as AR startup and waited for controller and glasses
+frames that would never arrive.
+
+The receiver now reads the same settings-provider value as Settings and the
+original SDK on USB attachment, helper-ready recovery and queued dispatch.
+Mirroring skips automatic AR entry and automatic helper bootstrap. USB detach
+still cancels pending helper work. If a previously queued connection reaches SDK
+success after mirroring is selected, it completes through the original presenter
+without launching the AR controller or creating an output handoff. Turning the
+setting off retains automatic AR entry.
+
+Host validation passes 13 receiver assertions, 114 connection recovery assertions,
+30 helper auto-entry assertions and 95 firmware-policy assertions. The receiver
+regression fails against the original source at the expected mirroring-attachment
+check. Connection tests also check that mirroring removes the loading animation,
+cannot time out later waiting for AR, and preserves the successful SDK connection.
+Evidence is under `artifacts/pixel-mirroring-startup-20261029/`; the development
+APK is `artifacts/unbound-launcher-mirroring-startup-2952/the-unbound-launcher.apk`.
+
+The full signed-APK audit passes, including the packaged mirroring guard,
+corresponding sources, signatures, class uniqueness and scoped DEX restoration.
+Build 2952 is installed on the connected Pixel 8 Pro; its installed APK matches
+SHA-256 `4f98ff8badc297b5fe3380112781833c150613e3808ecd90a015eca91457da94`.
+Seven checks against the actual installed app and attached XREAL One pass:
+the settings-provider value is read correctly, mirroring disables USB and
+helper-ready auto-entry, and switching it off re-enables automatic AR entry.
+The temporary instrumentation package was removed. The test restored the initial
+preference, then mirroring was enabled explicitly for the physical reconnect
+check. A normal app/helper restart logs **Screen mirroring selected; skipping
+automatic AR entry** and leaves Settings visible without an AR loading screen.
+The wearer then physically unplugged and reconnected the glasses and confirmed
+**“Mirroring opens directly”**, without the AR Space loading screen. The reported
+startup regression is wearer-confirmed fixed on this Pixel 8 Pro / XREAL One
+combination. Mirroring remains enabled.
+
 ## Fix the readiness stall without the phone — build 2931
 
 The wearer reported that build 2930 remained on **Connect your glasses**. The

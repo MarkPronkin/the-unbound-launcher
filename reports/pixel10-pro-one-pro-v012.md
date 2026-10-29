@@ -167,3 +167,73 @@ APK: `artifacts/unbound-launcher-2941-display-diagnostics-final/the-unbound-laun
 SHA-256: `49729b53934f9b810c0b142d9be612a99e157e0124370b88fbe273f79f5bf834`.
 Results: `artifacts/pixel10-onepro-diagnostics/validation.json` and
 `signed-apk-audit.json` in the same evidence directory.
+
+## Second export — build 2949, 2026-10-29
+
+`unbound-debug-20261029-053630-6b616bbe.zip` comes from the same combination:
+**Pixel 10 Pro, Android 17 / API 37, build 2949**, XREAL One Pro (model 6,
+firmware 1.9.1.20260914175625, the recommended stable release). The wearer
+reports that AR Space starts loading but the glasses picture is unreadable.
+**The VGA-only failure is unchanged.** The export is retained under
+`artifacts/pixel10-onepro-2949/`. Times are the phone's local log time.
+
+| Evidence | Observation |
+| --- | --- |
+| `glasses-startup.txt`, 06:35:10.991 | SDK start with external display 42 at 1920 × 1080 / 60 Hz, its only mode. |
+| `app.log:2588–2627`, 06:35:11.644–11.724 | Native startup succeeds. The SDK's G-series default selects `NR_EDID_3840_1080_60` (5) over the current EDID 9; `nativeSetDpCurrentEdid` returns true. |
+| `app.log:2649,2803`, 06:35:12.005 / 13.921 | Display 42 is removed; display 43 is added. |
+| `app.log:2843,2885` | The renderer waits on display 43 at 640 × 480, first off, then on. |
+| `app.log:5301`, 06:35:57.226 | The 45-second wait ends: the glasses never reach full resolution. |
+| `surfaceflinger.txt:3177–3183` | The composer exposes **one** hardware config for DP-1: 640 × 480, 25.175 MHz, DRM mode type 64 (driver-generated, not marked preferred). The EDID was still read: 2260 × 1410 mm, XREAL One Pro, MRG 16640. |
+| `display.txt:139,1558` | Android's mode list is that config plus its 769 × 480 anisotropy alternative; the framework size cap remains 3840 × 2160. |
+| `surfaceflinger.txt:1204,1883` | PowerVR DXT-48-1536 GPU; DisplayPort through `vs-drm` and `drm_hwcomposer`, not the Exynos HWC analysed for the Pixel 8 Pro. |
+| final `display.txt`/`display-link.txt` | At export, 50 seconds after the timeout, the glasses are still on display 43 at 640 × 480. Startup failure does not return them to 2D. |
+
+The earlier display 41 was also 640 × 480 until the wearer unplugged at
+06:34:55; the replug restored 1920 × 1080 (display 42). The unreadable image
+is consistent with SBS-mode glasses receiving the phone's 640 × 480 fallback
+mirror; the export contains no picture, so this remains an inference.
+
+What this adds to the build 2924 analysis:
+
+- The phone's display driver read the stereo EDID and offered none of its
+  timings. A driver-generated 640 × 480 mode is a fail-safe, not a choice
+  between advertised modes. An app or helper mode request therefore has
+  nothing to select, which rules out the Pixel 8 Pro remedy on this phone.
+- The GPU is not Mali, so build 2950's immersive copy-surface routing does
+  not apply. The failure occurs before any app window reaches the glasses.
+- No Tensor G5 phone in our records has reached 3840 × 1080. The Pixel 10
+  Pro Fold export stopped before the stereo switch. The Pixel 8 Pro with an
+  XREAL One has reached it repeatedly.
+
+The export **cannot** establish why the driver rejected the SBS timing:
+pixel-clock limit, DisplayPort lane count or link rate, cable/adapter, or
+glasses firmware. Three collection gaps in `DisplayDiagnostics` caused this:
+
+1. `dumpsys usb` is head-limited to 32,000 bytes (`display-link.txt:301,1052,1881`).
+   The USB event log and the glasses' 14-interface descriptor fill it before
+   `port_manager`, which holds the DisplayPort Alt Mode lanes and
+   link-training status.
+2. The log probe takes `logcat -t 2500` before tag filtering. The failure
+   snapshot is taken at the 45-second timeout, so its log begins at
+   06:35:31.758, 20 seconds after the switch. No snapshot covers
+   06:35:11–14.
+3. `/sys/class/drm/card0-DP-1` is listed, but none of its attributes or its
+   EDID are readable to shell, and dmesg is denied. The kernel's pruning
+   reason is unlikely to be available on a user build.
+
+Next steps, none implemented yet:
+
+- **Hardware isolation by the wearer, without Unbound.** Use the original
+  XREAL cable plugged directly into the phone, with no hub, extension or
+  charging adapter. Mirror the phone and select *3D Mode → Full SBS* in the
+  glasses' own menu. If the mirror also becomes unreadable, the Pixel 10 Pro
+  cannot drive the One Pro's 3840 × 1080 timing, independently of the
+  launcher.
+- **App-side fallback.** When the stereo switch yields no advertised 3840 ×
+  1080 mode, return the glasses to a 1920 × 1080 EDID and run AR Space in
+  mono, the inverse of *Force 3D*. At minimum, restore 2D on this failure, so
+  the wearer gets a readable mirror without replugging.
+- **Diagnostics.** Capture the `port_manager` section separately. Read logs
+  from the attempt's start time rather than a fixed tail. Snapshot when a
+  non-native mode appears after the stereo switch, not only at the timeout.

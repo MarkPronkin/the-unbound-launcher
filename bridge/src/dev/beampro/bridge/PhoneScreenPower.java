@@ -39,7 +39,7 @@ final class PhoneScreenPower {
         }, handler);
     }
 
-    synchronized void request(int command, IBinder token, int externalDisplay) throws Exception {
+    synchronized boolean request(int command, IBinder token, int externalDisplay) throws Exception {
         if (command < 1 || command > 3 || token == null) throw new IllegalArgumentException("Invalid phone-screen request");
         if (command == 1) {
             if (owner != null) throw new IllegalStateException("Phone screen already off");
@@ -79,12 +79,13 @@ final class PhoneScreenPower {
                 requireGlasses(glassesId);
                 if (watchdog == null || !watchdog.isAlive()) {
                     restore();
-                    throw new IllegalStateException("Phone-screen watchdog stopped");
+                    return false; // Volume recovery also ends the independent watchdog.
                 }
                 send("PING");
                 renewed = SystemClock.elapsedRealtime();
             }
-        } else if (command == 2) throw new IllegalStateException("Phone-screen session expired");
+        }
+        return owner != null;
     }
 
     private void requireGlasses(int id) throws Exception {
@@ -121,7 +122,7 @@ final class PhoneScreenPower {
     private void await(String expected) throws Exception {
         // app_process may emit vendor diagnostics before our protocol response.
         java.io.InputStream input = watchdog.getInputStream();
-        long deadline = SystemClock.elapsedRealtime() + 3000;
+        long deadline = SystemClock.elapsedRealtime() + (expected.equals("READY") ? 6000 : 3000);
         StringBuilder line = new StringBuilder();
         while (SystemClock.elapsedRealtime() < deadline) {
             while (input.available() > 0) {
@@ -195,20 +196,24 @@ final class PhoneScreenPower {
             }, "phone-screen-commands");
             reader.setDaemon(true); reader.start();
             boolean attemptedOff = false;
-            System.out.println("READY"); System.out.flush();
-            try {
-                while (true) {
-                    String command = input.poll(8, TimeUnit.SECONDS);
-                    if (command == null || command.equals("ON")) break;
-                    if (command.equals("OFF") && !attemptedOff) {
-                        attemptedOff = true;
-                        power.invoke(null, panel, 0);
-                        System.out.println("OFF"); System.out.flush();
-                    } else if (!command.equals("PING")) throw new IllegalArgumentException("Invalid watchdog command");
+            // Own the key readers here so helper death/lease expiry closes them as
+            // well as restoring the panel. They never need an input-focused window.
+            try (PhoneScreenWakeKeys keys = PhoneScreenWakeKeys.start(() -> input.offer("ON"))) {
+                System.out.println("READY"); System.out.flush();
+                try {
+                    while (true) {
+                        String command = input.poll(8, TimeUnit.SECONDS);
+                        if (command == null || command.equals("ON")) break;
+                        if (command.equals("OFF") && !attemptedOff) {
+                            attemptedOff = true;
+                            power.invoke(null, panel, 0);
+                            System.out.println("OFF"); System.out.flush();
+                        } else if (!command.equals("PING")) throw new IllegalArgumentException("Invalid watchdog command");
+                    }
+                } finally {
+                    if (attemptedOff) power.invoke(null, panel, 2);
+                    System.out.println("ON"); System.out.flush();
                 }
-            } finally {
-                if (attemptedOff) power.invoke(null, panel, 2);
-                System.out.println("ON"); System.out.flush();
             }
             // Native framework threads need not keep this narrowly scoped watchdog alive.
             System.exit(0);

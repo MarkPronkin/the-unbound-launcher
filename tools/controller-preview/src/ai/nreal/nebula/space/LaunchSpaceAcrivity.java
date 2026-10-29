@@ -35,7 +35,8 @@ public final class LaunchSpaceAcrivity extends Activity {
         texture.setDefaultBufferSize(640, 360);
         surface = new Surface(texture);
         glasses = getSystemService(DisplayManager.class).createVirtualDisplay("Controller fixture glasses", 640, 360, 160,
-                surface, DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
+                surface, DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION | DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
+                        | DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC | (1 << 10)); // TRUSTED, as in the production shell helper.
         legacyIme = new View(this);
         WindowManager.LayoutParams ime = new WindowManager.LayoutParams(0, 0,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, 0, android.graphics.PixelFormat.TRANSLUCENT);
