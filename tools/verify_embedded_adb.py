@@ -40,6 +40,7 @@ from display_mode_compat import LIBRARY as MODE_LIBRARY, patch_display_mode, ver
 from egl_colorspace_compat import patch_egl_colorspace, verify_egl_colorspace
 from overlay_routing import patch_overlay_routing, verify_overlay_routing
 from app_surface_routing import patch_surface_routing, verify_surface_routing
+from recording_duration import patch_recording_duration, verify_recording_duration
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
@@ -257,11 +258,13 @@ def verify(apk):
             restored = patch_icon_resolution(restored,Path(work)/"icons",java,restore=True,baseline=base.read("classes2.dex"))
             assert restored == base.read("classes2.dex"), "Headset icon hook scope differs from the baseline"
             routed = patch_binary_identity(LIBRARY, z.read(LIBRARY), restore=True)
+            recording_report = verify_recording_duration(routed)
+            routed = patch_recording_duration(routed, restore=True)
             surface_report = verify_surface_routing(routed)
             routed = patch_surface_routing(routed, restore=True)
             routing_report = verify_overlay_routing(routed)
             native = patch_startup_tutorial(patch_stereo_native(patch_overlay_routing(routed, restore=True), restore=True), restore=True)
-            assert patch_color_native(native,restore=True)==base.read(LIBRARY), "Native color/tutorial/stereo patch scope differs"
+            assert patch_color_native(native,restore=True)==base.read(LIBRARY), "Native color/tutorial/stereo/recording patch scope differs"
         mode_library = z.read(MODE_LIBRARY)
         egl_report = verify_egl_colorspace(mode_library)
         mode_library = patch_egl_colorspace(mode_library, restore=True)
@@ -412,12 +415,13 @@ def verify(apk):
             "android_11_provider_contract_adapter_wired": True,
             "manufacturer_setup_help_packaged": True,
             "class_definitions": len(definitions), "duplicate_classes": 0, "original_permissions_preserved": True,
-            "native_libraries_unchanged_except_audited_color_tutorial_stereo_mode_and_overlay": True,
+            "native_libraries_unchanged_except_audited_color_tutorial_stereo_mode_overlay_and_recording": True,
             "display_mode_compatibility": mode_report,
             "egl_colorspace_compatibility": egl_report,
             "overlay_color": overlay_report,
             "overlay_routing": routing_report,
             "app_surface_routing": surface_report,
+            "recording_duration": recording_report,
             "automatic_first_use_tutorial_disabled_with_exact_native_scope": True,
             "experimental_stereo_default_off_and_both_selectors_scoped": True,
             "all_original_resources_except_audited_app_shader_and_package_identity_identical": True,
