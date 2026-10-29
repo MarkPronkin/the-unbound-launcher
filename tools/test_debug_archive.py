@@ -97,15 +97,22 @@ public class DebugArchiveChecks {
    byte[] encoded=line.getBytes(java.nio.charset.StandardCharsets.UTF_8);archive.startupLog(encoded,encoded.length);
   }
   for(int i=0;i<6;i++)archive.startupSnapshot("control-snapshot-"+i+"\n"+display.substring(0,32_000));
+  for(int i=0;i<6;i++)archive.startupTrace("control-trace-"+i+"\n"+display.substring(0,30_000));
   archive=new DebugArchive(root);archive.startupBegin(false);
   file=archive.export(display.substring(0,64_000),display,surface);
   try(ZipFile zip=new ZipFile(file)){
-   check(zip.size()==8,"startup timeline and control snapshots coexist with all existing diagnostics");
+   check(zip.size()==9,"startup timeline, control snapshots and traces coexist with all existing diagnostics");
    byte[] tail=zip.getInputStream(zip.getEntry("app.log")).readAllBytes();
-   check(tail.length==11_700_000&&Arrays.equals(tail,Arrays.copyOfRange(fullLogs,300_000,fullLogs.length)),"startup data reserves 300 KB by exporting the newest app bytes in order");
+   check(tail.length==11_620_000&&Arrays.equals(tail,Arrays.copyOfRange(fullLogs,380_000,fullLogs.length)),"startup data reserves 380 KB by exporting the newest app bytes in order");
    byte[] startup=zip.getInputStream(zip.getEntry("glasses-startup.txt")).readAllBytes();
    byte[] controls=zip.getInputStream(zip.getEntry("glasses-control.txt")).readAllBytes();
-   check(startup.length<=165_000&&startup.length+controls.length<=262_144,"all startup evidence fits an independent 256 KiB export budget");
+   byte[] traces=zip.getInputStream(zip.getEntry("glasses-control-trace.txt")).readAllBytes();
+   check(startup.length<=165_000&&startup.length+controls.length+traces.length<=340_000,"all startup evidence fits inside its export reservation with room for ZIP headers");
+   String trace=new String(traces,java.nio.charset.StandardCharsets.UTF_8);
+   check(trace.contains("control-trace-0")&&!trace.contains("control-trace-1\n")&&!trace.contains("control-trace-3\n")
+       &&trace.contains("control-trace-4")&&trace.contains("control-trace-5"),"the first trace since collection began stays beside the latest two");
+   check(trace.indexOf("control-trace-0")<trace.indexOf("control-trace-4")&&trace.indexOf("control-trace-4")<trace.indexOf("control-trace-5"),"traces keep capture order");
+   check(trace.contains("[truncated]")&&traces.length<=3*(24_000+40),"each trace has its own explicit byte limit");
    String timeline=new String(startup,java.nio.charset.StandardCharsets.UTF_8);
    check(timeline.contains("333 get rsp timeout")&&timeline.contains("333=1")&&timeline.contains("3.1.2.20261009101910"),"first failure and observed summary survive later retries and archive restart");
    String control=new String(controls,java.nio.charset.StandardCharsets.UTF_8);
@@ -113,7 +120,30 @@ public class DebugArchiveChecks {
    check(control.indexOf("control-snapshot-3")<control.indexOf("control-snapshot-5"),"control snapshots retain capture order");
   }
   check(archive.bytes()==12_000_000,"startup export reservation never shrinks the collection ring");
+  archive.startupBegin(true);
+  try(ZipFile zip=new ZipFile(archive.export("after reset"))){
+   check(zip.getEntry("glasses-control-trace.txt")==null&&zip.getEntry("glasses-control.txt")==null,"starting a new collection removes old control snapshots and traces");
+  }
+  for(int i=0;i<6;i++)archive.startupSnapshot("control-snapshot-"+i+"\n"+display.substring(0,32_000));
+  for(int i=0;i<6;i++)archive.startupTrace("control-trace-"+i+"\n"+display.substring(0,30_000));
+  for(int i=0;i<30;i++){
+   byte[] body=new byte[7000];random.nextBytes(body);for(int j=0;j<body.length;j++)body[j]=(byte)(32+(body[j]&255)%95);
+   String line="10-28 12:11:28.500  3557 25772 I UnboundConnect: "+(i==6?"333 get rsp timeout ":"Observed startup stage ")+new String(body,java.nio.charset.StandardCharsets.UTF_8)+"\n";
+   byte[] encoded=line.getBytes(java.nio.charset.StandardCharsets.UTF_8);archive.startupLog(encoded,encoded.length);
+  }
   check(file.length()<=15_000_000,"maximum startup evidence, full existing diagnostics and metadata fit the ZIP hard cap");
+  String geometry=display.substring(0,RendererTrace.MAX_BYTES);
+  file=archive.export(new String(new char[64_000]).replace('\0','m'),display,surface,geometry);
+  check(file.length()<=15_000_000,"renderer geometry plus maximum existing diagnostics fit the hard ZIP cap");
+  try(ZipFile zip=new ZipFile(file)){
+   check(Arrays.equals(zip.getInputStream(zip.getEntry("renderer-geometry.txt")).readAllBytes(),geometry.getBytes(java.nio.charset.StandardCharsets.UTF_8)),"renderer evidence is exported independently of app.log");
+  }
+  file=archive.export("window evidence",display,surface,geometry,"first connected window\nlatest inset state\n");
+  check(file.length()<=15_000_000,"retained immersive-window evidence fits the hard ZIP cap");
+  try(ZipFile zip=new ZipFile(file)){
+   String windows=new String(zip.getInputStream(zip.getEntry("immersive-windows.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(windows.contains("first connected window")&&windows.contains("latest inset state"),"connected-window state is exported independently of logcat");
+  }
   file=archive.export("oversized dump",display+display,"Helper unavailable: restart updated helper");
   try(ZipFile zip=new ZipFile(file)){
    byte[] dump=zip.getInputStream(zip.getEntry("display.txt")).readAllBytes();
@@ -138,7 +168,7 @@ public class DebugArchiveChecks {
             test.write_text(source)
             subprocess.run([str(JAVA / 'bin/javac'), '-d', tmp,
                 *[str(ROOT / 'settings-ui/src/dev/beampro/settings' / name) for name in
-                  ('DebugArchive.java', 'StartupTrace.java', 'DisplayDiagnostics.java', 'NetworkDiagnostics.java')], str(test)], check=True)
+                  ('DebugArchive.java', 'StartupTrace.java', 'DisplayDiagnostics.java', 'NetworkDiagnostics.java', 'ControlTrace.java', 'RendererTrace.java')], str(test)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp,
                 'dev.beampro.settings.DebugArchiveChecks', str(work / 'data')], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

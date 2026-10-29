@@ -46,8 +46,10 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
             check(DisplayDiagnostics.GLASSES_CONTROL==3&&DisplayDiagnostics.MAX_CONTROL_BYTES==32000,"Stable control selector and byte budget");
             check(DebugDisplay.captureControl(getTargetContext()).equals(payload(3)),"Control capture crosses the real Binder descriptor pipe");
             check(DebugDisplay.captureLink(getTargetContext()).equals(payload(2)),"Original link capture remains available");
+            check(DisplayDiagnostics.GLASSES_CONTROL_TRACE==4&&ControlTrace.MAX_BYTES==24000,"Stable trace selector and byte budget");
+            check(DebugDisplay.captureTrace(getTargetContext()).equals(payload(4)),"Trace capture crosses the real Binder descriptor pipe");
             DisplayDumpPipe direct=new DisplayDumpPipe(android.os.Process.myUid());
-            for(int kind:new int[]{0,1,2,3})try(ParcelFileDescriptor ignored=direct.open(android.os.Process.myUid()+1,kind)){
+            for(int kind:new int[]{0,1,2,3,4})try(ParcelFileDescriptor ignored=direct.open(android.os.Process.myUid()+1,kind)){
                 throw new AssertionError("Other UID accepted");
             }catch(SecurityException expected){checks++;}
             try(ParcelFileDescriptor ignored=direct.open(android.os.Process.myUid(),99)){throw new AssertionError("Unknown selector accepted");}
@@ -59,6 +61,8 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
             check(control.contains("Permission denied")&&control.contains("Glasses control channel"),"Permission errors remain readable");
             mode("oldcontrol");control=DebugDisplay.captureControl(getTargetContext());
             check(control.contains("Unknown display diagnostic")&&control.contains("restart"),"Older helper rejecting kind three gives an update explanation");
+            String trace=DebugDisplay.captureTrace(getTargetContext());
+            check(trace.contains("Unknown display diagnostic")&&trace.contains("restart")&&trace.contains("Glasses control trace"),"The released 0.2.0 helper rejecting kind four gives an update explanation");
             check(DebugDisplay.captureLink(getTargetContext()).equals(payload(2)),"Pre-control helper still supplies link diagnostics");
             mode("missing");check(DebugDisplay.captureControl(getTargetContext()).contains("not running"),"Absent helper yields a readable control report");
             mode("empty");check(DebugDisplay.captureControl(getTargetContext()).contains("empty diagnostic pipe"),"Empty helper pipe is explained");
@@ -86,11 +90,19 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
             check(control.contains("TimeoutException"),"Stalled control pipe is bounded");
             check(DebugDisplay.captureLink(getTargetContext()).equals(payload(2)),"A blocked control producer does not hold the helper link slot");
             released();check(DebugDisplay.captureControl(getTargetContext()).equals(payload(3)),"Timed-out control pipe resources recover");
+
+            mode("blockTraceProducer");AtomicReference<String> held=new AtomicReference<>();
+            Thread traceThread=new Thread(()->held.set(DebugDisplay.captureTrace(getTargetContext())));traceThread.start();entered();
+            start=SystemClock.uptimeMillis();control=DebugDisplay.captureControl(getTargetContext(),1200);
+            check(control.equals(payload(3))&&SystemClock.uptimeMillis()-start<1200,"A running 12 s trace cannot delay the failure snapshot");
+            check(DebugDisplay.captureLink(getTargetContext()).equals(payload(2)),"A running trace cannot hold the link slot");
+            check(DebugDisplay.captureTrace(getTargetContext(),300).contains("RejectedExecutionException"),"Only one trace runs at a time");
+            released();traceThread.join(2000);check(!traceThread.isAlive()&&payload(4).equals(held.get()),"The held trace completes after the other captures");
             result.putString("stream","PASS control diagnostic Android assertions: "+checks+"\n");finish(-1,result);
         }catch(Throwable failure){result.putString("stream","FAIL after "+checks+": "+android.util.Log.getStackTraceString(failure));finish(0,result);}
         finally{if(fixture!=null){call("mode","release");mode("missing");}}
     }
-    private static String payload(int kind){return "Captured: fixture\nIdentity: ADB shell helper\nService: "+DisplayDiagnostics.service(kind)+"\n"+new String(new char[kind==3?2000:3000]).replace('\0','\u20ac');}
+    private static String payload(int kind){return "Captured: fixture\nIdentity: ADB shell helper\nService: "+DisplayDiagnostics.service(kind)+"\n"+new String(new char[kind>=3?2000:3000]).replace('\0','\u20ac');}
 
     public static final class FixtureProvider extends ContentProvider {
         private volatile String mode="missing";
@@ -99,7 +111,7 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
         private void hold(){entered.countDown();try{release.await(5,TimeUnit.SECONDS);}catch(InterruptedException stopped){Thread.currentThread().interrupt();}finally{drained.countDown();}}
         private final DisplayDumpPipe dumps=new DisplayDumpPipe(android.os.Process.myUid(),kind->{
             String value=mode;
-            if(value.equals("blockLinkProducer")&&kind==2||value.equals("blockControlProducer")&&kind==3)hold();
+            if(value.equals("blockLinkProducer")&&kind==2||value.equals("blockControlProducer")&&kind==3||value.equals("blockTraceProducer")&&kind==4)hold();
             if(value.equals("empty"))return "";
             if(value.equals("oversize"))return new String(new char[100000]).replace('\0','\u20ac');
             if(value.equals("denied"))return "Service: "+DisplayDiagnostics.service(kind)+"\nPermission denied\n";
@@ -111,7 +123,7 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
                 data.enforceInterface(DisplayDiagnostics.TOKEN);int kind=data.readInt();
                 if(kind==3)controlRequests.incrementAndGet();
                 String value=mode;
-                if(value.equals("oldcontrol")&&kind==3)throw new IllegalArgumentException("Unknown display diagnostic");
+                if(value.equals("oldcontrol")&&kind>=3)throw new IllegalArgumentException("Unknown display diagnostic");
                 if(value.equals("blockLinkBinder")&&kind==2||value.equals("blockControlBinder")&&kind==3){hold();return false;}
                 try(ParcelFileDescriptor pipe=dumps.open(Binder.getCallingUid(),kind)){
                     reply.writeNoException();pipe.writeToParcel(reply,0);return true;
@@ -141,7 +153,15 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
     public static final class ShellCapture {
         public static void main(String[] args) {
             if(android.os.Process.myUid()!=2000)throw new SecurityException("Run as shell");
-            long start=SystemClock.uptimeMillis();byte[] report=DisplayDiagnostics.encode(3,DisplayDiagnostics.capture(3));
+            long start=SystemClock.uptimeMillis();
+            if(args.length>0&&args[0].equals("trace")) {
+                long duration=args.length>1?Long.parseLong(args[1]):ControlTrace.DURATION_MS;
+                byte[] report=DisplayDiagnostics.encode(4,ControlTrace.capture(ControlTrace.FILES,ControlTrace.SYSTEM,duration,ControlTrace.INTERVAL_MS));
+                System.out.println(new String(report,StandardCharsets.UTF_8));
+                System.out.println("TRACE_CAPTURE_BYTES="+report.length+"; elapsed_ms="+(SystemClock.uptimeMillis()-start));
+                return;
+            }
+            byte[] report=DisplayDiagnostics.encode(3,DisplayDiagnostics.capture(3));
             System.out.println(new String(report,StandardCharsets.UTF_8));
             System.out.println("CONTROL_CAPTURE_BYTES="+report.length+"; elapsed_ms="+(SystemClock.uptimeMillis()-start));
         }

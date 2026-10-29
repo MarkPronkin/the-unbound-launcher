@@ -13,6 +13,7 @@ public final class DisplayDumpPipe {
     private final Capture capture;
     private final AtomicBoolean busy = new AtomicBoolean();
     private final AtomicBoolean controlBusy = new AtomicBoolean();
+    private final AtomicBoolean traceBusy = new AtomicBoolean();
 
     public DisplayDumpPipe(int uid) { this(uid, DisplayDiagnostics::capture); }
     public DisplayDumpPipe(int uid, Capture capture) { launcherUid = uid; this.capture = capture; }
@@ -20,7 +21,9 @@ public final class DisplayDumpPipe {
     public ParcelFileDescriptor open(int caller, int kind) throws IOException {
         if (caller != launcherUid) throw new SecurityException("Display diagnostics are restricted to the installed launcher");
         DisplayDiagnostics.service(kind); // Validate before allocating a pipe or starting a worker.
-        AtomicBoolean slot=kind==DisplayDiagnostics.GLASSES_CONTROL ? controlBusy : busy;
+        // A 12 s control trace must not delay failure snapshots or display dumps.
+        AtomicBoolean slot=kind==DisplayDiagnostics.GLASSES_CONTROL ? controlBusy
+                : kind==DisplayDiagnostics.GLASSES_CONTROL_TRACE ? traceBusy : busy;
         if (!slot.compareAndSet(false, true)) throw new IOException("A "+DisplayDiagnostics.service(kind)+" diagnostic is still finishing; create a new debug file shortly");
         ParcelFileDescriptor[] pipe;
         try { pipe = ParcelFileDescriptor.createPipe(); }

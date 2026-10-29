@@ -11,6 +11,12 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 
 STUBS = dict(DISPLAY_STUBS)
 STUBS.update({
+    'dev/beampro/port/FirmwareWarningView.java': '''package dev.beampro.port;
+      public class FirmwareWarningView {public static FirmwareWarningView last;public FirmwarePolicy.Result result;
+        public Runnable exit,proceed;public boolean checking;
+        public FirmwareWarningView(android.app.Activity a,FirmwarePolicy.Result r,Runnable e,Runnable p){last=this;result=r;exit=e;proceed=p;}
+        public void show(android.app.Activity a){}public void update(FirmwarePolicy.Result r,boolean c){result=r;checking=c;}}
+    ''',
     'dev/beampro/settings/DebugData.java': '''package dev.beampro.settings;public class DebugData {
       public static boolean fail;public static java.util.List<String[]> events=new java.util.ArrayList<>();
       public static void connectionEvent(android.content.Context c,String id,String event,String detail){
@@ -96,7 +102,16 @@ STUBS.update({
        public FakeOta mOtaManager=new FakeOta();public FakeSdk mNRServiceControl=new FakeSdk();public Object mDisplayEvent;
        public ISdkStartResult callback;public boolean waitingDisplay,networkWait;
        public static class Event implements com.xreal.glassesdisplayplugevent.IGlassesEvent.IDisplayEvent {}
-       public static class FakeOta {public int skuCalls;public Runnable onSecondSku;public String getSku(){skuCalls++;if(skuCalls==2&&onSecondSku!=null)onSecondSku.run();return "L";}public int getOtaNum(String s){throw new AssertionError("firmware probe during AR startup");}}
+       public static class FakeOta {public int skuCalls;public Runnable onSecondSku,onRead;public String software, mcu, dsp;
+         public boolean readFailure;public java.util.List<Integer> reads=new java.util.ArrayList<>();
+         public String readFWVersion(int c){reads.add(c);if(onRead!=null){Runnable r=onRead;onRead=null;r.run();}
+           if(readFailure)throw new IllegalStateException("USB read failed");boolean plus=instance.mGlassesType==20;
+           if(c==6)return software!=null?software:plus?"2.0.0.20260920102250":"1.9.1.20260914175625";
+           if(c==1)return mcu!=null?mcu:plus?"15.1.03.643_20261010":"15.1.03.603_20260914";
+           if(c==3)return dsp!=null?dsp:plus?"15.A.01.103_20260710":instance.mGlassesType==7?"15.A.00.069_20241211":"15.A.01.097_20250430";
+           throw new AssertionError("unexpected firmware component "+c);}
+         public String getSku(){if(reads.isEmpty())throw new AssertionError("SKU read before firmware");skuCalls++;if(skuCalls==2&&onSecondSku!=null)onSecondSku.run();return "L";}
+         public int getOtaNum(String s){throw new AssertionError("OTA update probe during AR startup");}}
        public static class FakeSdk {public com.xreal.glasses.servicesdk.helper.PingGSeriesHelper mPingHelper=new com.xreal.glasses.servicesdk.helper.PingGSeriesHelper();
          public boolean started,isEthernetSeries=true;public int mode=5,stops,queries;public boolean isStartSdk(){return started;}public int get2D3D(){queries++;return mode;}
          public void stopSdk(){stops++;started=false;}}
@@ -116,6 +131,15 @@ STUBS.update({
 
 
 class ConnectionStartupTests(unittest.TestCase):
+    def test_exact_model_specific_firmware_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([str(JAVA/'bin/javac'),'--release','8','-d',tmp,
+                            str(ROOT/'port-client/src/dev/beampro/port/FirmwarePolicy.java'),
+                            str(ROOT/'tools/FirmwarePolicyTest.java')],check=True)
+            result=subprocess.run([str(JAVA/'bin/java'),'-cp',tmp,'dev.beampro.port.FirmwarePolicyTest'],text=True,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            print(result.stdout.strip())
+
     def test_only_connection_activity_changes_to_opaque_theme(self):
         from verify_embedded_adb import elements
         from startup_theme import STYLE_ID
@@ -141,7 +165,7 @@ class ConnectionStartupTests(unittest.TestCase):
                 target.write_text(code)
                 sources.append(target)
             sources += [ROOT / 'port-client/src/dev/beampro/port' / name for name in
-                        ('GlassesConnectionCompat.java', 'DisplayStartupCompat.java', 'PingCallbackCompat.java')]
+                        ('GlassesConnectionCompat.java', 'FirmwarePolicy.java', 'DisplayStartupCompat.java', 'PingCallbackCompat.java')]
             sources.append(ROOT / 'tools/GlassesConnectionCompatTest.java')
             sources.append(ROOT/"compat/src/dev/beampro/compat/GlassesIdentity.java")
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', str(work), *map(str, sources)], check=True)

@@ -29,12 +29,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Opt-in app logs and bounded, read-only network/display diagnostics; no uploads or screenshots. */
 final class DebugData {
@@ -50,6 +55,12 @@ final class DebugData {
     private final ExecutorService controlCaptures = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "unbound-control-snapshots"); thread.setDaemon(true); return thread;
     });
+    private final ExecutorService traceCaptures = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "unbound-control-traces"); thread.setDaemon(true); return thread;
+    });
+    private final AtomicBoolean traceRunning = new AtomicBoolean();
+    private volatile String traceAttempt;
+    private volatile Future<?> traceTask;
     private final Object controlLock = new Object();
     private boolean controlPending;
     private String pendingControlFailure, controlStartAttempt;
@@ -124,6 +135,8 @@ final class DebugData {
     }
 
     private synchronized void stop() {
+        try { new RendererTrace(new File(context.getFilesDir(), "debug")).stop(); }
+        catch (IOException failure) { error = failure.getMessage(); }
         session++;
         pendingFailure = null;
         synchronized (controlLock) { pendingControlFailure = null; controlStartAttempt = null; }
@@ -142,6 +155,7 @@ final class DebugData {
                 synchronized (this) {
                     if (capture != session) return;
                     startupArchive();
+                    new RendererTrace(new File(context.getFilesDir(), "debug")).start(false);
                     byte[] header = ("\n--- Collection started " + new Date() + " ---\n" + report()).getBytes(StandardCharsets.UTF_8);
                     archive().append(header, header.length);
                     // Android filters this to our UID, including our app's other processes.
@@ -165,6 +179,8 @@ final class DebugData {
                     if (capture == session) {
                         error = failure.getMessage();
                         preferences.edit().putBoolean("collecting", false).apply();
+                        try { new RendererTrace(new File(context.getFilesDir(), "debug")).stop(); }
+                        catch (IOException ignored) {}
                         collector = null; logcat = null;
                         main.removeCallbacks(snapshot);
                     }
@@ -201,6 +217,10 @@ final class DebugData {
         report.append("Display and SurfaceFlinger dumps may include display identifiers and app/window names.\n");
         report.append("Display-link diagnostics include USB port state, selected system display logs, available kernel/link messages and connector EDID. Android may deny some sources.\n");
         report.append("Glasses startup diagnostics retain the first failure, recent SDK/control events and connection-attempt IDs. Control snapshots include fixed-peer socket state, routes and interface counters where Android permits them; they do not establish packet delivery.\n");
+        report.append("Control traces sample kernel socket state for the fixed glasses peers every ").append(ControlTrace.INTERVAL_MS)
+                .append(" ms for ").append(ControlTrace.DURATION_MS / 1000).append(" s after an SDK start and record only changes. Startup events record the glasses display mode.\n");
+        report.append("App UID: ").append(android.os.Process.myUid()).append(" (owner of this app's sockets in control traces)\n");
+        report.append("renderer-geometry.txt retains sampled Unity eye layout, render-target dimensions, viewports and projection matrices directly, independently of Android log throttling.\n");
         report.append("SDK/UI glasses type: ").append(GlassesArtwork.connectedType()).append('\n');
         try {
             UsbManager usb = context.getSystemService(UsbManager.class);
@@ -237,15 +257,21 @@ final class DebugData {
         if (!data.enabled() || !data.collecting()) return;
         final int epoch = data.traceEpoch;
         final String id = bounded(attempt, 128), kind = bounded(event, 64);
-        final String text = "wallMs=" + System.currentTimeMillis() + "; uptimeMs=" + SystemClock.uptimeMillis()
-                + "; pid=" + android.os.Process.myPid() + "; " + bounded(detail, 2048);
+        final String prefix = "wallMs=" + System.currentTimeMillis() + "; uptimeMs=" + SystemClock.uptimeMillis()
+                + "; pid=" + android.os.Process.myPid() + "; ", text = prefix + bounded(detail, 2048);
+        // The display query is IPC, so it runs on the event worker rather than the connection thread.
+        final boolean displays = kind.equals("sdk_start") || kind.equals("sdk_result") || kind.equals("failure");
         Log.d("UnboundStartupTrace", "attempt=" + id + "; event=" + kind + "; " + text);
         try {
             data.startupEvents.execute(() -> {
-                try { synchronized (data) {
-                    if (epoch == data.traceEpoch) data.startupArchive().startupEvent(id, kind, text);
-                } }
-                catch (IOException error) { Log.w("UnboundDebug", "Cannot retain startup event", error); }
+                String retained = text;
+                if (displays) {
+                    String summary = externalDisplays(data.context);
+                    Log.d("UnboundStartupTrace", "attempt=" + id + "; event=" + kind + "; displays=[" + summary + "]");
+                    // Ahead of the long connection detail so the event's length limit cannot cut it off.
+                    retained = prefix + "displays=[" + summary + "]; " + bounded(detail, 2048);
+                }
+                data.retainEvent(epoch, id, kind, retained);
             });
         } catch (RejectedExecutionException overloaded) {
             Log.w("UnboundDebug", "Startup event storage is busy; event remains in app.log");
@@ -255,8 +281,76 @@ final class DebugData {
             synchronized (data.controlLock) {
                 first = !id.equals(data.controlStartAttempt); data.controlStartAttempt = id;
             }
-            if (first) data.queueControl("Before SDK startup; attempt=" + id + "; " + text, false);
+            if (first) {
+                data.queueControl("Before SDK startup; attempt=" + id + "; " + text, false);
+                data.queueTrace(id, epoch);
+            }
         } else if (kind.equals("cancel")) data.queueControl("Connection cancelled; attempt=" + id + "; " + text, true);
+    }
+
+    private void retainEvent(int epoch, String id, String kind, String text) {
+        try { synchronized (this) {
+            if (epoch == traceEpoch) startupArchive().startupEvent(id, kind, text);
+        } }
+        catch (IOException error) { Log.w("UnboundDebug", "Cannot retain startup event", error); }
+    }
+
+    /** One 12 s helper sampler at a time; a retry inside its window is already covered by it. */
+    private void queueTrace(String attempt, int epoch) {
+        if (!enabled() || !collecting()) return;
+        final int capture = session;
+        String note;
+        if (!traceRunning.compareAndSet(false, true)) note = "Already sampling since attempt " + traceAttempt + "; this attempt is inside that trace";
+        else {
+            traceAttempt = attempt;
+            final String request = "Requested wallMs=" + System.currentTimeMillis() + "; uptimeMs=" + SystemClock.uptimeMillis()
+                    + "; attempt=" + attempt + "; started with the attempt's first SDK start";
+            try {
+                traceTask = traceCaptures.submit(() -> {
+                    try {
+                        if (!enabled() || !collecting() || capture != session) return;
+                        String result = request + "\n" + DebugDisplay.captureTrace(context);
+                        synchronized (this) {
+                            if (!enabled() || !collecting() || capture != session) return;
+                            startupArchive().startupTrace(result);
+                        }
+                    } catch (IOException error) { Log.w("UnboundDebug", "Cannot retain control-channel trace", error); }
+                    finally { traceRunning.set(false); }
+                });
+                note = "Sampling glasses control sockets for " + ControlTrace.DURATION_MS + " ms; see glasses-control-trace.txt";
+            } catch (RejectedExecutionException unavailable) { traceRunning.set(false); note = "Control trace unavailable: " + unavailable; }
+        }
+        final String text = note;
+        try { startupEvents.execute(() -> retainEvent(epoch, attempt, "control_trace", text)); }
+        catch (RejectedExecutionException overloaded) { Log.w("UnboundDebug", "Startup event storage is busy; " + text); }
+    }
+
+    /** Physical external displays only; the app's own virtual displays carry no EDID product data. */
+    static String externalDisplays(Context context) {
+        try {
+            StringBuilder out = new StringBuilder(); int count = 0;
+            for (Display display : context.getSystemService(DisplayManager.class).getDisplays()) {
+                if (display.getDisplayId() == Display.DEFAULT_DISPLAY) continue;
+                boolean physical = Build.VERSION.SDK_INT >= 31 ? display.getDeviceProductInfo() != null
+                        : (display.getFlags() & Display.FLAG_PRESENTATION) != 0;
+                if (!physical) continue;
+                if (++count > 3) { out.append("; [more omitted]"); break; }
+                Display.Mode mode = display.getMode();
+                Map<String, StringBuilder> rates = new LinkedHashMap<>();
+                for (Display.Mode supported : display.getSupportedModes()) {
+                    StringBuilder list = rates.computeIfAbsent(supported.getPhysicalWidth() + "x" + supported.getPhysicalHeight(), size -> new StringBuilder());
+                    list.append(list.length() == 0 ? "" : "/").append(String.format(Locale.ROOT, "%.1f", supported.getRefreshRate()));
+                }
+                StringBuilder supported = new StringBuilder();
+                for (Map.Entry<String, StringBuilder> entry : rates.entrySet())
+                    supported.append(supported.length() == 0 ? "" : ",").append(entry.getKey()).append('@').append(entry.getValue());
+                out.append(count == 1 ? "" : "; ").append(display.getDisplayId()).append(" \"").append(display.getName()).append("\" ")
+                        .append(mode.getPhysicalWidth()).append('x').append(mode.getPhysicalHeight()).append('@')
+                        .append(String.format(Locale.ROOT, "%.1f", mode.getRefreshRate())).append(" mode=").append(mode.getModeId())
+                        .append(" state=").append(display.getState()).append(" supported=").append(supported);
+            }
+            return count == 0 ? "no external physical display" : out.toString();
+        } catch (RuntimeException unavailable) { return "unavailable (" + unavailable + ")"; }
     }
 
     private static String bounded(String value, int limit) {
@@ -267,6 +361,7 @@ final class DebugData {
     private synchronized DebugArchive startupArchive() throws IOException {
         DebugArchive result = archive();
         if (!traceInitialized) {
+            if (resetTrace) new RendererTrace(new File(context.getFilesDir(), "debug")).reset();
             result.startupBegin(resetTrace); resetTrace = false; traceInitialized = true;
         }
         return result;
@@ -332,13 +427,25 @@ final class DebugData {
     File export() throws IOException {
         try { startupEvents.submit(() -> {}).get(2000, TimeUnit.MILLISECONDS); }
         catch (Exception pending) { Log.w("UnboundDebug", "Some startup events are still pending at export", pending); }
+        // An export right after a failure would otherwise miss the trace that is still sampling it.
+        Future<?> trace = traceTask;
+        if (trace != null && traceRunning.get()) try { trace.get(ControlTrace.DURATION_MS + 9000, TimeUnit.MILLISECONDS); }
+        catch (Exception pending) { Log.w("UnboundDebug", "Control trace did not finish before export", pending); }
         if (enabled()) startupArchive().startupSnapshot("Debug export requested; current control state.\n" + DebugDisplay.captureControl(context));
         if (enabled()) archive().link("Debug export requested; current connection state.\n" + DebugDisplay.captureLink(context));
         String[] displays = enabled() ? DebugDisplay.capture(context) : null;
         if (enabled()) captureNetwork("Debug export requested; keep the glasses connected until this finishes.");
-        File result = archive().export(report(), displays == null ? null : displays[0], displays == null ? null : displays[1]);
+        File result = archive().export(report(), displays == null ? null : displays[0], displays == null ? null : displays[1],
+                new RendererTrace(new File(context.getFilesDir(), "debug")).report(), immersiveWindows());
         changed();
         return result;
+    }
+
+    private String immersiveWindows() {
+        if (!enabled()) return null;
+        try { return (String) Class.forName("dev.beampro.port.PresentationWindowDiagnostics")
+                .getMethod("report", File.class).invoke(null, new File(context.getFilesDir(), "debug")); }
+        catch (ReflectiveOperationException failure) { return "Immersive-window diagnostics unavailable: " + failure + '\n'; }
     }
 
     File latestExport() {

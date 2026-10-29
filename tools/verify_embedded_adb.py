@@ -15,6 +15,7 @@ from build_port_bootstrap import chunks
 from build_embedded_adb import BASE, BASE_SHA, ROOT, sha256, VERSION
 from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, SAMPLING_MARK
 from phone_pointer import ENTRY as POINTER_LIBRARY, MARKER as POINTER_MARKER
+from renderer_diagnostics import ENTRY as RENDERER_LIBRARY, MARKER as RENDERER_MARKER
 from app_version import manifest_version
 from permission_manifest import MENU_ACTIVITY, MENU_CONFIG_CHANGES, MENU_ORIGINAL_ACTIVITIES, MENU_THEME_RESOURCE
 from embedded_adb_manifest import AUTHORITY, patch_release_manifest, patch_usb_attach_manifest
@@ -156,12 +157,15 @@ def verify(apk):
         assert "Ldev/beampro/port/ArSessionService;" in definitions
         assert "Ldev/beampro/settings/ExperimentalPresentation;" not in definitions
         assert "Ldev/beampro/port/StereoPresentationCompat;" in definitions
+        assert "Ldev/beampro/port/PresentationWindowDiagnostics;" in definitions
         assert "Ldev/beampro/port/ArBackdropActivity;" in definitions
         assert "Ldev/beampro/port/HeadsetIconCompat;" in definitions
         assert "Ldev/beampro/port/AppColorCompat;" in definitions
         assert "Ldev/beampro/port/AppSurfacePolicy;" in definitions
         assert "Ldev/beampro/port/UsbPermissionCompat;" in definitions
         assert "Ldev/beampro/port/GlassesConnectionCompat;" in definitions
+        assert "Ldev/beampro/port/FirmwarePolicy;" in definitions
+        assert "Ldev/beampro/port/FirmwareWarningView;" in definitions
         assert "Ldev/beampro/port/ConnectionHandoff;" in definitions
         assert "Ldev/beampro/port/PingCallbackCompat;" in definitions
         assert "Ldev/beampro/port/EthernetReadinessCompat;" in definitions
@@ -173,6 +177,10 @@ def verify(apk):
         assert POINTER_MARKER in z.read(POINTER_LIBRARY)
         assert b"il2cpp_runtime_invoke" in z.read(POINTER_LIBRARY)
         assert b"nativeReadyFrame" not in z.read(POINTER_LIBRARY), "Startup must not depend on optional pointer internals"
+        assert "Ldev/beampro/settings/RendererDiagnostics;" in definitions
+        assert "Ldev/beampro/settings/RendererTrace;" in definitions
+        assert RENDERER_MARKER in z.read(RENDERER_LIBRARY)
+        assert b"il2cpp_runtime_invoke" in z.read(RENDERER_LIBRARY)
         assert "Ldev/beampro/settings/NetworkDiagnostics;" in definitions
         assert "Ldev/beampro/settings/DebugNetwork;" in definitions
         assert "Ldev/beampro/adb/AutoGlassesReceiver;" in definitions
@@ -188,6 +196,9 @@ def verify(apk):
         assert b"PpTosConstant_FIRST_PP_TOS" in terms
         assert b"Agree and finish" in z.read(definitions["Ldev/beampro/settings/PermissionSetupActivity;"])
         java = Path(subprocess.check_output(["/usr/libexec/java_home", "-v", "17"], text=True).strip())
+        subprocess.run([str(java / "bin/java"), "--class-path",
+                        str(BASE.parents[1] / "tools/jadx-1.5.6/lib/jadx-1.5.6-all.jar"),
+                        str(Path(__file__).with_name("VerifyFirmwareGateDex.java")), str(apk)], check=True)
         subprocess.run([str(java / "bin/java"), "--class-path",
                         str(BASE.parents[1] / "tools/jadx-1.5.6/lib/jadx-1.5.6-all.jar"),
                         str(Path(__file__).with_name("VerifyConnectionStartupDex.java")), str(apk)], check=True)
@@ -283,6 +294,8 @@ def verify(apk):
             assert b"dev.beampro.bridge.NETWORK_DIAGNOSTICS" in server
             assert "Ldev/beampro/bridge/DisplayDumpPipe;" in classes(server)
             assert "Ldev/beampro/settings/DisplayDiagnostics;" in classes(server)
+            assert "Ldev/beampro/settings/ControlTrace;" in classes(server)
+            assert b"/proc/net/tcp" in server and b"Glasses control trace" in server
             assert b"dev.beampro.bridge.DISPLAY_DIAGNOSTICS" in server
             assert b"SurfaceFlinger" in server and b"createPipe" in server
             assert "Ldev/beampro/settings/DebugDisplay;" in definitions
@@ -335,7 +348,13 @@ def verify(apk):
                          "port-client/src/dev/beampro/port/ConnectionHandoff.java",
                          "port-client/src/dev/beampro/port/ConnectionAnimation.java",
                          "port-client/src/dev/beampro/port/GlassesConnectionCompat.java",
+                         "port-client/src/dev/beampro/port/FirmwarePolicy.java",
+                         "port-client/src/dev/beampro/port/FirmwareWarningView.java",
                          "port-client/src/dev/beampro/port/PhonePointerCompat.java",
+                         "port-client/src/dev/beampro/port/StereoPresentationCompat.java",
+                         "port-client/src/dev/beampro/port/PresentationWindowDiagnostics.java",
+                         "settings-ui/src/dev/beampro/settings/RendererDiagnostics.java",
+                         "settings-ui/src/dev/beampro/settings/RendererTrace.java",
                          "port-client/src/dev/beampro/port/HomeButtonCompat.java",
                          "port-client/src/dev/beampro/port/KeyboardCompat.java",
                          "port-client/src/dev/beampro/port/SettingsCompat.java",
@@ -349,11 +368,12 @@ def verify(apk):
                          "glasses_startup.py", "PatchGlassesStartupDex.java", "ethernet_ping.py", "PatchEthernetPingDex.java",
                          "notifications.py", "PatchNotificationsDex.java",
                          "display_mode_compat.py", "overlay_routing.py", "app_surface_routing.py",
-                         "app_surface_routing.S", "app_surface_routing_native.json", "unity_shader_loader.py", "hardware_buffer_texture.py", "phone_pointer.py",
+                         "app_surface_routing.S", "app_surface_routing_native.json", "unity_shader_loader.py", "hardware_buffer_texture.py", "phone_pointer.py", "renderer_diagnostics.py",
                          "controller_mode.py", "PatchControllerModeDex.java", "home_button.py", "PatchHomeButtonDex.java",
                          "input_compat.py", "PatchInputCompatDex.java"):
                 assert sources.read("tools/" + name) == Path(__file__).with_name(name).read_bytes(), "Bundled patch source differs"
             assert sources.read("native/hardware-buffer-texture/library.c") == (ROOT / "native/hardware-buffer-texture/library.c").read_bytes()
+            assert sources.read("native/renderer-diagnostics/library.c") == (ROOT / "native/renderer-diagnostics/library.c").read_bytes()
             for name in ("library.c", "pointer_state.h"):
                 assert sources.read("native/phone-pointer/" + name) == (ROOT / "native/phone-pointer" / name).read_bytes()
         changed = [n for n in base.namelist() if not n.upper().startswith("META-INF/") and base.read(n) != z.read(n)]

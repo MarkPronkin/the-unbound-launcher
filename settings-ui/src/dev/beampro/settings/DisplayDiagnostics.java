@@ -5,6 +5,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -12,7 +13,7 @@ import java.util.regex.Pattern;
 public final class DisplayDiagnostics {
     public static final int TRANSACTION = 0x00FFFFF3;
     public static final String TOKEN = "dev.beampro.bridge.DISPLAY_DIAGNOSTICS";
-    public static final int DISPLAY = 0, SURFACE_FLINGER = 1, DISPLAY_LINK = 2, GLASSES_CONTROL = 3;
+    public static final int DISPLAY = 0, SURFACE_FLINGER = 1, DISPLAY_LINK = 2, GLASSES_CONTROL = 3, GLASSES_CONTROL_TRACE = 4;
     public static final int MAX_BYTES = 1_010_000;
     public static final int MAX_LINK_BYTES = 200_000;
     public static final int MAX_CONTROL_BYTES = 32_000;
@@ -34,6 +35,14 @@ public final class DisplayDiagnostics {
             "    /system/bin/timeout -s KILL 1 /system/bin/head -c 96 \"/sys/class/net/$iface/$key\" 2>&1",
             "    printf '\\n'",
             "  done",
+            "done",
+            // Some vendors deny sysfs net statistics to shell; /proc/net/dev carries the same counters.
+            "printf '\\n/proc/net/dev rows for eth0/eth1:\\n'",
+            "/system/bin/timeout -s KILL 1 /system/bin/grep -E '^ *eth[01]:' /proc/net/dev 2>&1 || echo 'No readable eth0/eth1 rows in /proc/net/dev'");
+    private static final String SOCKET_TABLES = String.join("\n",
+            "for table in " + String.join(" ", ControlTrace.TABLES) + "; do",
+            "  echo \"@@ $table\"",
+            "  /system/bin/timeout -s KILL 1 /system/bin/head -c " + ControlTrace.TABLE_BYTES + " \"$table\" 2>&1",
             "done");
     // No caller-controlled paths or shell text. Each sysfs read has its own
     // deadline as well as the whole subprocess deadline. Missing/restricted
@@ -63,19 +72,25 @@ public final class DisplayDiagnostics {
             case SURFACE_FLINGER: return "SurfaceFlinger";
             case DISPLAY_LINK: return "USB/DisplayPort link";
             case GLASSES_CONTROL: return "Glasses control channel";
+            case GLASSES_CONTROL_TRACE: return "Glasses control trace";
             default: throw new IllegalArgumentException("Unknown display diagnostic");
         }
     }
 
     public static String capture(int kind) {
+        if (kind == GLASSES_CONTROL_TRACE)
+            return ControlTrace.capture(ControlTrace.FILES, ControlTrace.SYSTEM, ControlTrace.DURATION_MS, ControlTrace.INTERVAL_MS);
         return capture(kind, (timeout, command) -> kind == DISPLAY_LINK
                 && (command[0].endsWith("logcat") || command[0].endsWith("dmesg"))
                 ? NetworkDiagnostics.runTailLimited(32_000, timeout, command)
-                : NetworkDiagnostics.runLimited(kind == GLASSES_CONTROL ? 4096 : kind == DISPLAY_LINK ? 32_000 : OUTPUT_BYTES, timeout, command));
+                : NetworkDiagnostics.runLimited(kind == GLASSES_CONTROL
+                        ? command[command.length - 1].equals(SOCKET_TABLES) ? ControlTrace.TABLE_PROBE_BYTES : 4096
+                        : kind == DISPLAY_LINK ? 32_000 : kind == DISPLAY ? 480_000 : OUTPUT_BYTES, timeout, command));
     }
 
     static String capture(int kind, Runner runner) {
         String service = service(kind);
+        if (kind == GLASSES_CONTROL_TRACE) throw new IllegalArgumentException("Control traces read kernel tables directly");
         StringBuilder out = new StringBuilder("Captured: " + new Date() + "\nIdentity: ADB shell helper\n");
         if (kind == GLASSES_CONTROL) return captureControl(out,runner);
         if (kind == DISPLAY_LINK) {
@@ -104,6 +119,8 @@ public final class DisplayDiagnostics {
         try { out.append(runner.run(10_000, "/system/bin/dumpsys", "-t", "8", service)); }
         catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); out.append("Interrupted\n"); }
         catch (Exception failure) { out.append("Unavailable: ").append(failure).append('\n'); }
+        if (kind == DISPLAY) probe(out, runner, "Connected Presentation focus and inset control", false, 10_000,
+                "/system/bin/dumpsys", "-t", "5", "window", "displays");
         return out.toString();
     }
 
@@ -114,18 +131,21 @@ public final class DisplayDiagnostics {
         out.append("Fixed read-only probes; no network connections or SDK commands are initiated.\n");
         out.append("Only connected TCP/UDP sockets with fixed glasses peers are included; unconnected UDP sockets, other namespaces and restricted netlink data may be invisible.\n");
         out.append("Routes are lookups for shell UID, not proof of the app socket route. Interface counters include all interface traffic. Socket state and counter changes do not prove request delivery or firmware receipt.\n");
-        String before=controlProbe(out,runner,"Interface link state and counters BEFORE",false,650,deadline,
+        String before=controlProbe(out,runner,"Interface link state and counters BEFORE",null,650,deadline,
                 "/system/bin/sh","-c",CONTROL_COUNTERS);
         for (String peer:new String[]{"169.254.2.1","169.254.1.1"})
-            controlProbe(out,runner,"TCP/UDP sockets to "+peer,true,700,deadline,
+            controlProbe(out,runner,"TCP/UDP sockets to "+peer,DisplayDiagnostics::controlSocketLines,700,deadline,
                     "/system/bin/ss","-H","-n","-4","-t","-u","-a","dst",peer);
+        // Kernel tables add timers, retransmissions and owner UIDs that ss omits without netlink.
+        controlProbe(out,runner,"Kernel socket table rows for the fixed glasses peers",ControlTrace::tables,800,deadline,
+                "/system/bin/sh","-c",SOCKET_TABLES);
         for (String peer:new String[]{"169.254.2.1","169.254.1.1"})
-            controlProbe(out,runner,"Shell route lookup for "+peer,false,450,deadline,
+            controlProbe(out,runner,"Shell route lookup for "+peer,null,450,deadline,
                     "/system/bin/ip","route","get",peer);
-        String after=controlProbe(out,runner,"Interface link state and counters AFTER",false,650,deadline,
+        String after=controlProbe(out,runner,"Interface link state and counters AFTER",null,650,deadline,
                 "/system/bin/sh","-c",CONTROL_COUNTERS);
         Map<String,Long> first=counters(before),last=counters(after);
-        out.append("\n--- Interface counter deltas (AFTER minus BEFORE) ---\n");
+        out.append("\n--- Interface counter deltas (AFTER minus BEFORE; sysfs, else /proc/net/dev) ---\n");
         int deltas=0;
         for (Map.Entry<String,Long> entry:first.entrySet()) {
             Long value=last.get(entry.getKey());if(value==null)continue;
@@ -140,7 +160,7 @@ public final class DisplayDiagnostics {
         return out.toString();
     }
 
-    private static String controlProbe(StringBuilder out, Runner runner, String title, boolean sockets, long timeout, long deadline, String... command) {
+    private static String controlProbe(StringBuilder out, Runner runner, String title, UnaryOperator<String> render, long timeout, long deadline, String... command) {
         out.append("\n--- ").append(title).append(" ---\n");
         if (!command[0].endsWith("/sh"))out.append(String.join(" ",command)).append('\n');
         long start=System.nanoTime(),remaining=(deadline-start)/1_000_000L;
@@ -151,7 +171,7 @@ public final class DisplayDiagnostics {
         else try { result=runner.run(Math.min(timeout,remaining),command); }
         catch(InterruptedException interrupted){Thread.currentThread().interrupt();result="Interrupted\n";}
         catch(Exception failure){result="Unavailable: "+failure+'\n';}
-        out.append(sockets?controlSocketLines(result):result);
+        out.append(render==null?result:render.apply(result));
         out.append("Probe end monotonic_ns=").append(System.nanoTime()).append("; duration_ms=").append((System.nanoTime()-start)/1_000_000L).append('\n');
         return result;
     }
@@ -182,6 +202,7 @@ public final class DisplayDiagnostics {
         Map<String,Long> values=new LinkedHashMap<>();Matcher matcher=COUNTER.matcher(report);
         while(matcher.find())try{values.put(matcher.group(1),Long.parseLong(matcher.group(2)));}
         catch(NumberFormatException tooLarge){ /* Raw counter remains available above. */ }
+        for(Map.Entry<String,Long> entry:ControlTrace.deviceCounters(report).entrySet())values.putIfAbsent(entry.getKey(),entry.getValue());
         return values;
     }
 
@@ -219,7 +240,8 @@ public final class DisplayDiagnostics {
 
     public static byte[] encode(int kind, String report) {
         service(kind);
-        return encode(report, kind == GLASSES_CONTROL ? MAX_CONTROL_BYTES : kind == DISPLAY_LINK ? MAX_LINK_BYTES : MAX_BYTES);
+        return encode(report, kind == GLASSES_CONTROL ? MAX_CONTROL_BYTES : kind == GLASSES_CONTROL_TRACE ? ControlTrace.MAX_BYTES
+                : kind == DISPLAY_LINK ? MAX_LINK_BYTES : MAX_BYTES);
     }
 
     private static byte[] encode(String report, int limit) {

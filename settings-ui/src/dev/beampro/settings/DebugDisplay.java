@@ -17,8 +17,14 @@ import java.util.concurrent.atomic.AtomicReference;
 final class DebugDisplay {
     private static final AtomicReference<ReadPipe> active = new AtomicReference<>();
     private static final AtomicReference<ReadPipe> activeControl = new AtomicReference<>();
-    private static final ThreadPoolExecutor controlWorker = new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,
-            new SynchronousQueue<Runnable>(),job->{Thread thread=new Thread(job,"unbound-control-helper");thread.setDaemon(true);return thread;});
+    private static final AtomicReference<ReadPipe> activeTrace = new AtomicReference<>();
+    private static final ThreadPoolExecutor controlWorker = worker("unbound-control-helper");
+    private static final ThreadPoolExecutor traceWorker = worker("unbound-trace-helper");
+
+    private static ThreadPoolExecutor worker(String name) {
+        return new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,
+                new SynchronousQueue<Runnable>(),job->{Thread thread=new Thread(job,name);thread.setDaemon(true);return thread;});
+    }
 
     static String[] capture(Context context) { return capture(context, 15_000); }
 
@@ -30,10 +36,13 @@ final class DebugDisplay {
     static String captureLink(Context context) { return captureOne(context, DisplayDiagnostics.DISPLAY_LINK, 30_000); }
     static String captureControl(Context context) { return captureControl(context,6000); }
     static String captureControl(Context context, long timeoutMillis) { return captureOne(context,DisplayDiagnostics.GLASSES_CONTROL,timeoutMillis); }
+    static String captureTrace(Context context) { return captureTrace(context,ControlTrace.DURATION_MS+8000); }
+    static String captureTrace(Context context, long timeoutMillis) { return captureOne(context,DisplayDiagnostics.GLASSES_CONTROL_TRACE,timeoutMillis); }
 
     private static String captureOne(Context context, int kind, long timeoutMillis) {
         ReadPipe pipe = new ReadPipe();
-        AtomicReference<ReadPipe> slot = kind==DisplayDiagnostics.GLASSES_CONTROL ? activeControl : active;
+        AtomicReference<ReadPipe> slot = kind==DisplayDiagnostics.GLASSES_CONTROL ? activeControl
+                : kind==DisplayDiagnostics.GLASSES_CONTROL_TRACE ? activeTrace : active;
         FutureTask<String> request = null;
         try {
             if (!slot.compareAndSet(null, pipe)) throw new RejectedExecutionException("A "+DisplayDiagnostics.service(kind)+" diagnostic is still finishing");
@@ -48,6 +57,7 @@ final class DebugDisplay {
             };
             try {
                 if(kind==DisplayDiagnostics.GLASSES_CONTROL)controlWorker.execute(worker);
+                else if(kind==DisplayDiagnostics.GLASSES_CONTROL_TRACE)traceWorker.execute(worker);
                 else {Thread thread=new Thread(worker,"unbound-display-helper");thread.setDaemon(true);thread.start();}
             }
             catch (RuntimeException failure) { slot.compareAndSet(pipe, null); throw failure; }
@@ -86,6 +96,7 @@ final class DebugDisplay {
             byte[] buffer = new byte[8192]; int count;
             while ((count = input.read(buffer)) != -1) {
                 int limit = kind == DisplayDiagnostics.GLASSES_CONTROL ? DisplayDiagnostics.MAX_CONTROL_BYTES
+                        : kind == DisplayDiagnostics.GLASSES_CONTROL_TRACE ? ControlTrace.MAX_BYTES
                         : kind == DisplayDiagnostics.DISPLAY_LINK ? DisplayDiagnostics.MAX_LINK_BYTES : DisplayDiagnostics.MAX_BYTES;
                 int keep = Math.min(count, limit - output.size());
                 output.write(buffer, 0, keep);

@@ -54,5 +54,6 @@
     <instrumentation android:name=".FoldableUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name=".LandscapeUiChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name="dev.beampro.port.ConnectionAnimationChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
+    <instrumentation android:name="dev.beampro.port.FirmwareWarningChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
     <instrumentation android:name="dev.beampro.settings.DisplayDiagnosticsChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />
 </manifest>

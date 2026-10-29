@@ -29,7 +29,8 @@ def main():
     run(JAVA / "bin/javac", "--release", "8", "-classpath", PLATFORM, "-d", BUILD / "classes",
         IDENTITY_SOURCE, *sorted((ROOT / "bridge/src").rglob("*.java")),
         ROOT / "settings-ui/src/dev/beampro/settings/NetworkDiagnostics.java",
-        ROOT / "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java")
+        ROOT / "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java",
+        ROOT / "settings-ui/src/dev/beampro/settings/ControlTrace.java")
     run(JAVA / "bin/jar", "cf", BUILD / "classes.jar", "-C", BUILD / "classes", ".")
     run(TOOLS / "d8", "--min-api", "29", "--lib", PLATFORM, "--output", BUILD / "dex", BUILD / "classes.jar")
     with zipfile.ZipFile(ROOT / "artifacts/beam-pro-system/myglasses-dex.zip") as archive:

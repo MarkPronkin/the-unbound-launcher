@@ -62,7 +62,7 @@ final class HelpPage extends MenuPage {
         LinearLayout options = group(activity);
         options.addView(toggle("Debug mode", "Enable extra app diagnostics to help investigate a problem.",
                 "debug-enabled", data.enabled(), true, data::setEnabled));
-        options.addView(toggle("Collect debug data", "Start before connecting the glasses, then reproduce the problem. Keeps the first startup failure and recent attempts. Turn off to stop.",
+        options.addView(toggle("Collect debug data", "Start before connecting the glasses, then reproduce the problem. Keeps startup failures, recent attempts and renderer geometry. Turn off to stop.",
                 "debug-collecting", data.collecting(), data.enabled(), data::setCollecting));
         page.body.addView(options);
 
@@ -73,7 +73,7 @@ final class HelpPage extends MenuPage {
                 : "Enable debug mode and collect data while you reproduce the problem.";
         if (data.error != null) description = data.error;
         add(page.body, text(activity, description, SUPPORTING, TEXT_SECONDARY), 4, 0);
-        add(page.body, text(activity, "Create a debug file while the problem is visible and keep the glasses connected until it is ready. It includes the first failed startup, recent SDK and firmware messages, glasses connection snapshots, display and USB/DisplayPort diagnostics. Retrying does not replace the first failure. Some phones restrict socket, interface and kernel data; unavailable sources are recorded. Files stay on your device until you share them. Logs, network addresses, device/display identifiers and app/window names may contain personal information. Each ZIP is limited to 15 MB.",
+        add(page.body, text(activity, "Create a debug file while the problem is visible and keep the glasses connected until it is ready. It includes the first failed startup, recent SDK and firmware messages, glasses connection snapshots, a 12-second connection trace from each startup, display and USB/DisplayPort diagnostics. Retrying does not replace the first failure. Some phones restrict socket, interface and kernel data; unavailable sources are recorded. Files stay on your device until you share them. Logs, network addresses, device/display identifiers and app/window names may contain personal information. Each ZIP is limited to 15 MB.",
                 SUPPORTING, TEXT_SECONDARY), 12, 0);
 
         Button create = button(activity, busy ? "Preparing debug file…" : export == null ? "Create debug file" : "Create new debug file", PRIMARY);

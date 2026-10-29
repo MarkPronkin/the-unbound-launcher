@@ -34,7 +34,7 @@ def main():
     classes = output / "classes"
     classes.mkdir(exist_ok=True)
     sources = [ROOT / "settings-ui/src/dev/beampro/settings" / name for name in
-               ("DisplayDiagnostics.java", "NetworkDiagnostics.java", "DebugDisplay.java")]
+               ("DisplayDiagnostics.java", "NetworkDiagnostics.java", "DebugDisplay.java", "ControlTrace.java")]
     sources += [ROOT / "bridge/src/dev/beampro/bridge/DisplayDumpPipe.java", ROOT / "tools/ControlDiagnosticsRuntimeChecks.java"]
     run(java / "bin/javac", "--release", "8", "-cp", platform, "-d", classes, *sources)
     jar = output / "classes.jar"

@@ -26,7 +26,7 @@ public final class GlassesConnectionCompatTest {
     static Presenter fixture() throws Exception {
         java.lang.reflect.Field active=GlassesConnectionCompat.class.getDeclaredField("current");active.setAccessible(true);
         if(active.get(null)!=null)throw new AssertionError("previous session was not cleaned up");
-        Handler.clear();SystemClock.now=0;ConnectionAnimation.defer=false;ConnectionHandoff.defer=false;
+        Handler.clear();SystemClock.now=0;ConnectionAnimation.defer=false;ConnectionHandoff.defer=false;FirmwareWarningView.last=null;
         Context.app=new Application();Context.displays=new DisplayManager();Context.manager=new ActivityManager();Context.usb=new UsbManager();
         Context.usb.devices.put("glasses",new UsbDevice(13080));XREALManager.instance=new XREALManager();
         dev.beampro.settings.DebugData.events.clear();dev.beampro.settings.DebugData.fail=false;
@@ -34,6 +34,45 @@ public final class GlassesConnectionCompatTest {
     }
     static void close(Presenter p){GlassesConnectionCompat.cancel(p.mActivity);Handler.advance(0);}
     public static void main(String[] args)throws Exception {
+        for(String firmware:new String[]{"1.8.0.20260101000000","2.0.0.20260901182643","1.9.1.20260914175625-beta",""}) {
+            Presenter blocked=fixture();XREALManager manager=XREALManager.instance;manager.mOtaManager.software=firmware;
+            GlassesConnectionCompat.begin(blocked);Handler.advance(0);
+            check(manager.starts==0&&manager.mOtaManager.skuCalls==0,"Unsupported firmware cannot enter SDK or SKU initialization: "+firmware);
+            check(FirmwareWarningView.last!=null&&!FirmwareWarningView.last.checking,"Unsupported firmware shows the dedicated stop screen");
+            Handler.advance(90000);GlassesConnectionCompat.prepare(blocked);GlassesConnectionCompat.startSdk(blocked);
+            GlassesConnectionCompat.confirm(blocked);GlassesConnectionCompat.newIntent(blocked);GlassesConnectionCompat.launch(manager);Handler.advance(0);
+            check(manager.starts==0&&manager.launches==0,"Warning survives startup deadlines and cannot be bypassed by retries, intents or late launches");
+            FirmwareWarningView.last.proceed.run();FirmwareWarningView.last.proceed.run();Handler.advance(0);
+            check(manager.starts==1&&blocked.success==1,"An explicit connection-only override resumes exactly once");close(blocked);
+            Presenter fresh=new Presenter();GlassesConnectionCompat.begin(fresh);Handler.advance(0);
+            check(manager.starts==1&&FirmwareWarningView.last!=null,"Override does not carry over to the next connection");
+            FirmwareWarningView.last.exit.run();Handler.advance(0);
+            check(fresh.mActivity.finishing&&manager.starts==1,"Exit leaves the SDK stopped");
+        }
+        Presenter unreadable=fixture();XREALManager unreadableManager=XREALManager.instance;
+        unreadableManager.mOtaManager.readFailure=true;GlassesConnectionCompat.begin(unreadable);Handler.advance(0);
+        check(unreadableManager.starts==0&&FirmwareWarningView.last.result.detail.contains("could not be verified"),"Read failures fail closed with an explanation");
+        close(unreadable);check(unreadableManager.mNRServiceControl.stops==0,"Exit before SDK startup does not send SDK shutdown commands");
+        unreadable=fixture();unreadableManager=XREALManager.instance;
+        unreadableManager.mOtaManager.onRead=()->{
+            Handler.advance(15000);
+            check(FirmwareWarningView.last!=null&&FirmwareWarningView.last.checking,"A stalled read shows the warning without starting the SDK");
+            FirmwareWarningView.last.proceed.run();
+            check(XREALManager.instance.starts==0,"Override cannot overlap an in-flight native firmware read");
+        };
+        unreadableManager.mOtaManager.software="2.0.0.20260901182643";
+        GlassesConnectionCompat.begin(unreadable);Handler.advance(0);Handler.advance(15000);
+        check(!FirmwareWarningView.last.checking&&unreadableManager.starts==0,"Read completion enables the explicit override after a timeout");close(unreadable);
+        unreadable=fixture();unreadableManager=XREALManager.instance;
+        final Presenter cancelledRead=unreadable;
+        unreadableManager.mOtaManager.onRead=()->GlassesConnectionCompat.cancel(cancelledRead.mActivity);
+        GlassesConnectionCompat.begin(unreadable);Handler.advance(0);
+        check(unreadableManager.starts==0&&unreadableManager.mOtaManager.reads.size()==1,"Cancel during a firmware read discards the result and remaining queries");
+        unreadable=fixture();unreadableManager=XREALManager.instance;unreadableManager.mOtaManager.software="2.0.0.20260901182643";
+        GlassesConnectionCompat.begin(unreadable);Handler.advance(0);FirmwareWarningView oldWarning=FirmwareWarningView.last;
+        Context.usb.devices.put("glasses",new UsbDevice(13080));oldWarning.proceed.run();Handler.advance(0);
+        check(unreadable.mActivity.finishing&&unreadableManager.starts==0,"A replaced USB device cannot inherit an earlier firmware override");
+
         Presenter p=fixture();XREALManager m=XREALManager.instance;m.nextResult=2;
         GlassesConnectionCompat.begin(p);Handler.advance(0);
         check(p.hasMTP&&m.starts==1,"USB configuration change enters the original MTP wait");
@@ -47,6 +86,11 @@ public final class GlassesConnectionCompatTest {
         check(p.mtpResumes==1&&m.starts==2&&p.success==1,"Resume USB startup without an Activity onNewIntent");
         check(m.launches==1,"USB recovery launches exactly once");close(p);
         check(ConnectionAnimation.last.success&&ConnectionAnimation.last.disposed,"Successful startup settles and disposes the animation");
+
+        p=fixture();m=XREALManager.instance;m.nextResult=2;m.mOtaManager.software="2.0.0.20260901182643";
+        GlassesConnectionCompat.begin(p);Handler.advance(0);FirmwareWarningView.last.proceed.run();Handler.advance(0);
+        Context.usb.devices.put("glasses",new UsbDevice(13080));Handler.advance(2000);
+        check(m.starts==2&&p.success==1&&m.mOtaManager.reads.size()==1,"An explicit override survives the SDK's own USB configuration change within the same connection");close(p);
 
         p=fixture();m=XREALManager.instance;ConnectionAnimation.defer=true;
         GlassesConnectionCompat.begin(p);Handler.advance(0);ConnectionAnimation pending=ConnectionAnimation.last;
@@ -202,7 +246,7 @@ public final class GlassesConnectionCompatTest {
 
         p=fixture();m=XREALManager.instance;m.mGlassesType=6;
         GlassesConnectionCompat.begin(p);Handler.advance(0);
-        check(m.mOtaManager.skuCalls==1&&"6_L".equals(com.xreal.basicfunc.BasicFuncManager.type),"Keep the One Pro SKU identity while bypassing firmware checks");
+        check(m.mOtaManager.skuCalls==1&&"6_L".equals(com.xreal.basicfunc.BasicFuncManager.type),"Keep the One Pro SKU identity after passing the firmware gate");
         check(p.success==1,"One Pro preparation continues to the native SDK");close(p);
         p=fixture();m=XREALManager.instance;m.mGlassesType=6;m.nextResult=2;
         GlassesConnectionCompat.begin(p);Handler.advance(0);
@@ -220,7 +264,7 @@ public final class GlassesConnectionCompatTest {
 
         p=fixture();m=XREALManager.instance;m.nextResult=2;Context.usb.devices.clear();Context.usb.devices.put("other",new UsbDevice(1234));
         GlassesConnectionCompat.begin(p);Handler.advance(5000);
-        check(m.starts==1,"An unrelated USB device cannot resume the glasses connection");close(p);
+        check(m.starts==0&&m.mOtaManager.reads.isEmpty(),"An unrelated USB device cannot enter the firmware reader or SDK");close(p);
 
         p=fixture();m=XREALManager.instance;m.nextResult=1;
         GlassesConnectionCompat.begin(p);Handler.advance(0);

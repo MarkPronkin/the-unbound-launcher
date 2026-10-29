@@ -9,7 +9,7 @@ class DisplayDiagnosticsTests(unittest.TestCase):
     def test_fixed_commands_partial_failures_timeouts_and_output_budgets(self):
         with tempfile.TemporaryDirectory() as tmp:
             sources = [ROOT / 'settings-ui/src/dev/beampro/settings' / name for name in
-                       ('DisplayDiagnostics.java', 'NetworkDiagnostics.java')]
+                       ('DisplayDiagnostics.java', 'NetworkDiagnostics.java', 'ControlTrace.java')]
             sources.append(ROOT / 'tools/DisplayDiagnosticsTest.java')
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', tmp, *map(str, sources)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp, 'dev.beampro.settings.DisplayDiagnosticsTest'],

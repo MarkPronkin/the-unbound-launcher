@@ -46,11 +46,12 @@ public final class ExternalDisplayIsolationTest {
 
             f=new ManagedDisplayPolicyTest.Fake();f.routeSupported=routing;f.mirror=initial;
             p=new ManagedDisplayPolicy(f);p.tick(0);f.screens.clear();p.tick(1);
-            check(Objects.equals(f.mirror,initial)&&!f.respect,"Unplug with no replacement monitor restores immediately");
+            check(f.respect&&(routing?"1".equals(f.mirror):Objects.equals(f.mirror,initial)),
+                    "A brief unplug with no replacement monitor retains policies during the grace period");
             f.screens.put(17,ManagedDisplayPolicyTest.screen(17,"local:xreal",true,
                     ManagedDisplayPolicyTest.VGA,ManagedDisplayPolicyTest.SBS));p.tick(2);
             check(f.respect&&f.preferred.get(17).same(ManagedDisplayPolicyTest.SBS),
-                    "Glasses can reconnect after immediate restoration");p.close();
+                    "Glasses can reconnect during the restoration grace period");p.close();
         }
 
         ManagedDisplayPolicyTest.Fake f=new ManagedDisplayPolicyTest.Fake();

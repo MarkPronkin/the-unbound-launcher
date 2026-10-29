@@ -19,7 +19,7 @@ class PhoneScreenBinderTests(unittest.TestCase):
         cls.env = dict(os.environ, JAVA_HOME=str(cls.java))
         cls.server_sources = [ROOT / "compat/src/dev/beampro/compat/GlassesIdentity.java"] + sorted((ROOT / "bridge/src").rglob("*.java")) + [
             ROOT / "settings-ui/src/dev/beampro/settings" / name
-            for name in ("NetworkDiagnostics.java", "DisplayDiagnostics.java")]
+            for name in ("NetworkDiagnostics.java", "DisplayDiagnostics.java", "ControlTrace.java")]
         cls.server = cls.build(cls.server_sources, "server")
         cls.client = cls.build(sorted((ROOT / "port-client/src").rglob("*.java")) + [ROOT / "compat/src/dev/beampro/compat/GlassesIdentity.java"], "client")
 

@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
 
 /** Display-management decisions, independent of Android and exercised by host tests. */
 public final class ManagedDisplayPolicy implements AutoCloseable {
+    private static final long DISCONNECT_GRACE_MS = 5000;
     public static final class Mode {
         public final int width, height;
         public final float hz;
@@ -83,6 +84,7 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
     private boolean mirrorOwned,respectOwned;
     private String previousMirror,requestedMirror="0";
     private boolean previousRespect;
+    private long absentSince=-1;
 
     public ManagedDisplayPolicy(Platform platform) { this.platform=platform; }
     public ManagedDisplayPolicy(Platform platform,Journal journal) throws Exception {
@@ -150,13 +152,34 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
             for(Screen screen:screens)if(screen.id==id&&screen.uniqueId.equals(enabled.get(id)))same=true;
             if(!same)enabled.remove(id);
         }
-        if (screens.isEmpty() || !platform.unlockedAndCool()) {
+        if (screens.isEmpty()) {
             enabled.clear();
-            // Do not carry global Mirror/stereo policy across an unplug, even briefly:
-            // the next display may be a monitor running Pixel Desktop or Samsung DeX.
+            if (!mirrorOwned && !respectOwned && modes.isEmpty() && routes.isEmpty()) {
+                absentSince=-1;
+                return;
+            }
+            boolean replacementMonitor=false;
+            for(Screen screen:all) if(screen.id>0 && screen.uniqueId!=null
+                    && screen.uniqueId.startsWith("local:")) replacementMonitor=true;
+            // A glasses mode switch can briefly remove the physical display. Keep
+            // its leases until it has been absent continuously for five seconds.
+            // A replacement monitor, lock or thermal stop still releases them now.
+            if(absentSince<0)absentSince=now;
+            if(replacementMonitor || !platform.unlockedAndCool() || now-absentSince>=DISCONNECT_GRACE_MS) {
+                absentSince=-1;
+                restoreState(all);
+            }
+            return;
+        }
+        boolean reconnected=absentSince>=0;
+        absentSince=-1;
+        if (!platform.unlockedAndCool()) {
+            enabled.clear();
             restoreState(all);
             return;
         }
+        // Time without a display must not consume its hardware mode-switch timeout.
+        if(reconnected)for(Owned owned:modes.values())owned.since=now;
         Set<String> connected=new HashSet<>();
         for(Screen screen:screens)connected.add(screen.uniqueId);
         restoreRoutes(connected);

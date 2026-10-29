@@ -25,8 +25,9 @@ final class StartupTrace {
     private static final Pattern LOG=Pattern.compile("^\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}\\.\\d+\\s+\\d+\\s+\\d+\\s+[VDIWEF]\\s+([^:]{1,64}):\\s?(.*)$");
     private static final Pattern TIMEOUT=Pattern.compile("\\b([0-9]{1,5}) get rsp timeout\\b");
     private static final Pattern SOURCE=Pattern.compile("\\((?:NRServiceControl|XREALManager|OtaPresenterImpl|GlassesInitSetting|GlassesManager|PingGSeriesHelper|UsbAttachDetachHelper)\\.java:");
-    private static final Pattern SDK_BODY=Pattern.compile("(?i)NRSDK Version:|HMD version:|get rsp timeout|GetDisplaySupportedRois|GetDisplayDpResolutionMap|startup.?state|nativeGetGlassesStartupState|nativeGlassesInit|new connection|remove connection|bind to net device|Lifecycle (?:Initialize|Start|Stop)|NRSDK (?:Create|Init|RUN|STOP)|NRGlasses (?:START|RUN|STOP)|Leopard Mcu (?:Initializ|Start|Stop)|Device Connect|clock correlation");
+    private static final Pattern SDK_BODY=Pattern.compile("(?i)NRSDK Version:|HMD version:|get rsp timeout|GetDisplaySupportedRois|GetDisplayDpResolutionMap|startup.?state|nativeGetGlassesStartupState|nativeGlassesInit|new connection|remove connection|bind to net device|Lifecycle (?:Initialize|Start|Stop)|NRSDK (?:Create|Init|RUN|STOP)|NRGlasses (?:START|RUN|STOP)|Leopard Mcu (?:Initializ|Start|Stop)|Device Connect|clock correlation|HMD Device type|Supported Devices");
     private static final Pattern JAVA_BODY=Pattern.compile("(?i)startSdk|startupState|nativeGetGlassesStartupState|sdkVersion|isEthernetSeries|init=|currentUsbConfigList|set (?:mtp|ncm|ecm)|mtp to|USB config|Waiting for|ping result|PingSuccess|onPlugOut|stop ping|currentDisplayMode|finalDbDisplay|modeResult");
+    private static final Pattern EMPTY_FIRMWARE=Pattern.compile("^system:\\s*,\\s*software:\\s*$");
     private static final Pattern FAIL=Pattern.compile("(?i)get rsp timeout|startupState=,?\\s*-1|nativeGetGlassesStartupState.*errorCode,\\s*[1-9]|startSdk: (?:failed|result=false)|could not|timed out|connection timed out|cannot (?:start|prepare|finish|open)|disconnected or could not|USB access failed");
     private final File recentFile, failureFile, stateFile;
     private final ArrayDeque<String> recent=new ArrayDeque<>();
@@ -35,7 +36,7 @@ final class StartupTrace {
     private int recentBytes;
     private boolean oversized, signaled, pinOpen;
     private long droppedLines;
-    private String pinned="", attempt="", sdk="", firmware="", init="", state="", apiError="";
+    private String pinned="", attempt="", sdk="", firmware="", init="", state="", apiError="", display="";
 
     StartupTrace(File directory) throws IOException {
         recentFile=new File(directory,"startup-recent.txt");
@@ -45,14 +46,16 @@ final class StartupTrace {
         for(String line:saved.split("\\n")) if(!line.isEmpty()) addRecent(line+"\n");
         pinned=read(failureFile,MAX_FAILURE_BYTES);
         if(stateFile.isFile()&&stateFile.length()<=8192) try(DataInputStream input=new DataInputStream(new FileInputStream(stateFile))) {
-            if(input.readInt()!=1)throw new IOException("Unknown startup trace state");
+            int version=input.readInt();
+            if(version!=1&&version!=2)throw new IOException("Unknown startup trace state");
             attempt=input.readUTF();signaled=input.readBoolean();droppedLines=input.readLong();
             sdk=input.readUTF();firmware=input.readUTF();init=input.readUTF();state=input.readUTF();apiError=input.readUTF();
             int count=input.readInt();if(count<0||count>32)throw new IOException("Invalid startup timeout summary");
             for(int i=0;i<count;i++){int id=input.readInt();long total=input.readLong();if(id>=0&&total>0)timeouts.put(id,total);}
+            if(version>=2)display=input.readUTF();
         } catch(IOException corrupt) {
             // Keep the separately persisted first-failure window even if its summary was interrupted.
-            attempt="";signaled=false;timeouts.clear();sdk=firmware=init=state=apiError="";droppedLines=0;
+            attempt="";signaled=false;timeouts.clear();sdk=firmware=init=state=apiError=display="";droppedLines=0;
         }
         // A restarted process must not append a different attempt to the first failure window.
         pinOpen=false;
@@ -62,7 +65,7 @@ final class StartupTrace {
         partial.reset();oversized=false;
         if(reset) {
             recent.clear();recentBytes=0;pinned="";pinOpen=false;signaled=false;attempt="";
-            sdk=firmware=init=state=apiError="";timeouts.clear();droppedLines=0;
+            sdk=firmware=init=state=apiError=display="";timeouts.clear();droppedLines=0;
             remove(failureFile);remove(recentFile);remove(stateFile);
         }
         event("",reset?"collection_begin":"collection_resume","");
@@ -97,6 +100,11 @@ final class StartupTrace {
         if((safeEvent.equals("begin")||safeEvent.equals("sdk_start"))&&!safeId.equals(attempt)) {
             attempt=safeId;signaled=false;pinOpen=false;
         }
+        int at=safeDetail.indexOf("displays=[");
+        if(safeEvent.equals("sdk_start")&&at>=0) {
+            int end=safeDetail.indexOf("]; ",at);
+            display=clean(safeDetail.substring(at+10,end<0?safeDetail.length():end),512);
+        }
         SimpleDateFormat stamp=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",Locale.US);
         stamp.setTimeZone(TimeZone.getTimeZone("UTC"));
         String line=stamp.format(new Date())+" StartupTrace attempt="+safeId+" event="+safeEvent;
@@ -114,6 +122,7 @@ final class StartupTrace {
         for(Map.Entry<Integer,Long> item:timeouts.entrySet())output.append(' ').append(item.getKey()).append('=').append(item.getValue());
         output.append('\n');
         summary(output,"Last native SDK version",sdk);summary(output,"Last glasses firmware",firmware);
+        summary(output,"Glasses display at last SDK start",display);
         summary(output,"Last native initialization",init);summary(output,"Last startup state",state);summary(output,"Last startup API error",apiError);
         output.append("Oversized log lines discarded: ").append(droppedLines).append('\n');
         output.append("\n--- First failure window (retained across retries and process restarts) ---\n");
@@ -139,7 +148,9 @@ final class StartupTrace {
             if(timeouts.containsKey(request)||timeouts.size()<32)timeouts.put(request,Math.min(Long.MAX_VALUE-1,timeouts.getOrDefault(request,0L))+1);
         }
         int at=body.indexOf("NRSDK Version:");if(at>=0)sdk=clean(body.substring(at+14),512);
-        at=body.indexOf("HMD version:");if(at>=0)firmware=clean(body.substring(at+12),512);
+        // A failed retry reports empty versions; keep the last real firmware instead.
+        at=body.indexOf("HMD version:");
+        if(at>=0&&!EMPTY_FIRMWARE.matcher(body.substring(at+12).trim()).matches())firmware=clean(body.substring(at+12),512);
         if(body.contains("init=,")||body.contains("nativeGlassesInit"))init=clean(body,512);
         if(body.contains("startupState="))state=clean(body,512);
         if(body.contains("nativeGetGlassesStartupState")&&body.contains("errorCode"))apiError=clean(body,512);
@@ -175,9 +186,10 @@ final class StartupTrace {
         if(!pinned.isEmpty())write(failureFile,pinned.getBytes(StandardCharsets.UTF_8));
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();
         try(DataOutputStream state=new DataOutputStream(bytes)) {
-            state.writeInt(1);state.writeUTF(attempt);state.writeBoolean(signaled);state.writeLong(droppedLines);
+            state.writeInt(2);state.writeUTF(attempt);state.writeBoolean(signaled);state.writeLong(droppedLines);
             state.writeUTF(sdk);state.writeUTF(firmware);state.writeUTF(init);state.writeUTF(this.state);state.writeUTF(apiError);
             state.writeInt(timeouts.size());for(Map.Entry<Integer,Long> item:timeouts.entrySet()){state.writeInt(item.getKey());state.writeLong(item.getValue());}
+            state.writeUTF(display);
         }
         write(stateFile,bytes.toByteArray());
     }

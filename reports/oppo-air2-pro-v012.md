@@ -1,5 +1,12 @@
 # OPPO CPH2791 / Air 2 Pro blank output on 0.1.2
 
+**Follow-up on 0.2.0 / build 2946:** the wearer now reports visible content,
+but experimental 3D is stretched and unusable. The new archive confirms native
+SBS output and a full-size renderer surface; correct stereo geometry remains
+unresolved. See the [follow-up investigation](oppo-air2-pro-stereo-v020.md).
+The historical blank-output findings and candidate validation below are
+retained separately.
+
 ## Report and version gate
 
 The supplied `unbound-debug-20261027-181116-98914fc5.zip` identifies **0.1.2

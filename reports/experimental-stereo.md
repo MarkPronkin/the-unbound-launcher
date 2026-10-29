@@ -73,6 +73,14 @@ Physical glasses validation was pending for the initial build. Enabling the sett
 SDK's model registration or rejection of an unsupported hardware switch, and
 does not add a driver for non-XREAL glasses.
 
+The later **0.2.0 / build 2946 OPPO CPH2791 / Air 2 Pro report** confirms
+3840 × 1080 / 60 Hz output and a 3D home setting, but the wearer reports
+stretched, unusable content. Android composes a full-size renderer surface
+without scaling; the native provider's final eye-layout decision is missing
+from the throttled log. Keep the option disabled on this affected combination
+pending physical validation of a correction. See the
+[stereo-geometry investigation](oppo-air2-pro-stereo-v020.md).
+
 ## Samsung feedback and optional mono 60 Hz — test candidate 2913
 
 This section records the historical diagnostic candidate. Its optional 2D 60 Hz

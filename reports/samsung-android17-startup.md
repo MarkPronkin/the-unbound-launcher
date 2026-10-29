@@ -1,16 +1,18 @@
 # Samsung Android 17 connection failures
 
-The two supplied build 2924 exports stop at different startup gates. Neither
-records a successful AR renderer launch. A third wearer reports the same screen
-but supplied no debug archive or hardware identification, so that case cannot
-yet be assigned to either failure.
+The three supplied exports stop at two different startup gates. None records a
+successful AR renderer launch. A further wearer reports the same screen but
+supplied no debug archive or hardware identification, so that case cannot yet
+be assigned to either failure.
 
 | Export | Phone | Glasses | Confirmed startup blocker |
 | --- | --- | --- | --- |
 | `unbound-debug-20261027-192227-10879776.zip` | Samsung SM-S938U, Android 17 / API 37 | XREAL One, USB 13080:1080, SDK type 7 | Android's Ethernet service is disabled; both glasses interfaces are down. |
-| `unbound-debug-20261028-191157-88bff0cc.zip` | Samsung SM-S928U1, Android 17 / API 37 | XREAL 1S, USB 13080:1086, SDK type 9 | Ethernet and native initialization succeed; the native startup-state request times out. |
+| `unbound-debug-20261028-191157-88bff0cc.zip` | Samsung SM-S928U1, Android 17 / API 37 | XREAL 1S, USB 13080:1086, SDK type 9 | Ethernet and native initialization succeed; the native startup-state request times out. The glasses report the same 2.0.0 beta firmware as the One Pro case. |
+| `unbound-debug-20261029-003229-a5781d65.zip` | Samsung SM-S928U, Android 17 / API 37 | XREAL One Pro, USB 13080:1078, SDK type 6 | The same control-request timeouts as the 1S, on 0.2.0 alpha. **Resolved:** XREAL beta glasses firmware; the wearer reports startup works after returning to stable firmware. |
 
-Both session headers identify **0.1.2 alpha, build 2924**. The first app log also
+The first two session headers identify **0.1.2 alpha, build 2924**; the third
+identifies **0.2.0 alpha, build 2946**. The first app log also
 contains older build 2915 collection history; its final build 2924 attempts
 reproduce the same network failure. Times below use each phone's logged local
 time, rather than the UTC timestamps in the export filenames.
@@ -233,3 +235,150 @@ class uniqueness and the complete scoped DEX/native restoration checks. The
 original SDK DEX files and both NR native libraries match build 2943 exactly.
 The complete APK has not been installed on the physical phone during this task;
 Samsung/1S capture still needs a fresh wearer report.
+
+## SM-S928U with XREAL One Pro on 0.2.0 alpha
+
+The third export reproduces the 1S failure with different glasses. USB access is
+granted, Android Ethernet is enabled, both glasses interfaces have addresses and
+every retained ping to `169.254.2.1` succeeds with no loss. At 20:32:13.144 the
+native service connects over `eth0`. The glasses answer the clock-correlation
+request within 5 ms, and the SDK logs `HMD Device type(local):11,11` and
+`Supported Devices: 1537 -> 1537`.
+
+Those lines are identical in the working Pixel 10 Pro / One Pro export, where
+the ROI reply arrives 11 ms later (`artifacts/pixel10-onepro-012/export/app.log:1123`).
+Here, request 333 times out at 20:32:13.685, then 334 and 265 follow at 500 ms
+intervals. The SDK reports startup state -1 and fails at 20:32:14.687. The retry
+receives no reply at all, starting with request 15, and its firmware strings are
+empty. The request sequence and counts match the 1S export exactly, and both
+report the same firmware.
+
+The control snapshot taken at the failure shows one established socket to
+`169.254.2.1:52999` with 39 bytes in its send queue. Two earlier sockets remain
+in FIN-WAIT-2: the glasses acknowledged their close but never closed their own
+side. Samsung denies netlink socket details and sysfs interface statistics to
+the shell. One snapshot cannot separate an unacknowledged request from one
+written just before the capture.
+
+The USB configuration list, MTP handling and camera status match the working
+Pixel 10 Pro One Pro export. Disabled Ethernet, USB permission, USB
+configuration and model recognition are therefore not the blocker. The two
+failing reports come from different wearers, phone variants, time zones and
+networks. They share three properties that no session with a successful control
+handshake has:
+
+| | Both S24 Ultra failures | Every successful control handshake |
+| --- | --- | --- |
+| Phone | Galaxy S24 Ultra, Samsung build `CP2A.260605.016` | Pixel 8 Pro, Pixel 10 Pro, OnePlus 15 |
+| Glasses refresh rate at SDK start | 90 Hz, Samsung's default mode | 60 Hz |
+| Glasses firmware | system 3563, software 2.0.0.20260901182643 | system 3603, software 1.9.1.20260914175625 |
+
+The Samsung Fold export also drives XREAL One at 90 Hz, but it stops at the
+earlier Ethernet failure. Requested 90 Hz modes in the experimental-stereo tests
+stayed at 60 Hz. No captured session therefore establishes a control handshake
+at 90 Hz or on firmware 2.0.0, and the evidence cannot yet separate these three
+properties. The export is retained under `artifacts/samsung-s928u-onepro-020/`.
+
+### Resolution: beta glasses firmware
+
+The wearer reports that downgrading the glasses from XREAL's beta firmware to
+the latest stable firmware resolved the failure. The phone did not change, so
+the S24 Ultra and its Samsung build are not the blocker for this case. Firmware
+`2.0.0.20260901182643` (system 3563) is therefore the beta build. Its lower
+system number and earlier build date than stable 1.9.1 (system 3603) are
+consistent with a separate beta branch. The original SDK 3.1.2 does not complete
+its control handshake with that build.
+
+No export after the downgrade has been supplied. The stable version installed
+and the refresh rate during the successful startup are therefore not captured.
+The report alone does not rule out a 90 Hz contribution on other firmware, but
+90 Hz did not prevent startup on this phone once the beta was removed.
+
+The 1S export reports exactly the same firmware strings and the same timeout
+sequence. Its wearer should check whether the glasses are enrolled in XREAL's
+beta channel and move them to the latest stable firmware with XREAL's updater
+([One Series FAQ](https://tutorials.xreal.com/docs/glasses/one-series/faq/)).
+That remains a likely, unconfirmed fix for the 1S. Unbound does not install or
+change glasses firmware.
+
+## Control-channel trace in build 2947
+
+The 0.2.0 control snapshots show the request stall only as one queue value at
+one instant. Build 2947 records the stall as it happens:
+
+- **`glasses-control-trace.txt`.** The first SDK start of each attempt starts
+  a 12-second helper trace. It reads `/proc/net/tcp`, `tcp6`, `udp` and `udp6`
+  every 50 ms and writes a line only when a socket to `169.254.2.1` or
+  `169.254.1.1` appears, changes or closes. Each line includes the unacknowledged
+  send queue, the unread receive queue, a retransmit or zero-window timer, the
+  retransmission count, owner UID and `eth0`/`eth1` packet counters. A retry
+  inside the window is covered by the running trace. Each trace is limited to
+  24 KB. The first trace since collection began is kept beside the latest two,
+  and an export waits for a trace still in progress.
+- **Control snapshots** add decoded kernel socket rows, which carry the timers,
+  retransmissions and owner UIDs that `ss` omits without netlink. When sysfs
+  statistics are denied, as on this Samsung, interface counters come from
+  `/proc/net/dev`.
+- **Startup events** record each physical external display's active mode,
+  refresh rate and available rates at SDK start, SDK result and failure.
+  `glasses-startup.txt` summarizes the mode at the last SDK start.
+- **The startup summary** now retains `HMD Device type` and `Supported Devices`
+  lines. An empty retry no longer replaces the real firmware version. Replaying
+  the One Pro export restores `system:3563, software:2.0.0.20260901182643`,
+  which its 0.2.0 summary had lost. The device report adds the app UID for
+  matching socket owners.
+
+The One Pro case no longer depends on this trace. It remains useful for other
+control-channel failures, including firmware a future SDK does not support. The
+trace distinguishes these explanations:
+
+| Trace during the timeout | Meaning |
+| --- | --- |
+| `sendq` stays above 0 with `timer=retransmit` and rising `retrans` | The glasses' TCP stack does not acknowledge the request. |
+| `sendq` stays above 0 with `timer=zero-window-probe` | The glasses accept data but stopped reading their socket. |
+| `sendq` returns to 0 while `recvq` stays 0 | The request is acknowledged and no reply is sent. |
+| `recvq` stays above 0 | A reply arrived; the SDK did not read it. |
+
+The trace is read-only and starts no network connection or SDK command. It
+cannot see unconnected UDP sockets, other network namespaces or changes
+shorter than 50 ms, and it does not identify which request the firmware
+received. Startup acceptance, timeouts, refresh-rate selection and the original
+SDK are unchanged.
+
+### Verification
+
+Host regressions pass: 28 control-trace assertions, covering real kernel row
+formats, IPv4-mapped `tcp6`, short TIME_WAIT rows, UDP drops, change-only
+sampling, byte limits, read failures, interruption and late samples. Also 57
+display-diagnostic, 34 startup-trace and 69 debug-archive assertions. The
+archive checks include the worst-case 15 MB ZIP with maximum traces and the
+380 KB startup reservation. The Android emulator passes 34 cross-process
+assertions over real Binder and pipes. They show that a running trace cannot
+delay the failure snapshot or link capture, and that the released 0.2.0
+helper's rejection of the new selector produces a helper-restart explanation.
+
+On an Android 13 emulator, a root-only fixture aliases `169.254.2.1` onto
+loopback and connects to port 52999. It then stops the client while a reply
+arrives, and later drops inbound packets while a 39-byte request is written.
+The production sampler, running as shell UID 2000 in the `shell` SELinux
+domain, records `recvq=128` for the unread reply. For the dropped request it
+records `sendq=39`, `timer=retransmit`, `retrans` rising from 0 to 4 and RTO
+backing off from 200 ms to 3.26 s. The acknowledged request leaves no line. It
+takes 221 samples in 11 s with no late samples and 3.7 KB of output. The
+fixture restores the emulator's addresses and firewall afterward. Evidence is
+under `artifacts/control-trace-2947/`.
+
+The signed build is
+`artifacts/unbound-launcher-control-trace-2947/the-unbound-launcher.apk`, SHA-256
+`3e16ed0265ed8814e8a15ad5a680980f0fc6ea54df458c53561e6ccbda65818e`. The full
+signed-APK audit passes. Against the published 0.2.0 APK, only the manifest
+version, the shell helper, the app DEX and the bundled corresponding sources
+change. The original SDK DEX files and both NR native libraries are
+byte-identical. The complete APK has not been installed on a physical phone
+during this task.
+
+Install it as an update, then start the updated helper under **On-device ADB →
+Connect and start**. An older running helper returns an explanation instead of
+a trace. Turn on **Help → Debug mode → Collect debug data**, then connect the
+glasses. Reproduce the failure, then create the debug file with the glasses
+still connected; an export started during a trace waits for it to finish.

@@ -41,6 +41,18 @@ class ManagedDisplayTests(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PASS external display isolation assertions: 71',result.stdout)
 
+    def test_five_second_disconnect_grace_and_reconnect_cancellation(self):
+        with tempfile.TemporaryDirectory() as work:
+            subprocess.run([str(JAVA/'bin/javac'),'-d',work,
+                            str(ROOT/'bridge/src/dev/beampro/bridge/ManagedDisplayPolicy.java'),
+                            str(ROOT/'tools/ManagedDisplayPolicyTest.java'),
+                            str(ROOT/'tools/ExternalDisplayIsolationTest.java'),
+                            str(ROOT/'tools/ManagedDisplayDisconnectTest.java')],check=True)
+            result=subprocess.run([str(JAVA/'bin/java'),'-cp',work,'ManagedDisplayDisconnectTest'],
+                                  text=True,capture_output=True)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('PASS disconnect grace assertions: 15',result.stdout)
+
     def test_helper_uses_non_persistent_mode_api_and_exact_pixel_preference_api(self):
         # These are API compatibility checks against the framework copied read-only
         # from the actual Pixel, rather than guessed Binder transaction numbers.

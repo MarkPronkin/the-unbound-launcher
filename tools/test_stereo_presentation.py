@@ -14,6 +14,11 @@ from display_startup import patch_display_startup
 
 
 VIEW_STUBS = {
+ 'android/content/Context.java': '''package android.content; import android.app.*; import android.hardware.display.*;
+  public class Context {public static Application app;public static DisplayManager displays;public static ActivityManager manager;public static java.io.File files;
+  public Context getApplicationContext(){return app;}public String getPackageName(){return "dev.markpronkin.unbound";}
+  public java.io.File getFilesDir(){return files;}public <T>T getSystemService(Class<T> c){return c.cast(c==DisplayManager.class?displays:manager);}}''',
+ 'android/os/Process.java': 'package android.os; public class Process {public static int myPid(){return 1234;}}',
  'android/app/ActivityOptions.java': '''package android.app; import android.os.Bundle;
   public class ActivityOptions {int id;public static ActivityOptions makeBasic(){return new ActivityOptions();}
   public ActivityOptions setLaunchDisplayId(int value){id=value;return this;}public Bundle toBundle(){Bundle b=new Bundle();b.putInt("android.activity.launchDisplayId",id);return b;}}''',
@@ -51,10 +56,12 @@ VIEW_STUBS = {
   public static final int FLAG_FULLSCREEN=1024,FLAG_LAYOUT_IN_SCREEN=256,FLAG_FORCE_NOT_FULLSCREEN=2048,FLAG_NOT_FOCUSABLE=8,FLAG_NOT_TOUCHABLE=16,FLAG_ALT_FOCUSABLE_IM=131072;
   public int preferredDisplayModeId,type,flags,x,y,gravity,fit=7;public LayoutParams(){super(850,480);}
   public int getFitInsetsTypes(){return fit;}public void setFitInsetsTypes(int f){fit=f;}}}''',
- 'android/view/WindowInsets.java': 'package android.view; public class WindowInsets {public static class Type {public static int systemBars(){return 7;}}}',
+ 'android/view/WindowInsets.java': '''package android.view; public class WindowInsets {public boolean visible;
+  public boolean isVisible(int types){return visible;}public static class Type {public static int systemBars(){return 7;}}}''',
  'android/view/WindowInsetsController.java': '''package android.view; public class WindowInsetsController {
-  public static final int BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE=2;public int hidden,behavior;
-  public void setSystemBarsBehavior(int b){behavior=b;}public void hide(int types){hidden=types;}}''',
+  public static final int BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE=2;public int hidden,behavior,requestedVisibleTypes=503;
+  public void setSystemBarsBehavior(int b){behavior=b;}public int getSystemBarsBehavior(){return behavior;}
+  public int getRequestedVisibleTypes(){return requestedVisibleTypes;}public void hide(int types){hidden=types;requestedVisibleTypes&=~types;}}''',
  'android/view/ViewTreeObserver.java': '''package android.view; public class ViewTreeObserver {
   public java.util.List<OnGlobalLayoutListener> listeners=new java.util.ArrayList<>();
   public interface OnGlobalLayoutListener{void onGlobalLayout();}public boolean isAlive(){return true;}
@@ -74,7 +81,8 @@ VIEW_STUBS = {
   public ViewTreeObserver getViewTreeObserver(){return observer;}public void post(Runnable r){new Handler(Looper.getMainLooper()).postDelayed(r,0);}
   public void removeCallbacks(Runnable r){new Handler(Looper.getMainLooper()).removeCallbacks(r);}public int getSystemUiVisibility(){return ui;}
   public void setSystemUiVisibility(int i){ui=i;}public void setBackgroundColor(int c){}public WindowInsetsController getWindowInsetsController(){return insets;}
-  public int getWidth(){return 850;}public int getHeight(){return 480;}
+  public int getWidth(){return 850;}public int getHeight(){return 480;}public boolean hasWindowFocus(){return false;}
+  public boolean isShown(){return attached;}public WindowInsets getRootWindowInsets(){return new WindowInsets();}
   public void attach(View r){root=r;attached=true;for(OnAttachStateChangeListener l:new java.util.ArrayList<>(listeners))l.onViewAttachedToWindow(this);}
   public void detach(){attached=false;for(OnAttachStateChangeListener l:new java.util.ArrayList<>(listeners))l.onViewDetachedFromWindow(this);}}''',
 }
@@ -95,11 +103,13 @@ class StereoPresentationTests(unittest.TestCase):
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-cp',str(sdk),'-d', str(work), *sources,
                             str(ROOT / 'port-client/src/dev/beampro/port/DisplayStartupCompat.java'),
                             str(ROOT / 'port-client/src/dev/beampro/port/StereoPresentationCompat.java'),
+                            str(ROOT / 'port-client/src/dev/beampro/port/PresentationWindowDiagnostics.java'),
                             str(ROOT / 'port-client/src/dev/beampro/port/ArBackdropActivity.java'),
                             str(ROOT / 'tools/StereoPresentationCompatTest.java')], check=True)
-            result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work)+':'+str(sdk), 'StereoPresentationCompatTest'],
-                                    text=True, capture_output=True, check=True)
-            self.assertIn('PASS 50 presentation assertions', result.stdout)
+            result = subprocess.run([str(JAVA / 'bin/java'), '-cp', str(work)+':'+str(sdk), 'StereoPresentationCompatTest', str(work / 'debug')],
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('PASS 56 presentation assertions', result.stdout)
 
     def test_constructor_hook_exact_scope_and_reject_double_patch(self):
         with zipfile.ZipFile(BASE) as z:

@@ -44,6 +44,7 @@ from debug_manifest import patch_debug_manifest
 from package_identity import PACKAGE, METADATA, BINARY_ENCODINGS, patch_binary_identity, repackage_dex
 from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, build_library
 from phone_pointer import ENTRY as POINTER_LIBRARY, build_library as build_pointer_library
+from renderer_diagnostics import ENTRY as RENDERER_LIBRARY, build_library as build_renderer_library
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "artifacts/unbound-launcher-help/the-unbound-launcher.apk"
@@ -106,6 +107,7 @@ def write_pairing_sources(destination, root=ROOT):
     paths.append(root / "tools/hardware_buffer_texture.py")
     paths.append(root / "native/hardware-buffer-texture/library.c")
     paths.extend(root / name for name in ("tools/phone_pointer.py", "native/phone-pointer/library.c", "native/phone-pointer/pointer_state.h"))
+    paths.extend(root / name for name in ("tools/renderer_diagnostics.py", "native/renderer-diagnostics/library.c"))
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(set(paths)):
             if not pairing_source_file(path, root):
@@ -129,7 +131,7 @@ def sha256(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--output", type=Path, default=ROOT / "artifacts/unbound-launcher-0.2.0-alpha")
+    parser.add_argument("--output", type=Path, default=ROOT / ("artifacts/unbound-launcher-" + VERSION["version_name"].replace(" ", "-")))
     parser.add_argument("--test-only", action="store_true", help="Build a small isolated device-test APK instead of the launcher")
     args = parser.parse_args()
     authority = "dev.beampro.adbtest.bridge" if args.test_only else AUTHORITY
@@ -189,6 +191,7 @@ def main():
         target = server_sources / source.name; target.write_text(text); sources.append(target)
     sources.append(ROOT / "settings-ui/src/dev/beampro/settings/NetworkDiagnostics.java")
     sources.append(ROOT / "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java")
+    sources.append(ROOT / "settings-ui/src/dev/beampro/settings/ControlTrace.java")
     server_jar = compile_java(sources, "server")
     server_dex = dex([server_jar], "server-dex")
     with zipfile.ZipFile(ROOT / "artifacts/beam-pro-system/myglasses-dex.zip") as archive:
@@ -241,6 +244,7 @@ def main():
     additions.update({name: path.read_bytes() for name, path in custom_settings_artwork(build / "settings-artwork").items()})
     if not args.test_only:
         additions[POINTER_LIBRARY] = build_pointer_library(build / "libUnboundPhonePointer.so")
+        additions[RENDERER_LIBRARY] = build_renderer_library(build / "libUnboundRendererDiagnostics.so")
     if args.test_only:  # The launcher APK already carries this settings artwork.
         additions["assets/settings/brand-mark.png"] = (ROOT / "branding/symbol.png").read_bytes()
     unsigned = build / "unsigned.apk"
@@ -369,9 +373,14 @@ def main():
                                     'saved_completion_data_unchanged':True,
                                     'hardware_validation':'pending'}
     if not args.test_only:
-        report['skip_ota']={'always_enabled':True,'native_firmware_probe_removed':True,
+        report['skip_ota']={'always_enabled':True,'original_ota_update_probe_removed':True,
                             'model_sku_preserved':True,'forced_update_ui_bypassed':True,
                             'low_level_flash_and_boot_guards_retained':True,'hardware_validation':'pending'}
+        report['firmware_gate']={'before_sdk_initialization':True,'read_only_usb':True,
+                                'recommendations_verified_on':'2026-10-29','exact_per_model_stable_release':True,
+                                'older_newer_beta_or_unreadable_pauses':True,'override':'current connection only',
+                                'screen':'full-screen firmware warning with updater, Exit and small explicit override',
+                                'hardware_validation':'pending'}
     if not args.test_only:
         report['xreal_usb_access']={'deferred_until_helper_ready':True,'launcher_only':True,
                                    'usb_handler_confirmation_removed':True,'all_five_sdk_requests_hooked':True,
@@ -414,6 +423,10 @@ def main():
                                             'native_getters_not_invoked': True,
                                             'zip_limit_bytes': 15000000,
                                             'first_control_failure_and_export_snapshots': True}
+    report['renderer_geometry_diagnostics'] = {'file': 'renderer-geometry.txt', 'direct_unity_readback': True,
+                                              'logcat_independent': True, 'collection_opt_in': True,
+                                              'sample_interval_ms': 2000, 'native_renderer_binary_unchanged': True,
+                                              'screenshots_and_head_poses': False}
     report['ping_cancellation'] = {'complete_once_on_usb_detach': True, 'sdk_worker_delivery': True,
                                     'late_callbacks_rejected': True, 'connectivity_check_preserved': True,
                                     'hardware_validation': 'pending'}

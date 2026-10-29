@@ -17,10 +17,12 @@ public final class DisplayDiagnosticsTest {
         for (int kind : new int[]{DisplayDiagnostics.DISPLAY, DisplayDiagnostics.SURFACE_FLINGER}) {
             String report=DisplayDiagnostics.capture(kind,(timeout,command)->{
                 check(timeout==10000,"process has a bounded deadline");
-                check(Arrays.equals(command,new String[]{"/system/bin/dumpsys","-t","8",DisplayDiagnostics.service(kind)}),"only fixed read-only commands");
-                return "exit=0; timedOut=false\nphysical modes and policy\n";
+                boolean windows=kind==DisplayDiagnostics.DISPLAY&&Arrays.equals(command,new String[]{"/system/bin/dumpsys","-t","5","window","displays"});
+                check(windows||Arrays.equals(command,new String[]{"/system/bin/dumpsys","-t","8",DisplayDiagnostics.service(kind)}),"only fixed read-only commands");
+                return windows ? "exit=0; timedOut=false\nmCurrentFocus and InsetsState\n" : "exit=0; timedOut=false\nphysical modes and policy\n";
             });
             check(report.contains("Identity: ADB shell helper")&&report.contains("Captured:")&&report.contains("physical modes"),"capture records identity, timestamp and output");
+            if(kind==DisplayDiagnostics.DISPLAY)check(report.contains("Connected Presentation focus and inset control")&&report.contains("mCurrentFocus and InsetsState"),"live window focus and inset state survive beside display modes");
         }
         try { DisplayDiagnostics.capture(99,(t,c)->{throw new AssertionError("invalid selector ran");});throw new AssertionError("accepted invalid service"); }
         catch(IllegalArgumentException expected){checks++;}
@@ -74,7 +76,12 @@ public final class DisplayDiagnosticsTest {
                 &&new String(encoded,StandardCharsets.UTF_8).contains("truncated"),"link snapshots use a smaller explicit UTF-8 byte budget");
         commands.clear();int[] counterReads={0};
         report=DisplayDiagnostics.capture(DisplayDiagnostics.GLASSES_CONTROL,(timeout,command)->{
-            commands.add(command);check(timeout>0&&timeout<=700,"control probes each have a short bounded deadline");
+            commands.add(command);check(timeout>0&&timeout<=800,"control probes each have a short bounded deadline");
+            if(command[0].endsWith("/sh")&&command[2].contains("@@ $table"))return "exit=0; timedOut=false\n@@ /proc/net/tcp\n"
+                    +"  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n"
+                    +"   0: 0A02FEA9:8CC8 0102FEA9:CF07 01 00000027:00000000 01:00000032 00000002 10345        0 4242 1 0000000000000000 20 4 30 10 -1\n"
+                    +"   1: 1002000A:9250 0477D9AC:01BB 01 00000000:00000000 00:00000000 00000000 10103        0 57341 1 0000000000000000 25 4 28 10 -1\n"
+                    +"@@ /proc/net/tcp6\nhead: /proc/net/tcp6: Permission denied\n@@ /proc/net/udp\n@@ /proc/net/udp6\n";
             if(command[0].endsWith("/sh")) {
                 counterReads[0]++;
                 return "exit=0; timedOut=false\neth0.operstate=up\neth0.rx_bytes="+(counterReads[0]==1?100:135)
@@ -88,14 +95,19 @@ public final class DisplayDiagnosticsTest {
                     +"tcp ESTAB 0 0 192.0.2.1:50000 169.254.2.10:9000\n";
             return "exit=0; timedOut=false\n169.254.2.1 dev eth0 src 169.254.2.10 uid 2000\n";
         });
-        check(commands.size()==6&&counterReads[0]==2,"counter snapshots surround two socket and two route queries");
+        check(commands.size()==7&&counterReads[0]==2,"counter snapshots surround two socket, one kernel-table and two route queries");
         check(Arrays.equals(commands.get(1),new String[]{"/system/bin/ss","-H","-n","-4","-t","-u","-a","dst","169.254.2.1"})
                 &&commands.get(2)[8].equals("169.254.1.1"),"socket tool uses only the two fixed glasses destinations");
-        check(Arrays.equals(commands.get(3),new String[]{"/system/bin/ip","route","get","169.254.2.1"})
-                &&commands.get(4)[3].equals("169.254.1.1"),"route probes are fixed read-only lookups");
-        check(commands.get(0)[2].equals(commands.get(5)[2])&&commands.get(0)[2].contains("for iface in eth0 eth1")
+        check(commands.get(3)[0].equals("/system/bin/sh")&&commands.get(3)[2].contains("/proc/net/tcp /proc/net/tcp6 /proc/net/udp /proc/net/udp6")
+                &&commands.get(3)[2].contains("/system/bin/timeout -s KILL 1 /system/bin/head -c 1048576"),"kernel socket tables are fixed paths with per-read and byte bounds");
+        check(report.contains("tcp ESTABLISHED 169.254.2.10:36040>169.254.2.1:52999 uid=10345 ino=4242 sendq=39 recvq=0 timer=retransmit(500ms) retrans=2")
+                &&report.contains("head: /proc/net/tcp6: Permission denied")&&!report.contains("0477D9AC")&&!report.contains("57341"),"snapshot decodes glasses rows with timers and owners, keeps denials and drops other peers");
+        check(Arrays.equals(commands.get(4),new String[]{"/system/bin/ip","route","get","169.254.2.1"})
+                &&commands.get(5)[3].equals("169.254.1.1"),"route probes are fixed read-only lookups");
+        check(commands.get(0)[2].equals(commands.get(6)[2])&&commands.get(0)[2].contains("for iface in eth0 eth1")
                 &&commands.get(0)[2].contains("statistics/rx_errors")&&commands.get(0)[2].contains("statistics/tx_dropped")
-                &&commands.get(0)[2].contains("/system/bin/timeout -s KILL 1"),"fixed interface/link/counter paths retain per-read bounds");
+                &&commands.get(0)[2].contains("/system/bin/timeout -s KILL 1")
+                &&commands.get(0)[2].contains("/system/bin/grep -E '^ *eth[01]:' /proc/net/dev"),"fixed interface/link/counter paths retain per-read bounds, with a /proc/net/dev fallback");
         check(report.contains("eth0.rx_bytes=35")&&report.contains("eth0.tx_packets=2")
                 &&report.contains("eth1.rx_errors=counter decreased or reset"),"numeric deltas and counter resets are explicit");
         check(report.contains("Cannot open netlink socket: Permission denied")&&report.contains("169.254.2.1:9000")
@@ -103,6 +115,15 @@ public final class DisplayDiagnosticsTest {
                 &&!report.contains("169.254.2.10:9000"),"socket export keeps fixed peers and restrictions while removing unrelated peers/process names");
         check(report.contains("monotonic_ns=")&&report.contains("wall_ms=")&&report.contains("duration_ms=")
                 &&report.contains("do not prove request delivery or firmware receipt"),"timing and measurement limits accompany each snapshot");
+        counterReads[0]=0;
+        report=DisplayDiagnostics.capture(DisplayDiagnostics.GLASSES_CONTROL,(timeout,command)->{
+            if(!command[0].endsWith("/sh")||command[2].contains("@@ $table"))return "exit=0; timedOut=false\n";
+            counterReads[0]++;
+            return "exit=0; timedOut=false\n\nInterface: eth0\nInterface unavailable in sysfs\n\n/proc/net/dev rows for eth0/eth1:\n"
+                    +"  eth0: 5000 "+(counterReads[0]==1?40:47)+" 0 0 0 0 0 0 9000 "+(counterReads[0]==1?30:39)+" 0 0 0 0 0 0\n";
+        });
+        check(report.contains("eth0.rx_packets=7")&&report.contains("eth0.tx_packets=9")&&report.contains("eth0.rx_bytes=0")
+                &&report.contains("sysfs, else /proc/net/dev"),"phones that deny sysfs statistics still produce interface deltas from /proc/net/dev");
         report=DisplayDiagnostics.capture(DisplayDiagnostics.GLASSES_CONTROL,(timeout,command)->{throw new java.io.IOException("ss unavailable");});
         check(report.contains("ss unavailable")&&report.contains("Counter deltas unavailable"),"missing commands stay readable without suppressing snapshot completion");
         encoded=DisplayDiagnostics.encode(DisplayDiagnostics.GLASSES_CONTROL,unicode);
@@ -117,6 +138,12 @@ public final class DisplayDiagnosticsTest {
             report=DisplayDiagnostics.capture(DisplayDiagnostics.GLASSES_CONTROL,(t,c)->{throw new AssertionError("interrupted control capture ran");});
             check(report.contains("Interrupted; probe skipped")&&Thread.currentThread().isInterrupted(),"control capture retains cancellation and skips all commands");
         } finally {Thread.interrupted();}
+        check(DisplayDiagnostics.service(DisplayDiagnostics.GLASSES_CONTROL_TRACE).equals("Glasses control trace"),"trace selector has its own service name");
+        try{DisplayDiagnostics.capture(DisplayDiagnostics.GLASSES_CONTROL_TRACE,(t,c)->{throw new AssertionError("trace used a subprocess");});throw new AssertionError("trace accepted a runner");}
+        catch(IllegalArgumentException expected){checks++;}
+        encoded=DisplayDiagnostics.encode(DisplayDiagnostics.GLASSES_CONTROL_TRACE,unicode);
+        check(encoded.length<=ControlTrace.MAX_BYTES&&!new String(encoded,StandardCharsets.UTF_8).contains("\ufffd")
+                &&new String(encoded,StandardCharsets.UTF_8).contains("truncated"),"control traces have a strict 24000-byte UTF-8 limit");
         System.out.println("PASS display diagnostic assertions: "+checks);
     }
 }

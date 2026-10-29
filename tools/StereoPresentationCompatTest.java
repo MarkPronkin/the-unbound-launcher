@@ -25,6 +25,9 @@ public class StereoPresentationCompatTest {
         java.lang.reflect.Method create=ArBackdropActivity.class.getDeclaredMethod("onCreate",Bundle.class);create.setAccessible(true);create.invoke(activity,new Object[]{null});return activity;
     }
     public static void main(String[] args)throws Exception{
+        android.content.Context.files=new java.io.File(args[0]).getParentFile();
+        java.io.File renderer=new java.io.File(android.content.Context.files,"debug/renderer");renderer.mkdirs();
+        java.nio.file.Files.write(new java.io.File(renderer,"collecting").toPath(),"collection-one".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         Build.VERSION.SDK_INT=36;
         DisplayManager displays=new DisplayManager();Context.displays=displays;Context.manager=new ActivityManager();
         Display.Mode vga=new Display.Mode(45,640,480,59.94f),stereo=new Display.Mode(44,3840,1080,60);
@@ -97,6 +100,7 @@ public class StereoPresentationCompatTest {
         owner.destroyed=true;Handler.advance(500);int scans=android.view.inspector.WindowInspector.scans;Handler.advance(5000);
         check(android.view.inspector.WindowInspector.scans==scans&&background.isFinishing(),"Stop scanning and backdrop when AR owner is destroyed");
         check(backdrop(owner.lastIntent,xr).isFinishing(),"Restored activity cannot leave a black display after its AR owner ends");
+        java.nio.file.Files.write(new java.io.File(renderer,"collecting").toPath(),"collection-modern".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         Build.VERSION.SDK_INT=37;
         Activity modernOwner=new Activity();View modernRoot=root(external,xr,2037);
         attrs(modernRoot).flags=WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
@@ -113,6 +117,20 @@ public class StereoPresentationCompatTest {
         check((attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)==0
                 &&(attrs(modernRoot).flags&WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)!=0,"Recover a native flag rewrite without needing a display/layout event");
         check(attrs(primary).width==850&&attrs(overlay).width==850,"Modern focus policy still skips phone and unrelated overlay windows");
+        String windowReport=dev.beampro.port.PresentationWindowDiagnostics.report(new java.io.File(args[0]));
+        int latest=windowReport.indexOf("Latest connected-window readback");
+        check(latest>0,"Connected-window report is retained independently of logcat: "+windowReport);
+        check(windowReport.substring(0,latest).contains("flags=0x8"),"Initial non-focusable flags survive for diagnosis");
+        check(windowReport.substring(latest).contains("flags=0x20510"),"Latest readback records focus, touch and IME flags");
+        String state=windowReport.substring(latest);
+        check(state.contains("RequestedVisibleTypes: 496")&&state.contains("windowFocus: false")&&state.contains("systemBarsVisible=false"),"Readback distinguishes client requests from focus and actual insets");
+        java.nio.file.Files.write(new java.io.File(android.content.Context.files,"debug/renderer/collecting").toPath(),"collection-two".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        modernRoot.insets.requestedVisibleTypes=496;Handler.advance(500);
+        state=dev.beampro.port.PresentationWindowDiagnostics.report(new java.io.File(args[0]));
+        check(!state.substring(0,state.indexOf("Latest connected-window readback")).contains("flags=0x8")&&state.contains("RequestedVisibleTypes: 496"),"A new collection resets retained immersive-window evidence: "+state);
+        java.nio.file.Files.delete(new java.io.File(android.content.Context.files,"debug/renderer/collecting").toPath());
+        modernRoot.insets.requestedVisibleTypes=503;Handler.advance(500);
+        check(dev.beampro.port.PresentationWindowDiagnostics.report(new java.io.File(args[0])).contains("RequestedVisibleTypes: 496"),"Stopping collection rejects later writes without losing retained evidence");
         modernRoot.detach();android.view.inspector.WindowInspector.windows.remove(modernRoot);modernOwner.destroyed=true;Handler.advance(500);
         Build.VERSION.SDK_INT=36;
         dev.beampro.port.PresentationOnlyCompat.direct=true;dev.beampro.port.PresentationOnlyCompat.displayId=16;
