@@ -20,7 +20,6 @@ import android.os.Looper;
 import android.os.Parcel;
 import android.view.Display;
 import android.view.Gravity;
-import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewTreeObserver;
@@ -225,6 +224,8 @@ public final class PhoneScreenCompat {
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Turn off screen", (dialog, which) -> MAIN.postDelayed(this::start, 200)).create();
             explanation.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+            // A phone tap must leave global keyboard/gamepad focus on the spatial app.
+            explanation.getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
             explanation.setOnDismissListener(dialog -> { explanation = null; updateButton(); });
             explanation.show();
             signature(explanation);
@@ -262,7 +263,7 @@ public final class PhoneScreenCompat {
                     helperDeath = () -> MAIN.post(() -> { restore(); toast("The helper stopped. The phone screen is being restored."); });
                     remote.linkToDeath(helperDeath, 0);
                     pointer.suspend();
-                    request(1);
+                    if (!request(1)) throw new IllegalStateException("Phone-screen session did not start.");
                 } catch (Exception error) { failure = error; }
                 final Exception error = failure;
                 MAIN.post(() -> {
@@ -280,18 +281,15 @@ public final class PhoneScreenCompat {
             hideTouchTarget();
             blockedTouches = 0;
             hadKeepScreenOn = (window.getAttributes().flags & WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) != 0;
-            shade.focusedOnce = false;
             shade.setSystemUiVisibility(View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
-            shade.setFocusableInTouchMode(true);
             WindowManager.LayoutParams position = overlay(-1, -1, WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN);
+                    | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE);
             position.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
             position.setTitle("Unbound phone touch guard");
             windows.addView(shade, position);
             blocked = true;
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
-            shade.requestFocus();
         }
 
         void renew() {
@@ -301,10 +299,13 @@ public final class PhoneScreenCompat {
             }
             REQUESTS.execute(() -> {
                 Exception failure = null;
-                try { pointer.suspend(); request(2); } catch (Exception error) { failure = error; }
+                boolean active = false;
+                try { pointer.suspend(); active = request(2); } catch (Exception error) { failure = error; }
                 final Exception error = failure;
+                final boolean screenOff = active;
                 MAIN.post(() -> {
                     if (error != null) { restore(); toast("The phone screen was restored because the helper stopped responding."); }
+                    else if (!screenOff) restore(); // A hardware volume button ended the helper's lease.
                     else if (blocked && !restoring && !closed) MAIN.postDelayed(heartbeat, 2000);
                 });
             });
@@ -338,7 +339,7 @@ public final class PhoneScreenCompat {
             android.util.Log.i("PortPhoneScreen", "Phone screen and touch input restored; blockedTouchEvents=" + blockedTouches);
         }
 
-        void request(int command) throws Exception {
+        boolean request(int command) throws Exception {
             Parcel data = Parcel.obtain(), reply = Parcel.obtain();
             try {
                 data.writeInterfaceToken(TOKEN); data.writeInt(command); data.writeStrongBinder(owner); data.writeInt(glasses);
@@ -346,6 +347,8 @@ public final class PhoneScreenCompat {
                 reply.readException();
                 String error = reply.readString();
                 if (error != null) throw new IllegalStateException(error);
+                if (reply.dataAvail() == 0) throw new IllegalStateException("Restart the updated ADB helper.");
+                return reply.readInt() != 0;
             } finally { data.recycle(); reply.recycle(); }
         }
 
@@ -371,23 +374,9 @@ public final class PhoneScreenCompat {
         }
 
         final class Shade extends View {
-            boolean focusedOnce;
             Shade() { super(activity); }
             @Override public boolean dispatchTouchEvent(MotionEvent event) { blockedTouches++; return true; }
             @Override public boolean dispatchGenericMotionEvent(MotionEvent event) { blockedTouches++; return true; }
-            @Override public boolean dispatchKeyEvent(KeyEvent event) {
-                int code = event.getKeyCode();
-                if (code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN || code == KeyEvent.KEYCODE_BACK) {
-                    if (event.getAction() == KeyEvent.ACTION_UP) restore();
-                    return true;
-                }
-                return super.dispatchKeyEvent(event);
-            }
-            @Override public void onWindowFocusChanged(boolean focused) {
-                super.onWindowFocusChanged(focused);
-                if (focused) focusedOnce = true;
-                else if (focusedOnce && blocked) restore();
-            }
         }
     }
 

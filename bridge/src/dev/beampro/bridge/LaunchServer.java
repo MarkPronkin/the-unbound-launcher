@@ -145,9 +145,10 @@ public final class LaunchServer {
                     if (code == PhoneScreenPower.TRANSACTION) {
                         data.enforceInterface(PhoneScreenPower.TOKEN);
                         try {
-                            phoneScreen.request(data.readInt(), data.readStrongBinder(), data.readInt());
+                            boolean active = phoneScreen.request(data.readInt(), data.readStrongBinder(), data.readInt());
                             reply.writeNoException();
                             reply.writeString(null);
+                            reply.writeInt(active ? 1 : 0);
                         } catch (Exception error) {
                             reply.writeNoException();
                             reply.writeString(error.getMessage() == null ? error.toString() : error.getMessage());

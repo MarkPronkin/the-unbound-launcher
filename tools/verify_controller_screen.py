@@ -73,9 +73,12 @@ def main():
         print(run(*adb, "install", "--no-incremental", "-r", resources), flush=True)
     print(run(*adb, "install", "-r", preview), flush=True)
     run(*adb, "shell", "appops", "set", PACKAGE, "SYSTEM_ALERT_WINDOW", "allow")
+    run(*adb, "shell", "rm", "-f", "/sdcard/Android/data/" + PACKAGE + "/files/controller/verification.json")
     result = run(*adb, "shell", "am", "instrument", "-w", PACKAGE + "/.ControllerScreenChecks")
     (out / "runtime-checks.log").write_text(result)
     print(result, flush=True)
+    if "Controller screen checks passed:" not in result or "Process crashed" in result:
+        raise RuntimeError("Controller instrumentation did not finish successfully; old reports cannot validate this run")
     run(*adb, "pull", "/sdcard/Android/data/" + PACKAGE + "/files/controller/.", out)
     report = json.loads((out / "verification.json").read_text())
     report["method"] = "Android emulator; signed APK layouts and drawables with production PhoneScreenControl and PhoneScreenCompat"

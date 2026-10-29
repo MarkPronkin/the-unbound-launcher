@@ -104,6 +104,12 @@ public final class GlassesConnectionCompat {
     static Session session(Object presenter) {
         return current != null && current.presenter == presenter && !current.disposed ? current : null;
     }
+    /** Read the same persisted choice as Settings and the original SDK, across app processes. */
+    public static boolean startInScreenMirroring(Context context) throws Exception {
+        return Boolean.TRUE.equals(Class.forName("ai.nreal.nebula.util.helper.DbHelpUtil")
+                .getMethod("getBoolean", Context.class, String.class, boolean.class)
+                .invoke(null, context, "castScreen", false));
+    }
     /** Suppress duplicate USB auto-entry during SDK re-enumeration and an existing AR session. */
     public static boolean sessionActive() {
         Session s=current;
@@ -575,9 +581,19 @@ public final class GlassesConnectionCompat {
             if (result == 1) { fail("The glasses could not start AR Space. Reconnect them, then tap Try again."); return; }
             if (result == 0) {
                 sdkReady = true;
-                deadline = SystemClock.uptimeMillis() + DEADLINE_MS;
-                stage("Starting AR Space");
                 try {
+                    // The stock SDK also returns success for mirroring, without a renderer.
+                    // A queued entry may outlive a preference change: never wait for AR then.
+                    if (startInScreenMirroring(activity)) {
+                        success = true;
+                        MAIN.removeCallbacks(this);
+                        if (animation != null) animation.dispose();
+                        debug("mirroring", "Screen mirroring ready; skipping the AR controller and output handoff");
+                        finishResult(result);
+                        return;
+                    }
+                    deadline = SystemClock.uptimeMillis() + DEADLINE_MS;
+                    stage("Starting AR Space");
                     handoff = new ConnectionHandoff(activity, animation);
                     handoff.start(() -> completeSuccess(result), () -> fail("AR Space could not finish starting. Reconnect the glasses, then tap Try again."));
                     // Start the real controller underneath the cover, before its success animation.

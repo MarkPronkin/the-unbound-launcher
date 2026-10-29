@@ -114,3 +114,12 @@ Local `evidence.json` retains 23 checked source anchors, file hashes and event
 counts. Raw exports stay in the ignored artifacts directory. This investigation
 changes documentation only; no runtime fix, APK build, publication or physical
 device modification is claimed.
+
+## Update — Galaxy Z Fold 8 comparison, 2026-10-29
+
+A [Galaxy Z Fold 8 / XREAL One export](samsung-fold8-one-v021.md) on
+**stable** firmware shows the same 20-second `Mcu Start Client` failure and
+the same app-UID `SO_BINDTODEVICE` `EPERM`. Its build 2949 trace shows the
+native control socket leaving through Wi-Fi. Beta firmware is therefore no
+longer the only candidate for this Fold; see that report for the comparison
+and for why this export's signature is not identical.

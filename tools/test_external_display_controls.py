@@ -10,6 +10,8 @@ from test_display_startup import JAVA, ROOT, STUBS
 class ExternalDisplayControlsTests(unittest.TestCase):
     def test_glasses_identity_and_keep_awake_release(self):
         stubs = dict(STUBS)
+        stubs['android/os/Handler.java'] = stubs['android/os/Handler.java'].replace(
+            'public boolean postDelayed', 'public boolean post(Runnable r){return postDelayed(r,0);} public boolean postDelayed')
         stubs['android/app/Application.java'] = stubs['android/app/Application.java'].replace(
             'void onActivityResumed(Activity a);',
             'void onActivityResumed(Activity a);default void onActivityPostResumed(Activity a){}')
@@ -55,6 +57,8 @@ class ExternalDisplayControlsTests(unittest.TestCase):
                 'port-client/src/dev/beampro/port/ArKeepAwake.java',
                 'port-client/src/dev/beampro/port/DisplayStartupCompat.java',
                 'bridge/src/dev/beampro/bridge/PhoneScreenPower.java',
+                'bridge/src/dev/beampro/bridge/PhoneScreenWakeKeys.java',
+                'bridge/src/dev/beampro/bridge/ShellCommand.java',
                 'compat/src/dev/beampro/compat/GlassesIdentity.java',
                 'tools/ExternalDisplayControlsTest.java')]
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-cp', str(platform),

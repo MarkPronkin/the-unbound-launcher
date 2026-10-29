@@ -58,6 +58,25 @@ def main():
     def shell(*parts):
         return adb("shell", *parts)
 
+    def volume(key):
+        # Framework-injected `input keyevent` never reaches the kernel reader.
+        # Exercise the same raw event path as a physical phone volume button.
+        listing = shell("getevent", "-pl")
+        candidates = []
+        for block in listing.split("add device ")[1:]:
+            match = re.match(r"\d+: (/dev/input/event\d+)\n", block)
+            if match and "KEY_VOLUMEUP" in block and "KEY_VOLUMEDOWN" in block:
+                candidates.append(("gpio" not in block.lower(), match[1]))
+        if not candidates: raise AssertionError("No readable volume-button device")
+        path = sorted(candidates)[0][1]
+        code = "115" if key == "up" else "114"
+        try:
+            shell("sendevent", path, "1", code, "1")
+            shell("sendevent", path, "0", "0", "0")
+        finally:
+            shell("sendevent", path, "1", code, "0")
+            shell("sendevent", path, "0", "0", "0")
+
     def surface(name=None):
         data = shell("dumpsys", "SurfaceFlinger")
         if name: (out / (name + ".txt")).write_text(data)
@@ -129,7 +148,7 @@ def main():
         controller = next((b for b in blocks if PACKAGE + "/ai.nreal.nebula.space.LaunchSpaceAcrivity" in b[:250]), "")
         result["ar_controller_stays_resumed"] = "state=RESUMED" in controller
         screenshot("glasses-while-phone-off", external)
-        shell("input", "-d", "0", "keyevent", "KEYCODE_VOLUME_UP")
+        volume("up")
         for _ in range(12):
             time.sleep(.3)
             if surface()[1][phone] == "On": break
@@ -141,7 +160,7 @@ def main():
             time.sleep(.3)
             if surface()[1][phone] == "Off": break
         result["second_screen_off_succeeds"] = surface()[1][phone] == "Off"
-        shell("input", "-d", "0", "keyevent", "KEYCODE_VOLUME_DOWN")
+        volume("down")
         for _ in range(12):
             time.sleep(.3)
             if surface()[1][phone] == "On": break
@@ -170,8 +189,11 @@ def main():
     finally:
         try:
             if surface()[1].get(phone) == "Off":
-                shell("input", "-d", "0", "keyevent", "KEYCODE_VOLUME_UP")
-                time.sleep(1)
+                try:
+                    volume("up")
+                    time.sleep(1)
+                except Exception:
+                    pass  # A failed raw-key injection must still reach Binder-death recovery.
                 if surface()[1].get(phone) == "Off":
                     shell("am", "force-stop", PACKAGE)  # Owner Binder death restores via watchdog.
         finally:

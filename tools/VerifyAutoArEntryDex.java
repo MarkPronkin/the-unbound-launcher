@@ -23,17 +23,18 @@ public final class VerifyAutoArEntryDex {
         if(requests!=1||constructs!=1||routes!=1||!serverStrings.containsAll(List.of("isKeyguardLocked","--display","--windowingMode",
             "dev.markpronkin.unbound/ai.nreal.nebula.activity.splash.SplashActivity","android.hardware.usb.action.USB_DEVICE_ATTACHED")))
             throw new IllegalStateException("Automatic AR shell endpoint is not wired");
-        var apk=DexFileFactory.loadDexContainer(new File(args[1]),Opcodes.forApi(33));int helperReady=0,transacts=0;boolean token=false,setup=false;
+        var apk=DexFileFactory.loadDexContainer(new File(args[1]),Opcodes.forApi(33));int helperReady=0,transacts=0,preferenceGuards=0;boolean token=false,setup=false,mirroring=false;
         for(String name:apk.getDexEntryNames())for(ClassDef cls:apk.getEntry(name).getDexFile().getClasses())for(Method m:cls.getMethods())if(m.getImplementation()!=null)
             for(Instruction instruction:m.getImplementation().getInstructions())if(instruction instanceof ReferenceInstruction ref){
                 boolean receiver=cls.getType().startsWith("Ldev/beampro/adb/AutoGlassesReceiver");
-                if(receiver&&ref.getReference() instanceof StringReference s){token|=s.getString().equals("dev.beampro.bridge.AUTO_AR");setup|=s.getString().equals("setup-complete");}
+                if(receiver&&ref.getReference() instanceof StringReference s){token|=s.getString().equals("dev.beampro.bridge.AUTO_AR");setup|=s.getString().equals("setup-complete");mirroring|=s.getString().equals("startInScreenMirroring");}
                 if(ref.getReference() instanceof MethodReference call){
+                    if(receiver&&m.getName().equals("enabled")&&call.getDefiningClass().equals("Ldev/beampro/adb/AutoGlassesReceiver;")&&call.getName().equals("arEnabled"))preferenceGuards++;
                     if(!receiver&&call.getDefiningClass().equals("Ldev/beampro/adb/AutoGlassesReceiver;")&&call.getName().equals("helperReady"))helperReady++;
                     if(receiver&&call.getDefiningClass().equals("Landroid/os/IBinder;")&&call.getName().equals("transact"))transacts++;
                 }
             }
-        if(helperReady!=2||transacts!=1||!token||!setup)throw new IllegalStateException("Automatic USB trigger is incomplete: "+helperReady+","+transacts);
+        if(helperReady!=2||transacts!=1||!token||!setup||!mirroring||preferenceGuards!=1)throw new IllegalStateException("Automatic USB trigger or mirroring guard is incomplete: "+helperReady+","+transacts+","+preferenceGuards);
         System.out.println("Private USB trigger, setup gate, helper-ready recovery and fixed-component shell auto-entry are wired");
     }
 }
