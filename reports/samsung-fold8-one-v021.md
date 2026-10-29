@@ -77,14 +77,18 @@ SDK (`isEthernet=false`). They never open this `169.254.x` control
 connection.
 
 **Firmware is not the cause here**: the glasses run the exact recommended
-stable build. This also reopens the [Pixel 10 Pro Fold report](pixel10-fold-one-pro-v020.md),
-which names beta firmware as the leading suspect. That export has the same
+stable build. This also reopened the [Pixel 10 Pro Fold report](pixel10-fold-one-pro-v020.md),
+which initially named beta firmware as the leading suspect. That original export has the same
 app-UID `EPERM`, Wi-Fi as default network and 20.003 s client error. Its only
 retained native start, however, logs `InitializeCodecFunctions succeed` and
 no `bind to net device` line, and no TCP socket to the glasses appears in its
 snapshots. That matches the Fold 8's second, in-process attempt (below)
 rather than its fresh-process attempts. Build 2946 also did not record socket
-source addresses. A shared cause is plausible but unconfirmed.
+source addresses. A shared cause is plausible but unconfirmed. The Fold's
+subsequent **0.2.2 build 2953 retest verifies the exact recommended stable
+firmware and still fails** with the same bind restriction and native client
+error. Its trace retains only DHCP sockets, so the shared routing cause
+remains unproven; see the updated Fold report for the evidence and limits.
 
 The source of the `EPERM` is not identified. Upstream Linux has allowed an
 unprivileged first `SO_BINDTODEVICE` since 5.7, so an Android or vendor
@@ -107,7 +111,16 @@ the same process therefore seems to leave the native client blocked behind
 the stuck connection. Only after the phone restart does attempt 3 open a new
 socket, which fails the same way.
 
-## Proposed fix (not implemented)
+## Candidate fix implemented in build 2956; hardware validation pending
+
+The [build 2956 implementation](pixel10-fold-one-pro-v020.md#candidate-fix--build-2956)
+now selects the glasses' Android Ethernet network around the original
+synchronous SDK startup callback and restores the previous process binding
+in `finally`. It uses the existing ping callback guard, leaving native SDK
+binaries and the original startup callback body intact. Network selection
+requires the control address and direct peer route plus the current authorized
+USB attachment; each reconnect resolves the network again. This Fold 8 still
+needs a hardware retest. The following records the proposal that led to the fix.
 
 Route the native client through the Ethernet network without a privileged
 bind. Before the SDK's native start, find the connected `Network` whose

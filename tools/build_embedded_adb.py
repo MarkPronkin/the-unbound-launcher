@@ -25,6 +25,7 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 from disconnect_audio import patch_disconnect_audio
 from controller_mode import patch_controller_mode
 from home_button import patch_home_button
+from brightness_lock import patch_brightness_lock
 from input_compat import patch_input_compat
 from ping_cancellation import patch_ping_cancellation
 from glasses_startup import patch_glasses_startup
@@ -94,6 +95,7 @@ def write_pairing_sources(destination, root=ROOT):
     paths.extend(root / "tools" / name for name in ("ping_cancellation.py", "PatchPingCancellationDex.java"))
     paths.extend(root / "tools" / name for name in ("controller_mode.py", "PatchControllerModeDex.java"))
     paths.extend(root / "tools" / name for name in ("home_button.py", "PatchHomeButtonDex.java"))
+    paths.extend(root / "tools" / name for name in ("brightness_lock.py", "PatchBrightnessLockDex.java"))
     paths.extend(root / "tools" / name for name in ("input_compat.py", "PatchInputCompatDex.java"))
     paths.extend(root / "tools" / name for name in ("glasses_startup.py", "PatchGlassesStartupDex.java"))
     paths.extend(root / "tools" / name for name in ("ethernet_ping.py", "PatchEthernetPingDex.java"))
@@ -103,6 +105,7 @@ def write_pairing_sources(destination, root=ROOT):
     paths.append(root / "tools/display_mode_compat.py")
     paths.append(root / "tools/egl_colorspace_compat.py")
     paths.append(root / "tools/overlay_routing.py")
+    paths.append(root / "tools/recording_duration.py")
     paths.extend(root / "tools" / name for name in ("app_surface_routing.py", "app_surface_routing.S", "app_surface_routing_native.json"))
     paths.append(root / "tools/unity_shader_loader.py")
     paths.extend(root / "tools" / name for name in ("presentation_only.py", "PatchPresentationDex.java"))
@@ -279,6 +282,7 @@ def main():
             icon_dex = patch_notifications(icon_dex, build / "notifications", java, env)
             icon_dex = patch_rog_r1(icon_dex, build / "rog-r1", java, env)
             icon_dex = patch_input_compat(icon_dex, build / "pointer-input", java, env)
+            icon_dex = patch_brightness_lock(icon_dex, build / "brightness-lock", java, env)
     texture_library = None if args.test_only else build_library(build / "libHardwareBufferTexture.so")
     with zipfile.ZipFile(baseline) as source, zipfile.ZipFile(unsigned, "w", allowZip64=True) as target:
         for info in source.infolist():
@@ -350,6 +354,11 @@ def main():
         report['notifications'] = {'system_only_intent_inspection_removed': True,
                                    'tap_action': 'renderer native-app fallback using PendingIntent creator',
                                    'callbacks_and_access_unchanged': True}
+    if not args.test_only:
+        report['brightness_lock'] = {'forwards_only_zero_nonzero_transitions': True,
+                                     'adaptive_brightness_recenter_removed': True,
+                                     'stock_lock_and_unlock_preserved': True,
+                                     'hardware_validation': 'pending'}
     if not args.test_only:
         report['controller_mode'] = {'beam_pointer_flag_in_private_state': True,
                                      'write_secure_settings_required': False,
@@ -445,6 +454,12 @@ def main():
                                     'ip_configuration_unchanged': True,
                                     'real_ping_required_after_enable': True,
                                     'hardware_validation': 'pending'}
+    report['glasses_control_network'] = {'ethernet_address_and_direct_peer_route_required': True,
+                                         'authorized_usb_attachment_rechecked': True,
+                                         'binding_scope': 'synchronous SDK native-startup callback',
+                                         'previous_process_network_restored_in_finally': True,
+                                         'native_libraries_unchanged_by_this_fix': True,
+                                         'hardware_validation': 'pending'}
     report['glasses_startup'] = {'type_11_unsupported_query_fallback': not args.test_only,
                                  'native_init_and_active_xreal_display_required': True,
                                  'only_native_error_103': True, 'ethernet_startup_unchanged': True,

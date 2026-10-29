@@ -30,6 +30,7 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 from disconnect_audio import patch_disconnect_audio
 from controller_mode import patch_controller_mode
 from home_button import patch_home_button
+from brightness_lock import patch_brightness_lock
 from input_compat import patch_input_compat
 from ping_cancellation import patch_ping_cancellation
 from glasses_startup import patch_glasses_startup
@@ -173,6 +174,7 @@ def verify(apk):
         assert "Ldev/beampro/port/ConnectionHandoff;" in definitions
         assert "Ldev/beampro/port/PingCallbackCompat;" in definitions
         assert "Ldev/beampro/port/EthernetReadinessCompat;" in definitions
+        assert "Ldev/beampro/port/GlassesNetworkCompat;" in definitions
         assert "Ldev/beampro/port/GlassesStartupCompat;" in definitions
         assert "Ldev/beampro/port/RogR1Compat;" in definitions
         assert "Ldev/beampro/compat/GlassesIdentity;" in definitions
@@ -245,6 +247,8 @@ def verify(apk):
             ethernet_base=patch_ethernet_ping(glasses_base,Path(work)/"ethernet-base",java)
             notifications_base=patch_notifications(ethernet_base,Path(work)/"notifications-base",java)
             rog_base=patch_rog_r1(notifications_base,Path(work)/"rog-base",java)
+            pointer_base=patch_input_compat(rog_base,Path(work)/"pointer-base",java)
+            legacy_icons=patch_brightness_lock(legacy_icons,Path(work)/"brightness-lock",java,restore=True,baseline=pointer_base)
             legacy_icons=patch_input_compat(legacy_icons,Path(work)/"pointer-input",java,restore=True,baseline=rog_base)
             legacy_icons=patch_rog_r1(legacy_icons,Path(work)/"rog-r1",java,restore=True,baseline=notifications_base)
             restored=patch_notifications(legacy_icons,Path(work)/"notifications",java,restore=True,baseline=ethernet_base)
@@ -355,6 +359,8 @@ def verify(apk):
                          "port-client/src/dev/beampro/port/ConnectionHandoff.java",
                          "port-client/src/dev/beampro/port/ConnectionAnimation.java",
                          "port-client/src/dev/beampro/port/GlassesConnectionCompat.java",
+                         "port-client/src/dev/beampro/port/GlassesNetworkCompat.java",
+                         "port-client/src/dev/beampro/port/PingCallbackCompat.java",
                          "port-client/src/dev/beampro/port/FirmwarePolicy.java",
                          "port-client/src/dev/beampro/port/FirmwareWarningView.java",
                          "port-client/src/dev/beampro/port/PhonePointerCompat.java",
@@ -363,6 +369,7 @@ def verify(apk):
                          "settings-ui/src/dev/beampro/settings/RendererDiagnostics.java",
                          "settings-ui/src/dev/beampro/settings/RendererTrace.java",
                          "port-client/src/dev/beampro/port/HomeButtonCompat.java",
+                         "port-client/src/dev/beampro/port/BrightnessLockCompat.java",
                          "port-client/src/dev/beampro/port/KeyboardCompat.java",
                          "port-client/src/dev/beampro/port/SettingsCompat.java",
                          "port-client/src/dev/beampro/port/PresentationOnlyCompat.java",
@@ -374,10 +381,10 @@ def verify(apk):
                          "package_identity.py", "RepackageDex.java", "ping_cancellation.py", "PatchPingCancellationDex.java",
                          "glasses_startup.py", "PatchGlassesStartupDex.java", "ethernet_ping.py", "PatchEthernetPingDex.java",
                          "notifications.py", "PatchNotificationsDex.java",
-                         "display_mode_compat.py", "overlay_routing.py", "app_surface_routing.py",
+                         "display_mode_compat.py", "overlay_routing.py", "recording_duration.py", "app_surface_routing.py",
                          "app_surface_routing.S", "app_surface_routing_native.json", "unity_shader_loader.py", "hardware_buffer_texture.py", "phone_pointer.py", "renderer_diagnostics.py",
                          "controller_mode.py", "PatchControllerModeDex.java", "home_button.py", "PatchHomeButtonDex.java",
-                         "input_compat.py", "PatchInputCompatDex.java"):
+                         "input_compat.py", "PatchInputCompatDex.java", "brightness_lock.py", "PatchBrightnessLockDex.java"):
                 assert sources.read("tools/" + name) == Path(__file__).with_name(name).read_bytes(), "Bundled patch source differs"
             assert sources.read("native/hardware-buffer-texture/library.c") == (ROOT / "native/hardware-buffer-texture/library.c").read_bytes()
             assert sources.read("native/renderer-diagnostics/library.c") == (ROOT / "native/renderer-diagnostics/library.c").read_bytes()
@@ -406,6 +413,7 @@ def verify(apk):
             "display_link_sources_and_retained_snapshots_in_app_and_helper": True,
             "sdk_ping_cancellation_callback_guard_wired": True,
             "sdk_ethernet_probe_delegates_to_fixed_shell_ping": True,
+            "sdk_native_startup_scoped_network_selection_wired": True,
             "notification_delivery_uses_native_app_fallback_with_exact_dex_scope": True,
             "bundled_source_version_matches_package": True,
             "xreal_usb_request_hook_restores_exact_baseline": True,
@@ -443,6 +451,7 @@ def verify(apk):
             "automatic_usb_entry_private_receiver_packaged": True,
             "automatic_usb_entry_helper_and_setup_gates_verified": True,
             "headset_icon_hooks_restore_exact_baseline": True,
+            "brightness_lock_filter_restores_exact_baseline": True,
             "color_hooks_restore_exact_baseline": True,
             "headless_recent_preview_capture_verified": True,
             "managed_display_startup_and_watchdog_code_verified": True,

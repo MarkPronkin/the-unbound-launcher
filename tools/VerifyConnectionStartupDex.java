@@ -11,8 +11,16 @@ public final class VerifyConnectionStartupDex {
         var container=DexFileFactory.loadDexContainer(new File(args[0]),Opcodes.forApi(33));
         Map<String,Integer> calls=new HashMap<>();
         Map<String,Integer> pingCalls=new HashMap<>();
-        int ethernetCalls=0;
+        int ethernetCalls=0,networkCalls=0;
         for(String entry:container.getDexEntryNames())for(ClassDef cls:container.getEntry(entry).getDexFile().getClasses()) {
+            if(cls.getType().equals("Ldev/beampro/port/PingCallbackCompat$Pending;"))
+                for(Method m:cls.getMethods())if(m.getImplementation()!=null)for(var instruction:m.getImplementation().getInstructions())
+                    if(instruction instanceof ReferenceInstruction ref&&ref.getReference() instanceof MethodReference call
+                            &&call.getDefiningClass().equals("Ldev/beampro/port/GlassesNetworkCompat;")) {
+                        if(!call.getName().equals("deliver")||!call.getParameterTypes().equals(List.of("Ljava/lang/reflect/Method;","Ljava/lang/Object;","Z")))
+                            throw new IllegalStateException("Unexpected glasses network adapter call");
+                        networkCalls++;
+                    }
             if(cls.getType().startsWith("Ldev/beampro/port/GlassesConnectionCompat"))continue;
             if(cls.getType().startsWith("Ldev/beampro/port/PingCallbackCompat"))continue;
             if(cls.getType().startsWith("Ldev/beampro/port/EthernetReadinessCompat"))continue;
@@ -33,6 +41,7 @@ public final class VerifyConnectionStartupDex {
         if(!calls.equals(expected))throw new IllegalStateException("Incomplete production connection recovery: "+calls);
         if(!pingCalls.equals(Map.of("wrap",1,"released",1)))throw new IllegalStateException("Incomplete SDK ping cancellation guard: "+pingCalls);
         if(ethernetCalls!=1)throw new IllegalStateException("Missing SDK Ethernet readiness delegation");
+        if(networkCalls!=1)throw new IllegalStateException("Missing scoped native startup network selection");
         System.out.println("Connection lifecycle, USB/display recovery and stale native callback guard are wired in the production APK");
     }
 }

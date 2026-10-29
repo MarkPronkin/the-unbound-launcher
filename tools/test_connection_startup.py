@@ -11,6 +11,9 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 
 STUBS = dict(DISPLAY_STUBS)
 STUBS.update({
+    # Keep these connection-state tests isolated; test_glasses_network exercises the real network adapter and guard.
+    'dev/beampro/port/GlassesNetworkCompat.java': '''package dev.beampro.port;public class GlassesNetworkCompat {
+      static void deliver(java.lang.reflect.Method result,Object callback,boolean success)throws Exception {result.invoke(callback,success);}}''',
     'ai/nreal/nebula/util/helper/DbHelpUtil.java': '''package ai.nreal.nebula.util.helper;
       public class DbHelpUtil {public static boolean mirroring;
         public static Boolean getBoolean(android.content.Context c,String key,boolean fallback){

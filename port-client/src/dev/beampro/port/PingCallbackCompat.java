@@ -66,7 +66,7 @@ public final class PingCallbackCompat {
                         handler.removeCallbacks((Runnable) GlassesConnectionCompat.get(helper.get(), "mRunnablePing"));
                         Log.i("UnboundConnect", "Cancelled glasses network check; completing pending startup");
                     }
-                    result.invoke(callback, success);
+                    GlassesNetworkCompat.deliver(result, callback, success);
                 } catch (Exception error) { Log.e("UnboundConnect", "Cannot complete glasses network check", error); }
             };
             if (cancelled) handler.post(deliver); else deliver.run();
