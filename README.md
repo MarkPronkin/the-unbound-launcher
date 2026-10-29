@@ -591,6 +591,7 @@ permission and changes no settings.
 - [Direct glasses display and background AR](reports/direct-glasses-display.md)
 - [Controller-mode fixes](reports/controller-mode-switch.md), [Home hold
   cancellation](reports/pointer-reset.md) and [three-finger gestures](reports/three-finger-trackpad.md)
+- [Eye recording without the fixed time limit](reports/eye-recording.md)
 - [Native phone menus](reports/menu-polish.md) and [automatic sleep](reports/automatic-sleep.md)
 - [App-window colors](reports/universal-app-colors.md) and [notification delivery](reports/launcher-notifications.md)
 - [Porting assessment](reports/porting-assessment.md): what My Glasses needs

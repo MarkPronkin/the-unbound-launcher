@@ -36,6 +36,7 @@ from display_mode_compat import LIBRARY as MODE_LIBRARY, patch_display_mode, ver
 from egl_colorspace_compat import patch_egl_colorspace, verify_egl_colorspace
 from overlay_routing import patch_overlay_routing, verify_overlay_routing
 from app_surface_routing import patch_surface_routing, verify_surface_routing
+from recording_duration import patch_recording_duration, verify_recording_duration
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
@@ -292,6 +293,7 @@ def main():
             if info.filename in OES_SHADERS and not args.test_only: value = direct_oes_shader(value)
             if info.filename == LIBRARY and not args.test_only:
                 value = patch_surface_routing(patch_overlay_routing(patch_stereo_native(patch_startup_tutorial(patch_color_native(value)))))
+                value = patch_recording_duration(value)
             if info.filename == MODE_LIBRARY and not args.test_only:
                 value = patch_egl_colorspace(patch_display_mode(value))
             if info.filename == TEXTURE_LIBRARY and texture_library is not None:
@@ -460,6 +462,8 @@ def main():
             report['overlay_color'] = {'compositor_color_patches_enabled': False,
                                        'stock_compositor_color_pipeline_verified': True}
             routed = patch_binary_identity(LIBRARY, built.read(LIBRARY), restore=True)
+            report['recording_duration'] = verify_recording_duration(routed)
+            routed = patch_recording_duration(routed, restore=True)
             report['app_surface_routing'] = verify_surface_routing(routed)
             report['overlay_routing'] = verify_overlay_routing(patch_surface_routing(routed, restore=True))
     report['headset_icons']={'max_texture_size':432,'requested_source_density':640,
