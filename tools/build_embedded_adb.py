@@ -497,6 +497,7 @@ def main():
                                  "desktop_routing_removed": True,
                                  "direct_presentation_always_on": True,
                                  "background_controller_keeps_glasses_rendering": True,
+                                 "background_unity_surface_survives_phone_view_destruction": True,
                                  "ar_foreground_service_in_renderer_process": True,
                                  "legacy_xreal_connected_display_auto_enable": not args.test_only,
                                  "embedded_display_watchdog_enabled": not args.test_only,

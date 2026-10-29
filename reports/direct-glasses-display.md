@@ -12,6 +12,62 @@ exposes only 640 × 480, with no native mode for the helper to select. The
 receiver bug found in its stereo hook is fixed in source; the VGA-only output
 failure still needs hardware investigation.
 
+## Frozen content after leaving the controller — build 2951
+
+On the Pixel 8 Pro / XREAL One with 2950, Home stops new Unity frames while
+audio and head tracking continue. The live reproduction at 08:15:55 on
+2026-10-29 is captured in `artifacts/pixel-home-freeze-2950/logcat-stream.txt`.
+Both `onStop` pause calls reach the 2928 guard, but Android destroys the phone
+SurfaceView and Unity's graphics thread reports an abandoned BufferQueue.
+UnityMain and its graphics thread stop accumulating CPU time while the native
+compositor continues reprojecting the last image. Returning to the controller
+restores new frames. This is a second lifecycle gate beyond `UnityPlayer.pause()`.
+
+The first 2951 candidate handed Unity an ImageReader through `displayChanged`
+in `onActivityPrePaused`. An injected Home test on the empty desktop maintained
+57–59 FPS and produced over 5,700 new buffers, but the wearer still reproduced
+the freeze with video after reconnecting. In that session, the handoff at
+08:45:28 produced **zero** buffers. Unity kept trying to recreate an EGL window
+on its abandoned phone SurfaceView, while video images accumulated and were
+dropped. This candidate is not a confirmed fix.
+
+The bundled `displayChanged` removes the phone SurfaceView **before** it queues
+the native surface update. Under load this can abandon the current EGL window
+before the native handoff executes. The revised 2951 candidate keeps that view
+attached, scopes Unity's primary-surface override to the matching session, and
+calls its existing internal display-update method. It fences the Unity handler
+after the native update and requires the first real ImageReader buffer before
+returning from `onActivityPrePaused`. Startup dialogs before the native glasses
+Presentation attaches retain the original lifecycle path.
+
+The target matches the phone viewport and uses GPU buffers drained on a dedicated
+thread. Resume or session close restores the holder's current valid phone surface
+(or detaches until Android creates it). The consumer continues draining until
+Unity acknowledges detachment, then its reader and worker are released. The
+foreground service, display identity, phone-lock and owner checks remain the
+session boundary. The SDK's native glasses Presentation is unchanged.
+
+The Android lifecycle fixture now draws real GLES window buffers across phone
+surface destruction, repeated background/return, and session teardown. It still
+uses a controlled Unity native boundary; the actual production Unity/XR loop
+requires a separate Pixel check. Its negative-control option disables only the
+surface handoff and must fail the new-frame check. All 62 checks pass with the
+revised handoff and an intentionally delayed native render queue. The first
+candidate passed the complete signed-APK audit; the revised APK changes only
+the compatibility DEX, corresponding bundled sources and signing metadata.
+All other payloads match it byte-for-byte, and 147 unaffected compatibility
+classes have identical canonical DEX definitions. The revised APK also passes
+the complete signed-APK audit. Its SHA-256 is
+`352517ee7a9dfcf1b3f63189f764f965d7a1e8950b894927dde874b994490eae`;
+the retained artifact is
+`artifacts/unbound-launcher-background-2951-fenced/the-unbound-launcher.apk`.
+
+The revised handoff is installed on Pixel. The final video test produces over
+4,500 new background buffers while Unity maintains approximately 54–57 FPS.
+The wearer confirms: **“ok, now it works, playback continue when i exit”**.
+Evidence and the installation-recovery incident are recorded in
+`artifacts/pixel-home-freeze-2951/validation.json`.
+
 ## Background trackpad lifecycle — build 2928
 
 The Pixel 8 Pro on build 2927 returned to phone mirroring when the user left the
@@ -57,6 +113,11 @@ from 8435 to 20037. Home, Android Settings and the launcher's settings were used
 outside the trackpad. The wearer confirmed **“i tested it, it continues running”**
 and accepted the ongoing notification as the return control. No floating bubble
 was added. Results: `artifacts/trackpad-background-2928/validation.json`.
+
+The 2950 investigation above establishes that those external frame counters
+measure the native compositor, which can keep reprojecting a stale Unity image.
+They establish compositor survival, but do not independently establish new
+Unity content frames. The 2951 checks cover that missing boundary.
 
 The launcher draws AR through the SDK's native glasses Presentation from the
 phone, with no Desktop/DeX task on the glasses. This is the standard path: it is

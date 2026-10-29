@@ -156,6 +156,7 @@ def verify(apk):
         assert b"dev.beampro.portprobe.bridge" not in z.read("classes4.dex")
         assert "Ldev/beampro/port/DisplayStartupCompat;" in definitions
         assert "Ldev/beampro/port/PresentationOnlyCompat;" in definitions
+        assert "Ldev/beampro/port/BackgroundUnitySurface;" in definitions
         assert "Ldev/beampro/port/ArSessionService;" in definitions
         assert "Ldev/beampro/settings/ExperimentalPresentation;" not in definitions
         assert "Ldev/beampro/port/StereoPresentationCompat;" in definitions
@@ -347,6 +348,7 @@ def verify(apk):
                          "tools/rog_r1.py", "tools/PatchRogR1Dex.java",
                          "tools/egl_colorspace_compat.py",
                          "port-client/src/dev/beampro/port/ArSessionService.java",
+                         "port-client/src/dev/beampro/port/BackgroundUnitySurface.java",
                          "port-client/src/dev/beampro/port/ConnectionHandoff.java",
                          "port-client/src/dev/beampro/port/ConnectionAnimation.java",
                          "port-client/src/dev/beampro/port/GlassesConnectionCompat.java",
@@ -442,6 +444,7 @@ def verify(apk):
             "managed_display_startup_and_watchdog_code_verified": True,
             "direct_presentation_always_on": True,
             "background_ar_pause_and_focus_hooks_verified": True,
+            "background_unity_surface_lifecycle_hooks_verified": True,
             "ar_foreground_service_private_in_renderer_process": True,
             "desktop_routing_removed": True,
             "legacy_xreal_connected_display_auto_enable_code_verified": True,
