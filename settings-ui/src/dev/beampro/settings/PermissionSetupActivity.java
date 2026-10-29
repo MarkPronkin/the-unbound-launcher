@@ -15,6 +15,7 @@ import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.PowerManager;
@@ -195,6 +196,10 @@ public class PermissionSetupActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 33) {
             runtime(items, context, declared, "media", "Photos, videos and audio", "Optional: open media stored on your phone.", Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO, Manifest.permission.READ_MEDIA_AUDIO);
         } else runtime(items, context, declared, "media", "Files and media", "Optional: open media stored on your phone.", Manifest.permission.READ_EXTERNAL_STORAGE);
+        // Android 11+ keeps full storage behind a special-access page instead of a runtime prompt.
+        if (Build.VERSION.SDK_INT >= 30 && declared.contains(Manifest.permission.MANAGE_EXTERNAL_STORAGE)) {
+            items.add(new Access("storage", "All files access", "Optional: let photo and video player apps open any file on your phone.", Environment.isExternalStorageManager(), false));
+        }
         if (declared.contains(Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)) {
             items.add(new Access("battery", "Background activity", "Optional: keep glasses services available when the phone is idle.", context.getSystemService(PowerManager.class).isIgnoringBatteryOptimizations(context.getPackageName()), false));
         }
@@ -225,6 +230,7 @@ public class PermissionSetupActivity extends Activity {
                         .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, new ComponentName(context.getPackageName(), "com.xreal.evapro.NotifyService").flattenToString());
                 return new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
             case "battery": return new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri);
+            case "storage": return new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, packageUri);
             default: return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri);
         }
     }
@@ -430,6 +436,7 @@ public class PermissionSetupActivity extends Activity {
             case "camera": return "camera";
             case "microphone": return "mic";
             case "media": return "image";
+            case "storage": return "folder";
             case "battery": return "battery";
             default: return "permissions";
         }

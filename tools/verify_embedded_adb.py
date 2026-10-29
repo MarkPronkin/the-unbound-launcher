@@ -20,6 +20,7 @@ from app_version import manifest_version
 from permission_manifest import MENU_ACTIVITY, MENU_CONFIG_CHANGES, MENU_ORIGINAL_ACTIVITIES, MENU_THEME_RESOURCE
 from embedded_adb_manifest import AUTHORITY, patch_release_manifest, patch_usb_attach_manifest
 from adaptive_manifest import patch_adaptive_manifest
+from storage_manifest import PERMISSION as STORAGE_PERMISSION, patch_storage_manifest
 from display_startup import patch_display_startup
 from presentation_only import patch_presentation
 from app_color import APP_SHADER, LIBRARY, OES_SHADERS, verify_app_shader, verify_direct_oes_shaders, verify_native_shader_loading, patch_color_dex, patch_color_native
@@ -100,7 +101,7 @@ def verify(apk):
         assert manifest_version(z.read("AndroidManifest.xml")) == VERSION
         verify_attribute_order(z.read("AndroidManifest.xml"))
         entries = elements(z.read("AndroidManifest.xml"))
-        before = elements(patch_binary_identity("AndroidManifest.xml", patch_connection_theme_manifest(patch_usb_attach_manifest(patch_release_manifest(patch_adaptive_manifest(base.read("AndroidManifest.xml")))))))
+        before = elements(patch_binary_identity("AndroidManifest.xml", patch_storage_manifest(patch_connection_theme_manifest(patch_usb_attach_manifest(patch_release_manifest(patch_adaptive_manifest(base.read("AndroidManifest.xml"))))))))
         assert [a['package'] for t, a in entries if t == 'manifest'] == [PACKAGE]
         application = [attrs for tag, attrs in entries if tag == "application"]
         assert len(application) == 1 and application[0]["debuggable"] == 0
@@ -118,6 +119,7 @@ def verify(apk):
         assert debug_provider[0]['grantUriPermissions'] == 0xFFFFFFFF
         assert debug_provider[0]['authorities'] == PACKAGE + '.unbound.debug'
         assert [e for e in entries if e[0] == "uses-permission"] == [e for e in before if e[0] == "uses-permission"]
+        assert [a for t, a in entries if t == "uses-permission" and a.get("name") == STORAGE_PERMISSION] == [{"name": STORAGE_PERMISSION}]
         for tag, name, exported in [("activity", "AdbPairingActivity", 0), ("service", "PairingOverlayService", 0), ("provider", "LocalBridgeProvider", 0xFFFFFFFF)]:
             match = [a for t, a in entries if t == tag and a.get("name") == "dev.beampro.adb." + name]
             assert len(match) == 1 and match[0]["exported"] == exported

@@ -660,6 +660,7 @@ public final class Signature {
                 case "mic":
                     c.drawRoundRect(9, 2, 15, 14, 3, 3, paint); c.drawArc(5, 4, 19, 18, 0, 180, false, paint);
                     line(c, 12, 18, 12, 22); break;
+                case "folder": path(c, 3, 19, 3, 5, 9, 5, 11, 8, 21, 8, 21, 19, 3, 19); break;
                 case "image": c.drawRoundRect(3, 4, 21, 20, 2, 2, paint); c.drawCircle(8.5f, 9.5f, 1.5f, paint); path(c, 21, 15, 16, 10, 5, 20); break;
                 case "battery": c.drawRoundRect(2, 7, 19, 17, 2, 2, paint); line(c, 22, 10.5f, 22, 13.5f); path(c, 11, 9, 8.5f, 12, 12.5f, 12, 10, 15); break;
                 case "expand": path(c, 6, 9, 12, 15, 18, 9); break;
