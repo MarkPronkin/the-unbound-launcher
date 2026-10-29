@@ -54,27 +54,40 @@ class AppSurfaceRoutingTests(unittest.TestCase):
             subprocess.run(['clang','-target','aarch64-linux-android','-c',str(ROOT/'tools/app_surface_routing.S'),'-o',str(obj)],check=True)
             self.assertEqual(object_text(obj.read_bytes()),bytes.fromhex(self.spec['targets'][-1]['replacement']))
 
+    CASES=[None,b'',b'\0',b'\1',b'\2',b'\xff',b'\1\0',b'\1\1','read-error']
+
     def test_every_native_entry_preserves_registers_flags_and_original_hardware_behavior(self):
-        cases=[None,b'',b'\0',b'\1',b'\2',b'\xff',b'\1\0',b'\1\1','read-error']
-        for index,site in enumerate(self.spec['targets'][:-1]):
+        for index,site in enumerate(self.spec['targets'][:6]):
             for protected in (0,1):
-                for flag in cases:
+                for flag in self.CASES:
                     with self.subTest(entry=index,protected=protected,flag=flag):
                         self.execute(site,index,protected,flag)
 
-    def execute(self,site,index,protected,flag):
+    def test_immersive_overlay_request_follows_capability_and_preserves_other_state(self):
+        site=self.spec['targets'][6]
+        self.assertEqual(site['address'],0x34ed8c4)
+        for flag in self.CASES:
+            with self.subTest(flag=flag):
+                cpu,regs,before,calls=self.machine(site,flag)
+                at=site['address'];cpu.emu_start(at,at+4,count=250)
+                self.assertEqual(cpu.reg_read(UC_ARM64_REG_PC),at+4)
+                # The stock instruction is MOV W5,#1 (isMultiLayer); only the
+                # GPU fallback result may turn that request into the copy surface.
+                expected=before[:];expected[5]=0 if flag==b'\1' else 1
+                self.assertEqual([cpu.reg_read(reg) for reg in regs],expected)
+                self.assertEqual(cpu.reg_read(UC_ARM64_REG_SP),0x808000)
+                self.assertEqual(cpu.reg_read(UC_ARM64_REG_NZCV),0xa0000000)
+                self.assertEqual(calls,[56] if flag is None else [56,63,57])
+
+    def machine(self,site,flag):
         cpu=Uc(UC_ARCH_ARM64,UC_MODE_ARM)
         cave=self.spec['cave'];code=bytes.fromhex(self.spec['targets'][-1]['replacement'])
         cpu.mem_map(cave&~0xfff,0x1000);cpu.mem_write(cave,code)
         at=site['address'];cpu.mem_map(at&~0xfff,0x1000);cpu.mem_write(at,bytes.fromhex(site['replacement']))
-        owner=0x700000;cpu.mem_map(owner,0x1000);cpu.mem_write(owner,b'\x7f'*0x1000)
         cpu.mem_map(0x800000,0x10000);cpu.reg_write(UC_ARM64_REG_SP,0x808000)
         regs=[UC_ARM64_REG_X0+i for i in range(29)]+[UC_ARM64_REG_X29,UC_ARM64_REG_X30]
         for number,reg in enumerate(regs):cpu.reg_write(reg,0x100000000+number*0x10101)
-        cpu.reg_write(regs[(19,20,20,21,21,22)[index]],owner)
-        cpu.reg_write(UC_ARM64_REG_X8,protected)
         cpu.reg_write(UC_ARM64_REG_NZCV,0xa0000000)
-        before=[cpu.reg_read(reg) for reg in regs]
         calls=[]
         def syscall(machine,interrupt,data):
             op=machine.reg_read(UC_ARM64_REG_X8);calls.append(op)
@@ -94,7 +107,15 @@ class AppSurfaceRoutingTests(unittest.TestCase):
             else:raise AssertionError('Unexpected syscall '+str(op))
             machine.reg_write(UC_ARM64_REG_X0,result&0xffffffffffffffff)
         cpu.hook_add(UC_HOOK_INTR,syscall)
-        cpu.emu_start(at,at+4,count=250)
+        return cpu,regs,[cpu.reg_read(reg) for reg in regs],calls
+
+    def execute(self,site,index,protected,flag):
+        cpu,regs,_,calls=self.machine(site,flag)
+        owner=0x700000;cpu.mem_map(owner,0x1000);cpu.mem_write(owner,b'\x7f'*0x1000)
+        cpu.reg_write(regs[(19,20,20,21,21,22)[index]],owner)
+        cpu.reg_write(UC_ARM64_REG_X8,protected)
+        before=[cpu.reg_read(reg) for reg in regs]
+        at=site['address'];cpu.emu_start(at,at+4,count=250)
         self.assertEqual(cpu.reg_read(UC_ARM64_REG_PC),at+4)
         self.assertEqual([cpu.reg_read(reg) for reg in regs],before)
         self.assertEqual(cpu.reg_read(UC_ARM64_REG_SP),0x808000)

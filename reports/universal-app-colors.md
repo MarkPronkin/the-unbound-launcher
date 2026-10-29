@@ -1,5 +1,61 @@
 # Universal app-window colors
 
+## Immersive mode routing — 2026-10-29, build 2950
+
+The wearer reports that immersive mode fails on the Pixel with 0.2.1 / 2949.
+They tried it with Calendar. After the failure, the app looks washed out, like
+YouTube before 2934. That session's Pixel logs had rotated before collection.
+
+`EvaProAppSeparateWidgetContent.OnEnterImmersive` calls
+`EvaProApplication2D.ChangeSurface(forceRecreate: true, …, isMultiLayer: true)`
+with `isMultiLayer` hard-coded (`mov w5, #1` at `0x34ed8c4`). The other eight
+`ChangeSurface` callers pass `AppInfo.useMultiLayer` or a value derived from
+it. `ChangeSurfaceProperty` then creates an `XROverlay` and calls
+`SetNROverlay`, the compositor path without the copy decoder. Exiting immersive
+does not call `ChangeSurface`, so the window stays on the overlay afterwards.
+The OPPO CPH2791 debug bundle (`artifacts/immersive-mode-unbound-debug-20261029/`)
+shows this sequence:
+`ChangeSurfaceProperty useMultiylayer = True`, `CreateCylinderSurfaceLayer`,
+`mIsOverlayWindow = True`, then
+`RenderTextureGL::Create color texture OpenGL error: GL_INVALID_ENUM(1280)`.
+
+2950 adds a seventh trampoline to the 2934 capability routing. On that entry
+the request is copied into a stack byte, filtered by the same capability
+check, and returned in `w5`. Only the exact `01` capability flag changes it to
+the copy path; supported GPUs, unknown capability, missing files and failed or
+malformed reads keep the stock overlay, so OnePlus is unchanged. Shaders, the
+transfer curve and compositor stay at the 2935 baseline. Unicorn tests run the
+entry for all nine flag states and check that every other register, SP and
+NZCV are preserved.
+
+A live Pixel repeat at 06:47:52 (evidence: `artifacts/pixel-immersive-crash-2949/`)
+reproduced the freeze on 2949. Calendar opened on the copy path
+(`mIsOverlayWindow = False`). Immersive then created the cylinder overlay, and the
+native compositor logged `Link Error: The number of vertex shader storage
+blocks (1) is greater than the maximum number allowed (0)`. That was followed
+by `composition shader error!` / `Failed to compose buffer` about 700 times per
+second for over a minute. Unity fell to 9 FPS (target 45). Mali-G715 allows no
+vertex-stage storage blocks, so that composition shader cannot link there. No
+crash, ANR or tombstone was recorded; the earlier 06:06 process exit was the
+SIGKILL cleanup five seconds after USB detach.
+
+The gate uses the existing sRGB-override probe. On Mali both limits apply, so
+it covers the Pixel. A GPU with the sRGB override but no vertex storage blocks
+would still get the stock cylinder overlay. 2950 (SHA-256
+`662fce9cfcb54c79a460e27ab828bd1b9f062e73d98f128c9e25c8d48f1b06a9`) passes the
+full APK audit and all 217 host tests, and is installed on the Pixel.
+
+After reconnecting on 2950, the wearer reports immersive mode works on Pixel.
+Live logs show `app_surface=copy renderer=Mali-G715`, then
+`ChangeSurfaceProperty useMultiylayer = False` on Click_Immersive. The window
+used software decode, with no link or composition errors and Unity at 57 FPS;
+exiting immersive also completed. On the OnePlus CPH2747 (Adreno 840), 2950's
+own `AppSurfacePolicy.probe()` ran through `app_process` without installation.
+It returned `ROUTING_COPY false`, so the flag stays `00` and immersive keeps the
+stock overlay. The software-decode render fixture then refused to run because the
+GPU has the hardware override, which is expected. The OnePlus launcher was not
+changed.
+
 ## Pinned state — build 2935, 2026-10-28
 
 Color work is paused at the wearer's request. Pixel is now much improved, with
