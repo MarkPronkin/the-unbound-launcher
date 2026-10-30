@@ -132,7 +132,7 @@
   if (download) {
     const link = $("#download-link");
     link.href = download;
-    $("span", link).textContent = "Download 0.2.3 alpha";
-    $("#download-note").textContent = "0.2.3 alpha · Android APK · About 1 GB · Check the requirements before installing.";
+    $("span", link).textContent = "Download 0.2.4 alpha";
+    $("#download-note").textContent = "0.2.4 alpha · Android APK · About 1 GB · Check the requirements before installing.";
   }
 })();
