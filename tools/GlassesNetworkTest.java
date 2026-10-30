@@ -36,6 +36,55 @@ public final class GlassesNetworkTest {
         Setup s=new Setup();s.deliver(true);
         check(s.calls==1&&s.result&&s.glasses.equals(s.socketNetwork),"Native startup selects Ethernet instead of default Wi-Fi");
         check(s.cm.bound==null&&s.cm.bindCalls==2,"Default process routing restored after startup");
+        GlassesNetworkCompat.Lease renderer=GlassesNetworkCompat.select(s.context,0);
+        check(s.glasses.equals(s.cm.bound),"Renderer selects its own network after the service callback has restored routing");
+        renderer.validate();
+        check(s.glasses.equals(s.cm.bound),"Asynchronous Unity startup retains its network until Presentation readiness");
+        renderer.close();int calls=s.cm.bindCalls;renderer.close();
+        check(s.cm.bound==null&&s.cm.bindCalls==calls,"Renderer cleanup restores routing exactly once");
+        s=new Setup();s.cm.bound=s.wifi;renderer=GlassesNetworkCompat.select(s.context,0);renderer.close();
+        check(s.wifi.equals(s.cm.bound),"Renderer restores a prior explicit network");
+        s=new Setup();s.cm.bound=s.glasses;renderer=GlassesNetworkCompat.select(s.context,0);renderer.close();
+        check(s.cm.bindCalls==0&&s.glasses.equals(s.cm.bound),"Renderer preserves a pre-existing glasses binding");
+        s=new Setup();renderer=GlassesNetworkCompat.select(s.context,0);s.cm.bound=s.wifi;renderer.close();
+        check(s.wifi.equals(s.cm.bound),"Renderer cleanup preserves a later owner's binding");
+        s=new Setup();s.cm.bound=s.wifi;renderer=GlassesNetworkCompat.select(s.context,0);s.cm.reject=s.wifi;renderer.close();
+        check(s.cm.bound==null,"Renderer clears binding if the previous network disappeared");
+        s=new Setup();s.cm.links.remove(s.glasses);
+        try{GlassesNetworkCompat.select(s.context,0);throw new AssertionError("Expected unpublished network");}
+        catch(GlassesNetworkCompat.NetworkPendingException expected){}
+        check(s.cm.bindCalls==0&&SystemClock.now==0,"Renderer waits for network publication without blocking the UI thread");
+        s.add(s.glasses,"eth0","169.254.2.10/24","169.254.2.0/24");
+        renderer=GlassesNetworkCompat.select(s.context,0);renderer.close();
+        check(s.cm.bound==null,"A later publication can be retried and cleaned up");
+        s=new Setup();s.cm.reject=s.glasses;
+        try{GlassesNetworkCompat.select(s.context,0);throw new AssertionError("Expected rejected renderer binding");}
+        catch(java.io.IOException expected){}
+        check(s.cm.bound==null,"Renderer cannot launch on a rejected network");
+        s=new Setup();renderer=GlassesNetworkCompat.select(s.context,0);s.context.usb.devices.clear();
+        try{renderer.validate();throw new AssertionError("Expected detached renderer glasses");}catch(java.io.IOException expected){}
+        renderer.close();check(s.cm.bound==null,"USB detach invalidates renderer startup and releases routing");
+        s=new Setup();renderer=GlassesNetworkCompat.select(s.context,0);s.cm.links.remove(s.glasses);
+        try{renderer.validate();throw new AssertionError("Expected lost renderer network");}catch(java.io.IOException expected){}
+        renderer.close();check(s.cm.bound==null,"Network loss invalidates renderer startup and releases routing");
+        s=new Setup();final Setup rendererSwap=s;
+        s.cm.afterBind=()->rendererSwap.context.usb.devices.put("glasses",new UsbDevice("glasses",13080,1078,13));
+        try{GlassesNetworkCompat.select(s.context,0);throw new AssertionError("Expected replaced renderer glasses");}catch(java.io.IOException expected){}
+        check(s.cm.bound==null,"USB replacement during renderer binding restores routing before launch");
+        s=new Setup();GlassesInitSetting.ethernet=false;s.context.usb.devices.clear();
+        check(GlassesNetworkCompat.select(s.context,0)==null&&s.cm.bindCalls==0,"Air/H-series renderer never changes process networking");
+        GlassesInitSetting.context=null;
+        check(GlassesNetworkCompat.select(null)==null,"Non-Ethernet selection needs no SDK context or USB access");
+        s=new Setup();s.cm.links.remove(s.glasses);final Setup published=s;
+        SystemClock.sleepHook=()->{try{published.add(published.glasses,"eth0","169.254.2.10/24","169.254.2.0/24");}catch(Exception e){throw new RuntimeException(e);}};
+        try(GlassesNetworkCompat.Lease lease=GlassesNetworkCompat.select(s.context)) {
+            check(SystemClock.now==100&&s.glasses.equals(s.cm.bound),"Shared selector waits for Android network publication before returning its lease");
+        }
+        check(s.cm.bound==null,"Try-with-resources restores the shared selector's binding");
+        s=new Setup();s.cm.links.remove(s.glasses);
+        try{GlassesNetworkCompat.select(s.context);throw new AssertionError("Expected selection timeout");}
+        catch(GlassesNetworkCompat.NetworkPendingException expected){}
+        check(SystemClock.now==3000&&s.cm.bindCalls==0,"Shared selector preserves the three-second SDK network wait bound");
         s=new Setup();s.cm.bound=s.wifi;s.deliver(true);check(s.cm.bound.equals(s.wifi),"Restore explicit prior Wi-Fi binding");
         s=new Setup();s.cm.bound=s.glasses;s.deliver(true);check(s.cm.bindCalls==0&&s.cm.bound.equals(s.glasses),"Preserve a pre-existing glasses binding");
         s=new Setup();s.deliver(false);check(s.calls==1&&!s.result&&s.cm.bindCalls==0,"Failed readiness never binds or starts native SDK");

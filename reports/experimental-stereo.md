@@ -81,6 +81,15 @@ from the throttled log. Keep the option disabled on this affected combination
 pending physical validation of a correction. See the
 [stereo-geometry investigation](oppo-air2-pro-stereo-v020.md).
 
+A **0.2.2 / build 2953 follow-up** on the same combination confirms active
+two-eye Unity rendering: a two-slice target with two render parameters and
+per-eye projection scale-aspect ratios around 1.74. The new report does not
+describe the visual symptom, and the wearer disconnected before export, so
+the final glasses layer's buffer/crop/transform is unavailable. The earlier
+Unity eye-count uncertainty is resolved; the cause of the bad view and a
+correction remain unconfirmed. The same investigation records the new evidence
+and the next connected-capture requirements.
+
 ## Samsung feedback and optional mono 60 Hz — test candidate 2913
 
 This section records the historical diagnostic candidate. Its optional 2D 60 Hz

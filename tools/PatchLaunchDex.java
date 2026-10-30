@@ -10,6 +10,7 @@ import com.android.tools.smali.dexlib2.iface.instruction.formats.Instruction3rc;
 import com.android.tools.smali.dexlib2.iface.instruction.ReferenceInstruction;
 import com.android.tools.smali.dexlib2.iface.reference.MethodReference;
 import com.android.tools.smali.dexlib2.immutable.ImmutableDexFile;
+import com.android.tools.smali.dexlib2.immutable.ImmutableClassDef;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod;
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodImplementation;
 import com.android.tools.smali.dexlib2.immutable.reference.ImmutableMethodReference;
@@ -46,6 +47,43 @@ public final class PatchLaunchDex {
         Set<String> bluetoothEdits = new TreeSet<>();
         Set<String> quickAccessEdits = new TreeSet<>();
         Set<String> recentAppsEdits = new TreeSet<>();
+        Set<String> geometryEdits = new TreeSet<>();
+        DexRewriter geometryRewrite = new DexRewriter(new RewriterModule() {
+            @Override public Rewriter<Method> getMethodRewriter(Rewriters rewriters) {
+                return method -> {
+                    if (!method.getName().equals("getRotation")) return method;
+                    if (!method.getParameterTypes().isEmpty() || !method.getReturnType().equals("I"))
+                        throw new IllegalStateException("Unexpected app-window rotation signature");
+                    var implementation = method.getImplementation();
+                    List<Instruction> code = new ArrayList<>();
+                    int calls = 0;
+                    for (Instruction instruction : implementation.getInstructions()) {
+                        if (instruction instanceof ReferenceInstruction ref
+                                && ref.getReference() instanceof MethodReference call
+                                && call.getDefiningClass().equals("Landroid/view/Display;")
+                                && call.getName().equals("getRotation")) {
+                            if (instruction.getOpcode() != Opcode.INVOKE_VIRTUAL
+                                    || !(instruction instanceof Instruction35c invoke) || invoke.getRegisterCount() != 1
+                                    || !call.getParameterTypes().isEmpty() || !call.getReturnType().equals("I"))
+                                throw new IllegalStateException("Unexpected app-window rotation invocation");
+                            instruction = new ImmutableInstruction35c(Opcode.INVOKE_STATIC, 1,
+                                    invoke.getRegisterC(), 0, 0, 0, 0,
+                                    new ImmutableMethodReference("Ldev/beampro/bridge/AppWindowGeometry;", "rotation",
+                                            List.of("Landroid/view/Display;"), "I"));
+                            calls++;
+                        }
+                        code.add(instruction);
+                    }
+                    if (calls != 1) throw new IllegalStateException("Expected one app-window rotation invocation");
+                    geometryEdits.add("ActivityContent.getRotation");
+                    geometryEdits.add("Display.getRotation to buffer rotation");
+                    return new ImmutableMethod(method.getDefiningClass(), method.getName(), method.getParameters(),
+                            method.getReturnType(), method.getAccessFlags(), method.getAnnotations(), method.getHiddenApiRestrictions(),
+                            new ImmutableMethodImplementation(implementation.getRegisterCount(), code,
+                                    implementation.getTryBlocks(), implementation.getDebugItems()));
+                };
+            }
+        });
         DexRewriter quickAccessRewrite = new DexRewriter(new RewriterModule() {
             @Override public Rewriter<Method> getMethodRewriter(Rewriters rewriters) {
                 return method -> {
@@ -237,6 +275,9 @@ public final class PatchLaunchDex {
                 if (cls.getType().equals("Lai/nreal/nebula/service/LaunchManager;")) {
                     cls = rewrite.getClassDefRewriter().rewrite(cls);
                 }
+                if (cls.getType().equals("Lai/nreal/nebula/service/ActivityContent;")) {
+                    cls = ImmutableClassDef.of(geometryRewrite.getClassDefRewriter().rewrite(cls));
+                }
                 output.add(cls);
             } else if (args[0].equals("client")) {
                 if (cls.getType().equals("Lai/nreal/nebula/service/LaunchService;")) { removed++; continue; }
@@ -258,6 +299,9 @@ public final class PatchLaunchDex {
         }
         if (args[0].equals("client") && removed != 1) throw new IllegalStateException("Expected one original LaunchService");
         if (output.isEmpty()) throw new IllegalStateException("No classes selected");
+        if (args[0].equals("server") && !geometryEdits.equals(Set.of(
+                "ActivityContent.getRotation", "Display.getRotation to buffer rotation")))
+            throw new IllegalStateException("Missing app-window geometry hook: " + geometryEdits);
         DexPool.writeTo(args[2], new ImmutableDexFile(original.getOpcodes(), output));
         if (args[0].equals("client") && edits.size() != 7) throw new IllegalStateException("Expected five OTA guards, one startup hook and one lifecycle fix: " + edits);
         if ((args[0].equals("client") || args[0].equals("compat")) && settingsEdits.size() != 2) {
@@ -274,5 +318,6 @@ public final class PatchLaunchDex {
             throw new IllegalStateException("Expected two launcher-history hooks: " + recentAppsEdits);
         }
         for (String edit : recentAppsEdits) System.out.println("Launcher-only recent apps: " + edit);
+        for (String edit : geometryEdits) System.out.println("App-window geometry: " + edit);
     }
 }

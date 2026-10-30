@@ -18,6 +18,7 @@ public final class PresentationDeviceChecks extends Instrumentation {
     public static volatile int launchDisplay=-1;
     public static volatile LaunchSpaceAcrivity owner;
     public static volatile boolean launchPhone;
+    public static volatile boolean delayOutput=true;
     public static Display external;
     public static Presentation presentation;
     public static boolean ownerStopped;
@@ -88,7 +89,13 @@ public final class PresentationDeviceChecks extends Instrumentation {
                         "Waiting for the glasses shows no dialog or status window");
                 virtual.resize(3840,1080,160);
             });
-            await(()->owner!=null&&presentation!=null,15000,"Direct route launched the phone owner and its Presentation");
+            await(()->owner!=null&&sessionNotice()!=null,15000,"Direct route launched the phone owner and startup service");
+            check("Starting AR Space".contentEquals(sessionNotice().extras.getCharSequence(Notification.EXTRA_TITLE)),
+                    "A renderer with no Presentation does not claim AR is running");
+            runOnMainSync(()->{delayOutput=false;showOutput(owner);});
+            await(()->presentation!=null,5000,"The SDK attaches its Presentation after asynchronous startup");
+            await(()->"AR Space is running".contentEquals(sessionNotice().extras.getCharSequence(Notification.EXTRA_TITLE)),
+                    5000,"The notification changes to running only after Presentation attachment");
             await(this::serviceForeground,5000,"The live session has a foreground service");
             check(external.getMode().getPhysicalWidth()==3840,"AR starts only after native stereo output");
             waitForIdleSync();
@@ -208,6 +215,31 @@ public final class PresentationDeviceChecks extends Instrumentation {
             await(()->!PresentationOnlyCompat.isActive(owner),5000,"Stop AR in the notification releases the second session");
             check(!owner.mUnityPlayer.hasOverride(),"Stop AR while hidden releases the background surface");
             await(()->!serviceForeground(),5000,"Stop AR removes the foreground service");
+            await(()->sessionNotice()==null,5000,"Stop AR removes the ongoing notification");
+            // A failed XR startup never creates a Presentation. Expire the real session's
+            // deadline directly so this lifecycle regression does not add a 45-second wait.
+            runOnMainSync(()->{presentation.dismiss();virtual.release();virtual=null;entry.finish();});
+            owner=null;presentation=null;launched=null;delayOutput=true;
+            entry=(Entry)startActivitySync(new Intent(getTargetContext(),Entry.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            app.mContext=entry;
+            runOnMainSync(()->{
+                virtual=getTargetContext().getSystemService(DisplayManager.class).createVirtualDisplay(
+                        "XREAL Presentation Fixture",1920,1080,160,reader.getSurface(),
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC|DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION|DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
+                external=virtual.getDisplay();app.startUnityActivityInternal(new Intent());
+            });
+            await(()->owner!=null&&sessionNotice()!=null,15000,"A stalled renderer starts with its own startup notification");
+            check("Starting AR Space".contentEquals(sessionNotice().extras.getCharSequence(Notification.EXTRA_TITLE)),
+                    "A stalled renderer keeps the starting message");
+            runOnMainSync(()->{
+                try {
+                    java.lang.reflect.Field active=PresentationOnlyCompat.class.getDeclaredField("active");active.setAccessible(true);
+                    Object session=active.get(null);java.lang.reflect.Field deadline=session.getClass().getDeclaredField("deadline");
+                    deadline.setAccessible(true);deadline.setLong(session,SystemClock.uptimeMillis()-1);((Runnable)session).run();
+                } catch(Exception failure){throw new AssertionError(failure);}
+            });
+            await(()->!serviceForeground()&&sessionNotice()==null,5000,"Failed renderer startup removes its service and notification");
+            check(!PresentationOnlyCompat.isActive(owner),"Failed renderer startup releases session ownership");
             result.putString("stream","PASS direct Presentation Android/SDK checks: "+passed+"\n");
             finish(-1,result);
         } catch(Throwable failure) {

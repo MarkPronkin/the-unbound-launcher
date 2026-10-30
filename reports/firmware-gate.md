@@ -21,8 +21,20 @@ For One, One Pro and 1S, the recommended Pilot/software version is
 official stable version is 2.0.0 (currently native model 20, XREAL 1 Pro+) has
 its own profile. Version 2.0.0 is not classified as beta across all models.
 Air-family profiles check MCU, DP and DSP. Native models 10/11 also check LUT
-and OSD. Unknown models, including experimental ROG R1, require an explicit
-override rather than inheriting the One Pro recommendation.
+and OSD. Unknown models require an explicit override rather than inheriting
+another model's recommendation.
+
+Build 2960 adds a separate ROG XREAL R1 policy (identity 1003), selected only for
+its exact ASUS USB identities. ASUS's stable `ASUS_R1_MCM103.104.zip`, published
+2026-10-08 and inspected on 2026-10-30, supplies glasses MCU release `MCM103`,
+Pilot/software `1.9.0.20260709183133`, and DSP `15.A.01.097_20250430`.
+The dock's version is separate. All three components must match. R1 warnings
+link to ASUS's updater, including read errors and timeouts. Native SDK startup
+still uses type 6 and its existing SKU; 1003 is only a policy/UI identity.
+See the [R1 evidence and package provenance](rog-xreal-r1.md#firmware-detection).
+Read-only queries on physical R1 hardware still need a retest; the submitted
+bundle contains no firmware response. Debug traces now retain each successfully
+returned firmware component, including a mismatching value.
 
 The warning includes the model, actual mismatching component, recommended
 version, official updater link, prominent Exit button and small override text.

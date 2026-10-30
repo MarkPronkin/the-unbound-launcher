@@ -12,7 +12,15 @@ public final class VerifyConnectionStartupDex {
         Map<String,Integer> calls=new HashMap<>();
         Map<String,Integer> pingCalls=new HashMap<>();
         int ethernetCalls=0,networkCalls=0;
+        boolean selectsLease=false,closesLease=false;
         for(String entry:container.getDexEntryNames())for(ClassDef cls:container.getEntry(entry).getDexFile().getClasses()) {
+            if(cls.getType().equals("Ldev/beampro/port/GlassesNetworkCompat;"))
+                for(Method m:cls.getMethods())if(m.getName().equals("deliver")&&m.getImplementation()!=null)
+                    for(var instruction:m.getImplementation().getInstructions())
+                        if(instruction instanceof ReferenceInstruction ref&&ref.getReference() instanceof MethodReference call) {
+                            selectsLease|=call.getDefiningClass().equals(cls.getType())&&call.getName().equals("select");
+                            closesLease|=call.getDefiningClass().equals("Ldev/beampro/port/GlassesNetworkCompat$Lease;")&&call.getName().equals("close");
+                        }
             if(cls.getType().equals("Ldev/beampro/port/PingCallbackCompat$Pending;"))
                 for(Method m:cls.getMethods())if(m.getImplementation()!=null)for(var instruction:m.getImplementation().getInstructions())
                     if(instruction instanceof ReferenceInstruction ref&&ref.getReference() instanceof MethodReference call
@@ -42,6 +50,7 @@ public final class VerifyConnectionStartupDex {
         if(!pingCalls.equals(Map.of("wrap",1,"released",1)))throw new IllegalStateException("Incomplete SDK ping cancellation guard: "+pingCalls);
         if(ethernetCalls!=1)throw new IllegalStateException("Missing SDK Ethernet readiness delegation");
         if(networkCalls!=1)throw new IllegalStateException("Missing scoped native startup network selection");
+        if(!selectsLease||!closesLease)throw new IllegalStateException("SDK callback does not use the shared network lease");
         System.out.println("Connection lifecycle, USB/display recovery and stale native callback guard are wired in the production APK");
     }
 }

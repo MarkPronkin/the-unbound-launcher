@@ -38,8 +38,10 @@ public final class ArSessionService extends Service {
         PendingIntent open=PendingIntent.getActivity(this,NOTICE,back,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop=PendingIntent.getService(this,NOTICE,new Intent(this,ArSessionService.class)
                 .setAction(STOP).putExtra(TOKEN,token),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+        boolean ready=PresentationOnlyCompat.outputReady(token);
         Notification notice=new Notification.Builder(this,CHANNEL).setSmallIcon(android.R.drawable.ic_menu_view)
-                .setContentTitle("AR Space is running").setContentText("Tap to return to the trackpad.")
+                .setContentTitle(ready?"AR Space is running":"Starting AR Space")
+                .setContentText(ready?"Tap to return to the trackpad.":"Waiting for glasses output. Tap to return.")
                 .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
                 .addAction(new Notification.Action.Builder(null,"Stop AR",stop).build()).build();
         try {

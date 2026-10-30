@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('apk', type=Path)
     parser.add_argument('--serial', required=True)
+    parser.add_argument('--adb-port', type=int, default=5037)
     parser.add_argument('--output', type=Path, default=ROOT / 'artifacts/glasses-network-runtime')
     args = parser.parse_args()
     if not args.serial.startswith('emulator-'):
@@ -33,7 +34,7 @@ def main():
     def run(*command, capture=False):
         return subprocess.run(list(map(str, command)), check=True, text=True, env=env, capture_output=capture, timeout=60)
 
-    adb = [sdk / 'platform-tools/adb', '-s', args.serial]
+    adb = [sdk / 'platform-tools/adb', '-P', str(args.adb_port), '-s', args.serial]
     with zipfile.ZipFile(args.apk) as archive:
         matching = [name for name in archive.namelist() if name.endswith('.dex')
                     and 'Ldev/beampro/port/GlassesNetworkCompat;' in classes(archive.read(name))]

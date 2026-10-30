@@ -1,6 +1,7 @@
 # ROG XREAL R1 compatibility
 
-Implemented as experimental support, with physical R1 validation still pending.
+Implemented support, with a wearer report on 2026-10-30 confirming the R1 works.
+The new firmware policy in build 2960 still needs a physical R1 retest.
 This changes The Unbound Launcher; it does not update stock Beam Pro software
 or the glasses' firmware.
 
@@ -46,7 +47,7 @@ driver source, not this user's archive.
 - Display management recognizes the exact R1 EDID for mirroring and native
   stereo selection, with the existing disconnect/failure restoration policy.
 - The settings UI identifies connected R1 glasses by name instead of showing
-  One Pro. Its UI-only type 1003 never reaches native initialization.
+  One Pro. Its UI/firmware policy type 1003 never reaches native initialization.
 - New debug exports include USB vendor/product IDs, permission state and
   interface counts, plus EDID manufacturer/product/name. USB serial numbers
   are not queried.
@@ -81,10 +82,33 @@ identity classes and Ethernet-series selector under ART, with simulated USB
 descriptors. It also exercises the production automatic-entry predicate.
 It does not exercise R1 firmware, stereo negotiation, IMU packets or optics.
 
+For the build 2960 firmware change, 18 host tests passed across
+`test_connection_startup`, `test_rog_r1`, `test_usb_permission`, `test_skip_ota`,
+`test_startup_trace`, `test_glasses_startup` and `test_debug_archive`.
+These include 112 firmware-policy, 126 connection-recovery and 61 R1 identity
+assertions. The production adapter fixtures cover both R1 USB identities,
+exact release matching, rejected/failed reads and boot/app USB reconfiguration;
+native startup retains type 6 and its SKU. The signed test APK is in
+`artifacts/unbound-launcher-rog-r1-firmware-2960/`, with package provenance and
+validation receipts in `artifacts/rog-r1-firmware-investigation/`.
+It passed the full embedded-ADB package verifier, including the packaged
+firmware gate, exact DEX restoration audits, bundled-source checks, signature
+verification and ZIP alignment.
+No Android device was connected for a fresh runtime or hardware test.
+
 ## Physical acceptance
 
-Install the test APK over public 0.1.2 alpha, restart its updated on-device ADB
-helper, and connect the R1 directly to the phone. Verify entry from both a
+The wearer has now confirmed the glasses work with compatible current firmware.
+The `unbound-debug-20261029-205712-c5743f0d.zip` report identifies a Samsung
+SM-F956B on Android 16 with build 2953, USB `0b05:1d9d` (permission granted,
+13 interfaces) and the same `AUS`/`43593` R1 display identity. No firmware
+response, SDK start, native result or renderer geometry was captured. The
+confirmation of operation is the wearer's report, not a
+claim that this particular archive independently demonstrates AR or tracking.
+Specific acceptance checks below are not individually confirmed by that report.
+
+Install the test APK over the existing launcher, restart its updated on-device
+ADB helper, and connect the R1 directly to the phone. Verify entry from both a
 closed app and Settings, actual stereo output, comfortable eye alignment,
 head tracking, pointer control and audio. Verify disconnect during startup,
 reconnect after AR opens, and returning to normal mirroring after exit.
@@ -94,4 +118,39 @@ then export with the R1 still connected. The new USB inventory will confirm
 whether this unit uses the upstream identifiers; native errors and display
 dumps will distinguish protocol rejection from stereo negotiation failure.
 Firmware differences or a native SDK model check may require further work.
-Do not mark R1 as hardware-supported until the wearer confirms these checks.
+Keep the distinction between wearer-confirmed operation and individual checks
+that the report did not cover.
+
+## Firmware detection
+
+Build 2953 deliberately maps the R1 to policy identity 1003 to avoid applying
+One Pro firmware requirements to ASUS hardware. However, that identity had no
+profile: `FirmwarePolicy.check` returned `Not verified` / `No verified release`
+without invoking the firmware reader. Thus the missing version was a policy
+gap, not evidence of an obsolete firmware or a failed USB read. The supplied
+capture does not include the earlier warning or connection attempt.
+
+Build 2960 adds a separate, offline R1 profile sourced from
+[ASUS ROG support](https://rog.asus.com/glasses/rog-xreal-r1/helpdesk_bios/).
+ASUS's public `ProductV2/GetPDBIOS` response for product 37734, m1id 35821,
+LevelTagId 246180 lists `ASUS_R1_MCM103.104` as a release dated 2026-10-08.
+The downloaded [Windows package](https://dlcdnets.asus.com/pub/ASUS/Projectors/ROG%20XREAL%20R1/ASUS_R1_MCM103.104.zip)
+matches its published SHA-256:
+`d0a428091c92ea8a92329f24d2e3901c54852a8daad32d894785d3f329257fcc`.
+Inspection only; the vendor updater was not executed.
+
+The updater's embedded `R1/Firmware/glasses.cfg` selects
+`ASUS_ROG_XREAL_R1_MCM103.bin` and
+`15.A.01.097_20250430_20251210163918.bin`. The first file's header identifies
+release `MCM103`, build timestamp `20260920115038`; its embedded
+`pilot/pilot_version.txt` contains `1.9.0.20260709183133`. The DSP header
+identifies `15.A.01.097_20250430`. These supply read-only component IDs 1, 6
+and 3 respectively, checked in that order. The package's `.104` is the dock
+version, not an alternative accepted glasses version. No One Pro firmware
+values or general version bypass are applied to R1.
+
+Each returned firmware component is now recorded in startup diagnostics, so a
+different native-reader response can be distinguished from the former missing
+profile. A failed, empty or mismatched read still opens the firmware warning,
+with the ASUS ROG support link. Physical reader response formatting and a full
+connection using this exact policy remain unverified until an R1 retest.
