@@ -26,6 +26,7 @@ import java.util.WeakHashMap;
 
 /** Connection recovery for the port's manual launch path, without the Beam USB activity handler. */
 public final class GlassesConnectionCompat {
+    private static final String MIRRORING_RESTORE = "unbound-mirroring-restore";
     private static final String TAG = "UnboundConnect";
     private static final long DEADLINE_MS = 45000;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -109,6 +110,31 @@ public final class GlassesConnectionCompat {
         return Boolean.TRUE.equals(Class.forName("ai.nreal.nebula.util.helper.DbHelpUtil")
                 .getMethod("getBoolean", Context.class, String.class, boolean.class)
                 .invoke(null, context, "castScreen", false));
+    }
+    private static void castScreen(Context context, boolean enabled) throws Exception {
+        Class.forName("ai.nreal.nebula.util.helper.DbHelpUtil")
+                .getMethod("updateValue", Context.class, String.class, boolean.class)
+                .invoke(null, context, "castScreen", enabled);
+    }
+    /** The SDK reads this choice throughout startup, so a one-time entry lifts it until the next connection. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public static void enterArOnce(Context context) throws Exception {
+        // Mirroring can report sdkSuccess without AR setup, which would skip the SDK's scene and mode changes.
+        Object manager = manager();
+        Enum state = (Enum) get(manager, "mIUsbNotifyType");
+        if (state.name().equals("sdkSuccess"))
+            field(manager, "mIUsbNotifyType").set(manager, Enum.valueOf(state.getDeclaringClass(), "connect"));
+        context.getSharedPreferences(MIRRORING_RESTORE, 0).edit().putBoolean("restore", true).commit();
+        castScreen(context, false);
+    }
+    public static void restoreMirroring(Context context) throws Exception {
+        if (!context.getSharedPreferences(MIRRORING_RESTORE, 0).getBoolean("restore", false)) return;
+        castScreen(context, true);
+        keepMirroringChoice(context);
+    }
+    /** An explicit switch change replaces a pending restoration. */
+    public static void keepMirroringChoice(Context context) {
+        context.getSharedPreferences(MIRRORING_RESTORE, 0).edit().clear().commit();
     }
     /** Suppress duplicate USB auto-entry during SDK re-enumeration and an existing AR session. */
     public static boolean sessionActive() {

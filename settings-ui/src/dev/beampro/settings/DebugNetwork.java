@@ -28,7 +28,7 @@ final class DebugNetwork {
             if (error instanceof InterruptedException) Thread.currentThread().interrupt();
             if (request == null) report.append(NetworkDiagnostics.capture(false));
             report.append("\nHelper diagnostics unavailable: ").append(error)
-                    .append("\nStart or restart the updated helper under Settings > On-device ADB, then create a new debug file.\n");
+                    .append("\nStart or restart the updated helper under Settings > AR connection, then create a new debug file.\n");
         } finally { if (request != null) request.cancel(true); }
         return report.toString();
     }
@@ -42,7 +42,7 @@ final class DebugNetwork {
                 if (binder != null && binder.isBinderAlive()) break;
             } catch (Exception unavailable) { binder = null; }
         }
-        if (binder == null || !binder.isBinderAlive()) throw new IOException("On-device ADB helper is not running");
+        if (binder == null || !binder.isBinderAlive()) throw new IOException("AR connection helper is not running");
         Parcel data = Parcel.obtain(), reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(NetworkDiagnostics.TOKEN);

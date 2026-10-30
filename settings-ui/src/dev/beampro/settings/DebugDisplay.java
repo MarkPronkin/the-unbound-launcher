@@ -66,7 +66,7 @@ final class DebugDisplay {
             if (failure instanceof InterruptedException) Thread.currentThread().interrupt();
             return "Captured: " + new Date() + "\nRequested: " + DisplayDiagnostics.service(kind)
                     + "\nHelper display diagnostics unavailable: " + failure
-                    + "\nStart or restart the updated helper under Settings > On-device ADB, then create a new debug file.\n";
+                    + "\nStart or restart the updated helper under Settings > AR connection, then create a new debug file.\n";
         } finally {
             pipe.close();
             if (request != null) request.cancel(true);
@@ -82,7 +82,7 @@ final class DebugDisplay {
                 if (binder != null && binder.isBinderAlive()) break;
             } catch (Exception unavailable) { binder = null; }
         }
-        if (binder == null || !binder.isBinderAlive()) throw new IOException("On-device ADB helper is not running");
+        if (binder == null || !binder.isBinderAlive()) throw new IOException("AR connection helper is not running");
         Parcel data = Parcel.obtain(), reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(DisplayDiagnostics.TOKEN); data.writeInt(kind);

@@ -10,6 +10,8 @@ import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.hardware.usb.UsbDevice;
+import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.os.Parcelable;
 import android.text.SpannableString;
@@ -413,7 +415,17 @@ public final class SettingsUi {
             heroParams.setMargins(-dp(GUTTER), dp(landscape ? 4 : 12), -dp(GUTTER), 0); body.addView(hero, heroParams);
             launch = button(activity, "Enter AR Space", PRIMARY);
             launch.setOnClickListener(v -> {
-                if (visible(originalLaunch) && AdbEntry.allowLaunch(activity)) originalLaunch.performClick();
+                // The SDK hides its own button during mirroring; its click handler still applies.
+                boolean mirroring = glassesUsbAttached() && screenMirroringSelected();
+                if ((!mirroring && !visible(originalLaunch)) || !AdbEntry.allowLaunch(activity)) return;
+                if (mirroring) try {
+                    Class.forName("dev.beampro.port.GlassesConnectionCompat")
+                            .getMethod("enterArOnce", Context.class).invoke(null, activity);
+                } catch (Exception failure) {
+                    Log.e("UnboundSettings", "Cannot leave screen mirroring", failure);
+                    return;
+                }
+                originalLaunch.performClick();
             });
             LinearLayout actions = launchBody == null ? body : launchBody;
             add(actions, launch, 0, 0);
@@ -424,12 +436,40 @@ public final class SettingsUi {
         }
 
         void showDeviceDetails() {
-            boolean connected = visible(originalInfo);
+            boolean sdkReady = visible(originalInfo);
+            boolean connected = sdkReady || glassesUsbAttached();
             String details = (text(activity, "mTvGlassSN") + "\n" + text(activity, "mTvGlassFw")).trim();
             Signature.show(dialog(activity)
                     .setTitle(connectionTitle.getText())
-                    .setMessage(connected ? (details.isEmpty() ? "Connected via USB-C" : details) : "Plug in your XREAL glasses to view device details.")
+                    .setMessage(sdkReady ? (details.isEmpty() ? "Connected via USB-C" : details)
+                            : connected ? "Connected via USB-C. " + (screenMirroringSelected()
+                                    ? "Screen mirroring is selected." : "AR Space has not started.")
+                            : "Plug in your XREAL glasses to view device details.")
                     .setPositiveButton("Done", null));
+        }
+
+        boolean screenMirroringSelected() {
+            return checked(view(view(activity, "mCastScreenView"), "mIvSwitch")) && !arOnce();
+        }
+        /** A one-time AR entry lifts the SDK's flag until the next connection; the choice itself stays On. */
+        boolean arOnce() {
+            return activity.getSharedPreferences("unbound-mirroring-restore", 0).getBoolean("restore", false);
+        }
+        boolean mirroringChoice(View sourceSwitch) { return checked(sourceSwitch) || arOnce(); }
+
+        /** USB presence is independent of the legacy SDK-success info panel. */
+        boolean glassesUsbAttached() {
+            UsbManager usb = activity.getSystemService(UsbManager.class);
+            if (usb == null) return false;
+            try {
+                java.lang.reflect.Method matches = Class.forName("dev.beampro.compat.GlassesIdentity")
+                        .getMethod("usb", int.class, int.class);
+                for (UsbDevice device : usb.getDeviceList().values())
+                    if (Boolean.TRUE.equals(matches.invoke(null, device.getVendorId(), device.getProductId()))) return true;
+            } catch (ReflectiveOperationException | LinkageError | SecurityException unavailable) {
+                // Preview-only builds can omit the port's shared identity helper.
+            }
+            return false;
         }
 
         void appearance(Section section) {
@@ -460,7 +500,7 @@ public final class SettingsUi {
         }
 
         void adbSetup(Section section) {
-            link(section, "code", "On-device ADB", "Pair this phone and start AR Space", v -> AdbEntry.open(activity));
+            link(section, "code", "AR connection", "Choose Shizuku or on-device ADB", v -> AdbEntry.open(activity));
         }
 
         void appDetection(Section section) {
@@ -545,9 +585,12 @@ public final class SettingsUi {
                 for (Binding binding : bindings) binding.sync();
                 for (Section section : sections) section.sync();
                 if (!permissions) {
-                    boolean connected = visible(originalInfo);
+                    boolean sdkReady = visible(originalInfo);
+                    boolean usbAttached = glassesUsbAttached();
+                    boolean connected = sdkReady || usbAttached;
+                    boolean mirroring = usbAttached && screenMirroringSelected();
                     SleepTimer timer = SleepTimer.get(activity);
-                    timer.refresh(connected, false);
+                    timer.refresh(sdkReady, false);
                     if (sleepRow != null) {
                         sleepRow.subtitle.setText(timer.summary());
                         sleepRow.setContentDescription("Automatic sleep time, " + timer.summary());
@@ -555,7 +598,7 @@ public final class SettingsUi {
                     status.set(connected ? "Connected via USB-C" : "Not connected",
                             connected ? POSITIVE : TEXT_TERTIARY, TEXT_SECONDARY);
                     Object reportedType = activity.getWindow().getDecorView().getTag(GLASSES_TYPE_TAG);
-                    int type = !connected ? 0 : reportedType instanceof Integer
+                    int type = !connected ? 0 : reportedType instanceof Integer && ((Integer)reportedType).intValue() > 1
                             ? ((Integer)reportedType).intValue() : GlassesArtwork.connectedType();
                     GlassesArtwork model = GlassesArtwork.forType(type);
                     if (connected && model.asset != null) {
@@ -580,12 +623,15 @@ public final class SettingsUi {
                         hero.setVisibility(glasses.getDrawable() == null ? View.GONE : View.VISIBLE);
                         artworkType = model.type;
                     }
-                    connectionDescription.setText(connected ? (model.asset == null ? "Connected · Model image unavailable." : "Your spatial workspace is ready.")
+                    connectionDescription.setText(mirroring ? "Screen mirroring is on. AR Space won't open automatically, but you can start it here."
+                            : sdkReady ? (model.asset == null ? "Connected · Model image unavailable." : "Your spatial workspace is ready.")
+                            : usbAttached ? "Glasses detected via USB-C. AR Space has not started."
                             : "Plug in your glasses to open AR Space.");
                     // Without a photo, keep the button clear of the status line above it.
                     ((LinearLayout.LayoutParams) launch.getLayoutParams()).topMargin = landscape || hero.getVisibility() == View.VISIBLE ? 0 : dp(20);
-                    launch.setEnabled(visible(originalLaunch));
-                    launch.setText(connected ? "Enter AR Space" : "Connect your glasses");
+                    launch.setEnabled(mirroring || visible(originalLaunch));
+                    launch.setText(mirroring ? "Start AR Space" : sdkReady ? "Enter AR Space"
+                            : usbAttached ? "Start AR Space" : "Connect your glasses");
                 }
             } finally { syncing = false; }
         }
@@ -641,6 +687,8 @@ public final class SettingsUi {
                     toggle.setOnCheckedChangeListener((button, value) -> {
                         if (syncing) return;
                         if (checked(sourceSwitch) != value) sourceSwitch.performClick();
+                        if (source == view(activity, "mCastScreenView"))
+                            activity.getSharedPreferences("unbound-mirroring-restore", 0).edit().clear().apply();
                         State.this.sync();
                     });
                     // Expose a single accessible switch with the whole row as its touch target.
@@ -680,12 +728,12 @@ public final class SettingsUi {
                 title.setText(titleOverride != null ? titleOverride
                         : defaultMirroring ? "Start in screen mirroring" : text(source, "mTvTitle"));
                 subtitle.setText(subtitleOverride != null ? subtitleOverride : defaultMirroring
-                        ? (checked(sourceSwitch) ? "On · Mirror your phone after reconnecting" : "Off · Open AR Space on connection")
+                        ? (mirroringChoice(sourceSwitch) ? "On · Mirror your phone after reconnecting" : "Off · Open AR Space on connection")
                         : source == view(activity, "mSystemNotificationView") ? "Phone notifications in AR Space"
                         : text(source, "mTvSubTitle"));
                 subtitle.setVisibility(subtitle.getText().length() == 0 ? View.GONE : View.VISIBLE);
                 if (toggle != null) {
-                    toggle.setChecked(checked(sourceSwitch));
+                    toggle.setChecked(defaultMirroring ? mirroringChoice(sourceSwitch) : checked(sourceSwitch));
                     toggle.setContentDescription(title.getText() + (subtitle.getText().length() == 0 ? "" : ", " + subtitle.getText())
                             + (defaultMirroring ? ". Unplug and reconnect your glasses to apply." : ""));
                 } else {

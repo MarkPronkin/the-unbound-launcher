@@ -94,7 +94,7 @@ public class PermissionSetupActivity extends Activity {
         boolean acknowledged = activity.getIntent().getBooleanExtra(PASSED, false);
         if (activity.getClass().getName().endsWith(".SplashActivity") && !acknowledged) acknowledgedSession = false;
         if (!hasAcceptedDisclaimer(activity) || AdbEntry.needsSetup(activity) || TermsConsent.required(activity) || !Settings.canDrawOverlays(activity)
-                || (!acknowledged && !acknowledgedSession && hasMissing(activity))) {
+                || (!acknowledged && !acknowledgedSession && !hasReviewedPermissions(activity) && hasMissing(activity))) {
             Intent intent = SetupNavigation.forward(activity, PermissionSetupActivity.class);
             intent.removeExtra(PASSED);
             intent.removeExtra(REVIEW);
@@ -119,7 +119,7 @@ public class PermissionSetupActivity extends Activity {
         if (hasAcceptedDisclaimer(this) && !AdbEntry.needsSetup(this) && Settings.canDrawOverlays(this)) initialize(getApplication());
         if (hasAcceptedDisclaimer(this) && !AdbEntry.needsSetup(this) && !getIntent().getBooleanExtra(REVIEW, false)
                 && !TermsConsent.required(this)
-                && (!hasMissing(this) || (getIntent().getBooleanExtra(PASSED, false) && hasReviewedPermissions(this)))) { proceed(); return; }
+                && (!hasMissing(this) || hasReviewedPermissions(this))) { proceed(); return; }
         render();
     }
     @Override public void onResume() { super.onResume(); if (!leaving) render(); }
@@ -279,7 +279,7 @@ public class PermissionSetupActivity extends Activity {
         boolean needsAdb = !review && AdbEntry.needsSetup(this);
         if (AdbEntry.available() && !review) add(page.intro, stepper(this, 1), 8, 16);
         add(page.intro, display(this, "App permissions"), 8, 0);
-        add(page.intro, text(this, needsAdb ? "You're in control. Review access, then connect this phone with on-device ADB."
+        add(page.intro, text(this, needsAdb ? "You're in control. Review access, then connect this phone with Shizuku or on-device ADB."
                 : "You're in control. Review access, then continue to your glasses.", BODY, TEXT_SECONDARY), 8, 0);
         List<Access> items = accesses(this);
         int granted = 0;

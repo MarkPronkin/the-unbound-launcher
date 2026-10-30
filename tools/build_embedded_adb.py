@@ -47,6 +47,8 @@ from experimental_stereo import patch_stereo_dex, patch_stereo_native
 from updater_manifest import patch_updater_manifest
 from debug_manifest import patch_debug_manifest
 from storage_manifest import patch_storage_manifest
+from shizuku_manifest import patch_shizuku_manifest
+from shizuku_deps import SHIZUKU_DEPS, shizuku_libraries
 from package_identity import PACKAGE, METADATA, BINARY_ENCODINGS, patch_binary_identity, repackage_dex
 from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, build_library
 from phone_pointer import ENTRY as POINTER_LIBRARY, build_library as build_pointer_library
@@ -94,6 +96,7 @@ def write_pairing_sources(destination, root=ROOT):
     for name in ["build_embedded_adb.py", "app_version.py", "updater_manifest.py", "debug_manifest.py", "embedded_adb_manifest.py", "adaptive_manifest.py", "display_startup.py", "PatchDisplayStartupDex.java", "connection_startup.py", "PatchConnectionStartupDex.java", "disconnect_audio.py", "PatchDisconnectAudioDex.java", "skip_ota.py", "PatchSkipOtaDex.java", "startup_tutorial.py", "experimental_stereo.py", "experimental_stereo.S", "experimental_stereo_native.json", "PatchExperimentalStereoDex.java", "app_color.py", "PatchAppColorDex.java", "app_color_select.S", "app_color_oes.S", "app_color_native.json", "xreal_telemetry.py", "icon_resolution.py", "PatchIconResolutionDex.java", "usb_permission.py", "PatchUsbPermissionDex.java", "PatchControllerUsbDex.java"]:
         paths.append(root / "tools" / name)
     paths.extend(root / "tools" / name for name in ("package_identity.py", "RepackageDex.java"))
+    paths.extend(root / "tools" / name for name in ("shizuku_manifest.py", "shizuku_deps.py", "test_shizuku.py"))
     paths.extend(root / "tools" / name for name in ("startup_theme.py", "branding.py", "permission_manifest.py"))
     paths.extend(root / "tools" / name for name in ("ping_cancellation.py", "PatchPingCancellationDex.java"))
     paths.extend(root / "tools" / name for name in ("controller_mode.py", "PatchControllerModeDex.java"))
@@ -225,7 +228,8 @@ def main():
         native = {"lib/" + name[4:]: archive.read(name) for name in archive.namelist() if name.startswith("jni/") and name.endswith(".so")}
     with zipfile.ZipFile(vendor / "deps/spake2-android-2.2.1.aar") as archive:
         native.update({"lib/" + name[4:]: archive.read(name) for name in archive.namelist() if name.startswith("jni/") and name.endswith(".so")})
-    libraries = [vendor / "deps/annotation-jvm-1.9.1.jar", vendor / "deps/bcprov-jdk15to18-1.81.jar", build / "conscrypt.jar"]
+    shizuku = shizuku_libraries(vendor, build)
+    libraries = [vendor / "deps/annotation-jvm-1.9.1.jar", vendor / "deps/bcprov-jdk15to18-1.81.jar", build / "conscrypt.jar", *shizuku]
     common = sorted((ROOT / "settings-ui/src").rglob("*.java"))
     # Keep the package and About screen on the shared release version.
     common.append(write_java_version(build / "generated", VERSION, {"version_name": "2.2.2", "version_code": 2873}))
@@ -238,7 +242,7 @@ def main():
     sources += sorted((vendor / "libadb/java").rglob("*.java")) + sorted((vendor / "spake2/java").rglob("*.java"))
     if args.test_only: sources += sorted((ROOT / "embedded-adb/test/src").rglob("*.java"))
     app_jar = compile_java(sources, "embedded", libraries)
-    app_dex = dex([app_jar, libraries[1], libraries[2]], "embedded-dex")
+    app_dex = dex([app_jar, *libraries[1:]], "embedded-dex")
     client_sources = build / "client-src"; client_sources.mkdir(exist_ok=True)
     sources = [IDENTITY_SOURCE]
     for source in sorted((ROOT / "port-client/src").rglob("*.java")):
@@ -251,6 +255,7 @@ def main():
     additions = {"assets/unbound-shell.jar": helper.read_bytes(), "assets/unbound-adb/pairing-sources.zip": source_zip.read_bytes(),
                  "assets/unbound-adb/NOTICE.txt": (ROOT / "embedded-adb/NOTICE.txt").read_bytes(),
                  "assets/unbound-adb/conscrypt-LICENSE.txt": (ROOT / "embedded-adb/conscrypt-LICENSE.txt").read_bytes()}
+    additions["assets/unbound-adb/shizuku-LICENSE.txt"] = (ROOT / "embedded-adb/shizuku-LICENSE.txt").read_bytes()
     additions.update(native if args.test_only else {k: v for k, v in native.items() if "/arm64-v8a/" in k})
     additions.update({name: path.read_bytes() for name, path in custom_settings_artwork(build / "settings-artwork").items()})
     if not args.test_only:
@@ -319,6 +324,8 @@ def main():
             if info.filename == "resources.arsc" and not args.test_only:
                 # This builder reuses a pinned APK; apply current branding here too.
                 value = patch_resources(value)
+            if info.filename == "AndroidManifest.xml":
+                value = patch_shizuku_manifest(value)
             if not args.test_only:
                 if info.filename in BINARY_ENCODINGS:
                     value = patch_binary_identity(info.filename, value)
@@ -355,7 +362,7 @@ def main():
                 raise ValueError("App label mismatch")
     report = {"apk": str(apk), "sha256": sha256(apk), "version": VERSION, "single_apk": True,
               "requires_companion_apk": False, "helper_sha256": helper_sha, "loopback_only": True,
-              "dependency_hashes": DEPS, "changed_payloads": changed, "added_payloads": added,
+              "dependency_hashes": {**DEPS, **SHIZUKU_DEPS}, "changed_payloads": changed, "added_payloads": added,
               "signature_and_alignment_verified": True, "physical_device_validation": "pending"}
     if not args.test_only:report['app_colors']=color_report
     if not args.test_only:report['debuggable']=False

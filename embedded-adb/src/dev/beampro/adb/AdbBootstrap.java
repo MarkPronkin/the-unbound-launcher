@@ -41,7 +41,15 @@ public final class AdbBootstrap {
     public static void install(Activity activity) {
         if (attempted || Build.VERSION.SDK_INT < 30) return;
         attempted = true;
-        if (paired(activity) && !ready(activity)) connect(activity, 0, null);
+        ShizukuBootstrap.initialize(activity);
+        if ((usesShizuku(activity) || paired(activity)) && !ready(activity)) connect(activity, 0, null);
+    }
+    static boolean usesShizuku(Context context) {
+        return "shizuku".equals(context.getSharedPreferences("unbound-adb", 0).getString("connection-method", "adb"));
+    }
+    static void selectMethod(Context context, boolean shizuku) {
+        if (busy()) return;
+        context.getSharedPreferences("unbound-adb", 0).edit().putString("connection-method", shizuku ? "shizuku" : "adb").apply();
     }
     static boolean paired(Context context) {
         return context.getSharedPreferences("unbound-adb", 0).getBoolean("paired", false);
@@ -53,9 +61,10 @@ public final class AdbBootstrap {
             return binder != null && binder.isBinderAlive() && binder.pingBinder();
         } catch (Exception absent) { return false; }
     }
-    static boolean busy() { return busy; }
+    static boolean busy() { return busy || ShizukuBootstrap.busy(); }
     static String status(Context context) {
         if (ready(context)) return "Ready · AR app windows are enabled";
+        if (usesShizuku(context)) return ShizukuBootstrap.status();
         if (paired(context) && status.equals("Pair this phone to enable AR app windows.")) return "Paired · Enable Wireless debugging, then tap Connect and start.";
         return status;
     }
@@ -63,7 +72,7 @@ public final class AdbBootstrap {
         pair(source, code, pairPort, connectPort, discovery, null, done);
     }
     static synchronized void pair(Context source, String code, int pairPort, int connectPort, AdbDiscovery discovery, Runnable accepted, Runnable done) {
-        if (busy) return;
+        if (busy() || usesShizuku(source)) return;
         if (!code.matches("[0-9]{6}")) { status = "Enter Android's six-digit pairing code."; return; }
         int chosen = pairPort;
         if (chosen == 0 && discovery != null) {
@@ -92,7 +101,8 @@ public final class AdbBootstrap {
         });
     }
     static synchronized void connect(Context source, int port, AdbDiscovery discovery) {
-        if (busy) return;
+        if (usesShizuku(source)) { ShizukuBootstrap.connect(source); return; }
+        if (busy()) return;
         final Context context = source.getApplicationContext();
         busy = true; status = "Connecting to this phone…";
         WORK.execute(() -> {
@@ -130,16 +140,8 @@ public final class AdbBootstrap {
         }
         if (connectedPort == 0) throw new StartupFailure("ADB connection failed. Check Wireless debugging and its current connection port. Pair again if Android forgot this app.", last);
         if (!"2000".equals(shell(adb, "id -u").trim())) throw new SecurityException("ADB did not provide Android shell access");
-        String apk = quote(context.getApplicationInfo().sourceDir);
         String dir = "/data/local/tmp/" + context.getPackageName();
-        String jar = dir + "/helper-" + HelperPayload.SHA256 + ".jar";
-        String command = "mkdir -p " + dir + " && chmod 700 " + dir
-                + " && rm -f " + jar + ".new"
-                + " && unzip -p " + apk + " assets/unbound-shell.jar > " + jar + ".new"
-                + " && [ \"$(sha256sum " + jar + ".new | cut -d' ' -f1)\" = " + quote(HelperPayload.SHA256) + " ]"
-                + " && chmod 444 " + jar + ".new && mv -f " + jar + ".new " + jar
-                + " && (CLASSPATH=" + jar + " /system/bin/nohup /system/bin/setsid /system/bin/app_process / dev.beampro.bridge.LaunchServer --embedded"
-                + " > " + dir + "/helper.log 2>&1 < /dev/null & sleep 0.3) && echo UNBOUND_HELPER_STARTED";
+        String command = HelperStarter.command(context);
         status = "Starting the bundled launch helper…";
         String output = shell(adb, command);
         if (!output.contains("UNBOUND_HELPER_STARTED")) {
@@ -169,7 +171,6 @@ public final class AdbBootstrap {
             return new String(out.toByteArray(), StandardCharsets.UTF_8);
         } finally { timeout.cancel(false); }
     }
-    private static String quote(String value) { return "'" + value.replace("'", "'\\''") + "'"; }
     private static void disconnect(LocalAdb adb) {
         if (adb != null) try { adb.disconnect(); } catch (Exception ignored) {}
     }

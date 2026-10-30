@@ -36,6 +36,11 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
             return !mirroring;
         } catch(Exception error) { Log.w(TAG,"Cannot read the connection preference; skipping automatic AR entry",error);return false; }
     }
+    /** A one-time AR entry from mirroring lasts until the glasses connect again. */
+    private static void restoreMirroring(Context context) {
+        try { Class.forName("dev.beampro.port.GlassesConnectionCompat").getMethod("restoreMirroring",Context.class).invoke(null,context); }
+        catch(Exception error) { Log.w(TAG,"Cannot restore the connection preference",error); }
+    }
     private static boolean glasses(UsbDevice device) {
         if(device==null)return false;
         try {
@@ -58,6 +63,7 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
         if(!glasses(device))return;
         Context context=source.getApplicationContext();
         boolean attached=UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(action);
+        if(attached&&!sessionActive())restoreMirroring(context);
         if(attached && (!enabled(context)||sessionActive()))return;
         if(attached)state(context).edit().putString("device",device.getDeviceName()).putInt("product",device.getProductId())
             .putInt("id",device.getDeviceId()).apply();
@@ -66,7 +72,7 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
         WORK.execute(()->{
             try {
                 if(attached && !AdbBootstrap.ready(context)) {
-                    if(AdbBootstrap.paired(context))AdbBootstrap.connect(context,0,null);
+                    if(AdbBootstrap.usesShizuku(context)||AdbBootstrap.paired(context))AdbBootstrap.connect(context,0,null);
                     return; // The bootstrap calls helperReady once its Binder is available.
                 }
                 dispatch(context,device,attached);

@@ -21,6 +21,7 @@ from permission_manifest import MENU_ACTIVITY, MENU_CONFIG_CHANGES, MENU_ORIGINA
 from embedded_adb_manifest import AUTHORITY, patch_release_manifest, patch_usb_attach_manifest
 from adaptive_manifest import patch_adaptive_manifest
 from storage_manifest import PERMISSION as STORAGE_PERMISSION, patch_storage_manifest
+from shizuku_manifest import PERMISSION as SHIZUKU_PERMISSION, PROVIDER as SHIZUKU_PROVIDER
 from display_startup import patch_display_startup
 from presentation_only import patch_presentation
 from app_color import APP_SHADER, LIBRARY, OES_SHADERS, verify_app_shader, verify_direct_oes_shaders, verify_native_shader_loading, patch_color_dex, patch_color_native
@@ -123,7 +124,12 @@ def verify(apk):
         assert len(debug_provider) == 1 and debug_provider[0]['exported'] == 0
         assert debug_provider[0]['grantUriPermissions'] == 0xFFFFFFFF
         assert debug_provider[0]['authorities'] == PACKAGE + '.unbound.debug'
-        assert [e for e in entries if e[0] == "uses-permission"] == [e for e in before if e[0] == "uses-permission"]
+        assert [e for e in entries if e[0] == "uses-permission" and e[1].get("name") != SHIZUKU_PERMISSION] == [e for e in before if e[0] == "uses-permission"]
+        assert ("uses-permission", {"name": SHIZUKU_PERMISSION}) in entries
+        shizuku = [a for t, a in entries if t == 'provider' and a.get('name') == SHIZUKU_PROVIDER]
+        assert len(shizuku) == 1 and shizuku[0]['exported'] == 0xFFFFFFFF
+        assert shizuku[0]['permission'] == 'android.permission.INTERACT_ACROSS_USERS_FULL'
+        assert shizuku[0]['authorities'] == PACKAGE + '.shizuku'
         assert [a for t, a in entries if t == "uses-permission" and a.get("name") == STORAGE_PERMISSION] == [{"name": STORAGE_PERMISSION}]
         for tag, name, exported in [("activity", "AdbPairingActivity", 0), ("service", "PairingOverlayService", 0), ("provider", "LocalBridgeProvider", 0xFFFFFFFF)]:
             match = [a for t, a in entries if t == tag and a.get("name") == "dev.beampro.adb." + name]
