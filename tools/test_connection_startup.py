@@ -84,7 +84,8 @@ STUBS.update({
     'ai/nreal/nebula/activity/setting/SettingActivity.java': '''package ai.nreal.nebula.activity.setting;public class SettingActivity extends android.app.Activity {
       public int refreshes;private void check3DBtn(){refreshes++;}}''',
     'android/hardware/usb/UsbDevice.java': '''package android.hardware.usb;public class UsbDevice {
-      public int vendor;public UsbDevice(int v){vendor=v;}public int getVendorId(){return vendor;}public int getProductId(){return 1080;}}''',
+      public int vendor,product;public UsbDevice(int v){this(v,1080);}public UsbDevice(int v,int p){vendor=v;product=p;}
+      public int getVendorId(){return vendor;}public int getProductId(){return product;}}''',
     'android/hardware/usb/UsbManager.java': '''package android.hardware.usb;public class UsbManager {
       public boolean permission=true;public java.util.HashMap<String,UsbDevice> devices=new java.util.HashMap<>();
       public java.util.HashMap<String,UsbDevice> getDeviceList(){return devices;}public boolean hasPermission(UsbDevice d){return permission;}}''',

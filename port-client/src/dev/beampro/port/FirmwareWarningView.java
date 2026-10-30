@@ -68,13 +68,17 @@ public final class FirmwareWarningView extends FrameLayout {
         detail=text(result.detail,12,MUTED);detail.setLineSpacing(0,1.3f);body.addView(detail,row(12));
         detail.setVisibility(unreadable(result)?VISIBLE:GONE);
         detected.setContentDescription(result.detail+" Detected: "+result.detected);
-        TextView instructions=text("Install the latest stable firmware from XREAL’s website. If you’re on a beta, return to the stable release.",14,MUTED);
+        boolean rog=FirmwarePolicy.ROG_UPDATER.equals(result.updater);
+        TextView instructions=text(rog
+                ?"Install the recommended glasses firmware from ASUS’s ROG support website. The glasses and dock have separate versions."
+                :"Install the latest stable firmware from XREAL’s website. If you’re on a beta, return to the stable release.",14,MUTED);
         instructions.setLineSpacing(0,1.4f);body.addView(instructions,row(19));
-        Button updater=button("xreal.com/ota  ↗",false);updater.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+        String updaterLabel=rog?"ASUS ROG support":"xreal.com/ota";
+        Button updater=button(updaterLabel+"  ↗",false);updater.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
         updater.setTextColor(TEXT);updater.setPadding(0,dp(9),0,dp(9));
         updater.setOnClickListener(v->{
-            try {activity.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(FirmwarePolicy.UPDATER)));}
-            catch(RuntimeException unavailable){android.widget.Toast.makeText(activity,"Open xreal.com/ota in your browser.",android.widget.Toast.LENGTH_LONG).show();}
+            try {activity.startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(result.updater)));}
+            catch(RuntimeException unavailable){android.widget.Toast.makeText(activity,"Open "+result.updater+" in your browser.",android.widget.Toast.LENGTH_LONG).show();}
         });body.addView(updater,row(9));
         actions=new LinearLayout(activity);actions.setOrientation(LinearLayout.VERTICAL);actions.setBackgroundColor(BG);
         actions.setPadding(dp(26),dp(8),dp(26),dp(8));

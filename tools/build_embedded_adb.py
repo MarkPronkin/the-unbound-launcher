@@ -38,6 +38,9 @@ from egl_colorspace_compat import patch_egl_colorspace, verify_egl_colorspace
 from overlay_routing import patch_overlay_routing, verify_overlay_routing
 from app_surface_routing import patch_surface_routing, verify_surface_routing
 from recording_duration import patch_recording_duration, verify_recording_duration
+from high_performance_apps import patch_high_performance_apps, verify_high_performance_apps
+from anchor_windows import patch_anchor_windows, verify_anchor_windows
+from recording_logo import patch_recording_logo, verify_recording_logo
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
@@ -106,6 +109,9 @@ def write_pairing_sources(destination, root=ROOT):
     paths.append(root / "tools/egl_colorspace_compat.py")
     paths.append(root / "tools/overlay_routing.py")
     paths.append(root / "tools/recording_duration.py")
+    paths.append(root / "tools/high_performance_apps.py")
+    paths.append(root / "tools/anchor_windows.py")
+    paths.append(root / "tools/recording_logo.py")
     paths.extend(root / "tools" / name for name in ("app_surface_routing.py", "app_surface_routing.S", "app_surface_routing_native.json"))
     paths.append(root / "tools/unity_shader_loader.py")
     paths.extend(root / "tools" / name for name in ("presentation_only.py", "PatchPresentationDex.java"))
@@ -298,6 +304,9 @@ def main():
             if info.filename == LIBRARY and not args.test_only:
                 value = patch_surface_routing(patch_overlay_routing(patch_stereo_native(patch_startup_tutorial(patch_color_native(value)))))
                 value = patch_recording_duration(value)
+                value = patch_high_performance_apps(value)
+                value = patch_anchor_windows(value)
+                value = patch_recording_logo(value)
             if info.filename == MODE_LIBRARY and not args.test_only:
                 value = patch_egl_colorspace(patch_display_mode(value))
             if info.filename == TEXTURE_LIBRARY and texture_library is not None:
@@ -391,6 +400,9 @@ def main():
                             'low_level_flash_and_boot_guards_retained':True,'hardware_validation':'pending'}
         report['firmware_gate']={'before_sdk_initialization':True,'read_only_usb':True,
                                 'recommendations_verified_on':'2026-10-29','exact_per_model_stable_release':True,
+                                'rog_r1':{'release':'MCM103','pilot':'1.9.0.20260709183133',
+                                          'dsp':'15.A.01.097_20250430','verified_on':'2026-10-30',
+                                          'updater':'https://rog.asus.com/glasses/rog-xreal-r1/helpdesk_bios/'},
                                 'older_newer_beta_or_unreadable_pauses':True,'override':'current connection only',
                                 'screen':'full-screen firmware warning with updater, Exit and small explicit override',
                                 'hardware_validation':'pending'}
@@ -477,6 +489,12 @@ def main():
             report['overlay_color'] = {'compositor_color_patches_enabled': False,
                                        'stock_compositor_color_pipeline_verified': True}
             routed = patch_binary_identity(LIBRARY, built.read(LIBRARY), restore=True)
+            report['recording_logo'] = verify_recording_logo(routed)
+            routed = patch_recording_logo(routed, restore=True)
+            report['anchor_windows'] = verify_anchor_windows(routed)
+            routed = patch_anchor_windows(routed, restore=True)
+            report['high_performance_apps'] = verify_high_performance_apps(routed)
+            routed = patch_high_performance_apps(routed, restore=True)
             report['recording_duration'] = verify_recording_duration(routed)
             routed = patch_recording_duration(routed, restore=True)
             report['app_surface_routing'] = verify_surface_routing(routed)

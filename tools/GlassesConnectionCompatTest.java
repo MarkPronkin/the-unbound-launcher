@@ -274,6 +274,37 @@ public final class GlassesConnectionCompatTest {
         GlassesConnectionCompat.begin(p);Handler.advance(0);
         check("20_L".equals(com.xreal.basicfunc.BasicFuncManager.type),"Keep the other SKU-specific model identity");close(p);
 
+        for(int product:new int[]{0x1d9c,0x1d9d}) {
+            p=fixture();m=XREALManager.instance;m.mGlassesType=6;
+            Context.usb.devices.put("glasses",new UsbDevice(0x0b05,product));
+            m.mOtaManager.mcu="MCM103";m.mOtaManager.software="1.9.0.20260709183133";
+            GlassesConnectionCompat.begin(p);Handler.advance(0);
+            check(m.mOtaManager.reads.equals(java.util.Arrays.asList(1,6,3)),"Both R1 USB identities reach the actual firmware reader");
+            check(FirmwareWarningView.last==null&&m.starts==1&&p.success==1,"ASUS R1 firmware passes its own policy without an override");
+            check("6_L".equals(com.xreal.basicfunc.BasicFuncManager.type),"R1 policy type 1003 never replaces the native One Pro SKU identity");
+            check(dev.beampro.settings.DebugData.events.stream().filter(e->e[1].equals("firmware_component")).count()==3,
+                    "Retain every detected firmware component for the next hardware report");close(p);
+        }
+        p=fixture();m=XREALManager.instance;m.mGlassesType=6;
+        Context.usb.devices.put("glasses",new UsbDevice(0x0b05,0x1d9d));m.mOtaManager.mcu="MCM102";
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        check(m.starts==0&&m.mOtaManager.skuCalls==0&&FirmwareWarningView.last.result.model.equals("ROG XREAL R1"),
+                "Older R1 firmware pauses before native startup with the correct model name");
+        check(FirmwareWarningView.last.result.detected.equals("MCM102")&&FirmwareWarningView.last.result.updater.equals(FirmwarePolicy.ROG_UPDATER),
+                "R1 warning reports the actual firmware and ASUS updater");close(p);
+        p=fixture();m=XREALManager.instance;m.mGlassesType=6;
+        Context.usb.devices.put("glasses",new UsbDevice(0x0b05,0x1d9d));m.mOtaManager.readFailure=true;
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        check(m.starts==0&&m.mOtaManager.reads.equals(java.util.Arrays.asList(1))&&FirmwareWarningView.last.result.detected.equals("Not readable"),
+                "A real R1 read failure remains distinct from a missing model policy");close(p);
+        p=fixture();m=XREALManager.instance;m.mGlassesType=6;m.nextResult=2;
+        Context.usb.devices.put("glasses",new UsbDevice(0x0b05,0x1d9c));
+        m.mOtaManager.mcu="MCM103";m.mOtaManager.software="1.9.0.20260709183133";
+        GlassesConnectionCompat.begin(p);Handler.advance(0);
+        Context.usb.devices.put("glasses",new UsbDevice(0x0b05,0x1d9d));Handler.advance(2000);
+        check(m.starts==2&&p.success==1&&m.mOtaManager.reads.size()==3,
+                "R1 approval survives its own boot/app USB reconfiguration without overlapping reads");close(p);
+
         p=fixture();m=XREALManager.instance;m.nextResult=2;Context.usb.devices.clear();Context.usb.devices.put("other",new UsbDevice(1234));
         GlassesConnectionCompat.begin(p);Handler.advance(5000);
         check(m.starts==0&&m.mOtaManager.reads.isEmpty(),"An unrelated USB device cannot enter the firmware reader or SDK");close(p);

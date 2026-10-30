@@ -11,6 +11,11 @@ from presentation_only import patch_presentation
 from test_display_startup import JAVA, ROOT
 
 SOURCES = {
+ 'com/xreal/glassesdisplayplugevent/GlassesInitSetting.java': '''package com.xreal.glassesdisplayplugevent;
+public class GlassesInitSetting {
+ public static GlassesInitSetting getInstance(){return new GlassesInitSetting();}
+ public boolean isEthernetSeriesGlasses(){return false;}
+}''',
  'ai/nreal/activitylife/NRXRApp.java': '''package ai.nreal.activitylife;
 import android.app.*;import android.content.*;import android.hardware.display.*;import android.view.*;
 public class NRXRApp {
@@ -54,7 +59,8 @@ public class LaunchSpaceAcrivity extends Activity {
  public void onCreate(Bundle b){super.onCreate(b);mMultiResumeMode=getIntent().getBooleanExtra("multiResumeMode",true);
    mUnityPlayer=new UnityPlayer(this);mImeMaskView=new View(this);TextView text=new TextView(this);
    text.setText("Phone controller — direct output fixture");mUnityPlayer.addView(text);setContentView(mUnityPlayer);
-   PresentationDeviceChecks.owner=this;new Handler(getMainLooper()).post(()->PresentationDeviceChecks.showOutput(this));}
+   PresentationDeviceChecks.owner=this;
+   if(!PresentationDeviceChecks.delayOutput)new Handler(getMainLooper()).post(()->PresentationDeviceChecks.showOutput(this));}
  protected void onDestroy(){mUnityPlayer.destroy();super.onDestroy();}
  protected void onStart(){throw new AssertionError("SDK transplant missing");}
  protected void onResume(){throw new AssertionError("SDK transplant missing");}
@@ -93,7 +99,9 @@ def build(output, surface_loss_negative_control=False):
     player.write_text((ROOT/'tools/PresentationUnityPlayerFixture.java').read_text());files.append(player)
     files.extend(ROOT/'port-client/src/dev/beampro/port'/name for name in (
         'PresentationOnlyCompat.java','BackgroundUnitySurface.java','PresentationReadiness.java','DisplayStartupCompat.java',
-        'StereoPresentationCompat.java','PresentationWindowDiagnostics.java','ArBackdropActivity.java','ArSessionService.java'))
+        'StereoPresentationCompat.java','PresentationWindowDiagnostics.java','ArBackdropActivity.java','ArSessionService.java',
+        'GlassesNetworkCompat.java'))
+    files.append(ROOT/'compat/src/dev/beampro/compat/GlassesIdentity.java')
     if surface_loss_negative_control:
         compat=ROOT/'port-client/src/dev/beampro/port/PresentationOnlyCompat.java'
         before=compat.read_text();needle='if(isActive(activity))active.retainRenderSurface();'
@@ -126,6 +134,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,default=ROOT/'artifacts/presentation-only-2919/runtime')
     parser.add_argument('--serial',default='emulator-5554');parser.add_argument('--build-only',action='store_true')
+    parser.add_argument('--adb-port',type=int,default=5037)
     parser.add_argument('--physical-device',action='store_true',
         help='Allow a non-emulator serial; the separate fixture package is uninstalled afterwards')
     parser.add_argument('--surface-loss-negative-control',action='store_true',
@@ -135,7 +144,7 @@ def main():
         parser.error('Only use an isolated emulator, or pass --physical-device')
     output=args.output.resolve();apk=build(output,args.surface_loss_negative_control)
     if args.build_only:return
-    adb=[str(Path.home()/'Library/Android/sdk/platform-tools/adb'),'-s',args.serial]
+    adb=[str(Path.home()/'Library/Android/sdk/platform-tools/adb'),'-P',str(args.adb_port),'-s',args.serial]
     try:run_checks(adb,apk,output,args.surface_loss_negative_control)
     finally:
         if args.physical_device:subprocess.run([*adb,'uninstall','dev.beampro.presentationtest'],capture_output=True)

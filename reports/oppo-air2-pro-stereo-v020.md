@@ -1,4 +1,101 @@
-# OPPO CPH2791 / Air 2 Pro: stretched experimental 3D on 0.2.0
+# OPPO CPH2791 / Air 2 Pro: experimental 3D investigation
+
+## Follow-up: 0.2.2 / build 2953, October 29
+
+The follow-up archive `unbound-debug-20261029-181803-f27e01b7 (1).zip`
+identifies **0.2.2 alpha, build 2953**, on the same OPPO CPH2791 / Android 17
+and Air 2 Pro (SDK model 3) combination. It was created at **14:18:03 EDT
+(18:18:03 UTC) on October 29, 2026**. The report says only that 3D is not
+working properly; the wearer did not describe the visual symptom. Do not
+assume this session repeats the earlier stretching, affects the whole scene,
+or fails only inside app windows. Extracted evidence and file hashes are in
+`artifacts/oppo-stereo-2953/`.
+
+**The new readback confirms a live two-eye Unity layout. It does not establish
+correct final composition or optical output, and does not yet justify a
+renderer correction.**
+
+### What the new capture establishes
+
+- `app.log:50929` starts the phone-owned Unity session, PID 25788, on
+  display 126 at **3840 × 1080 / 60 Hz**, at 14:17:14.282. The Java SDK
+  requests legacy mode 3 at line 50472; the MCU reports a successful switch
+  to mode 3 at line 50491. Unity's final home configuration is
+  `Mode_3D_60Hz` at line 52426. These are application/SDK observations;
+  this export does not retain a connected hardware-mode dump.
+- `renderer-geometry.txt:74–116`, sampled at **14:17:20.370 EDT**, records
+  initialized current/home modes of 3, active XR, and a **1968 × 1134
+  two-slice texture array**. Its single render pass has **two render
+  parameters**, using slices 0 and 1 with full normalized viewports. The
+  per-eye projection scale-aspect ratios are **1.742510** and **1.737568**;
+  the camera/target aspect is approximately **1.73545**. This directly
+  resolves the previous uncertainty about whether Unity supplied one or
+  two eyes. It does not show an obvious factor-of-two aspect error in the
+  sampled eye targets or projections. A normalized `[0,0,1,1]` viewport
+  spans its texture-array slice; its reported ratio of 1 is not a square
+  eye texture.
+- `renderer-geometry.txt:163–206`, sampled at **14:17:42.407 EDT**, retains
+  both eyes and their projection ratios after the SDK changes resolution
+  scale to 0.8. The target becomes **1574 × 907**, preserving approximately
+  the same aspect. This later scaling does not by itself explain a distorted
+  image. Display 127 at 1920 × 1080 appears after an app opens; it coexists
+  with glasses display 126 and is not evidence of a return to mono output.
+- `immersive-windows.txt:19–30` preserves a connected SDK Presentation
+  readback at **14:17:40.526 EDT**: **3840 × 1080**, display 126, preferred
+  mode 140, no fit insets, and system bars reported hidden. This establishes
+  the client window's dimensions, not its submitted buffer, SurfaceFlinger
+  transform, or optical proportions.
+- `glasses-startup.txt:112` reaches `event=ready` at 14:17:19.909. Native
+  frame metrics continue until the disconnect. There is no retained fatal
+  exception or native fatal signal in this attempt. Startup readiness and
+  frame metrics do not establish that the wearer sees a usable scene.
+
+### Evidence that must not be attributed to this attempt
+
+The 10.5 MB app log retains older October 28 sessions alongside the new one.
+Its `composition shader error!` and vertex-stage storage-block link errors
+belong to an older PID 30898 session. None of those messages is retained in
+the October 29 14:17 attempt. They are not evidence of a compositor shader
+failure in this new test. Log throttling still drops startup messages,
+including 207 rows at `app.log:52682`, so the missing native framebuffer
+readback remains unavailable rather than a confirmed successful result.
+
+`NativeRendering+InitSetFrameBufferMode` still reports `UnSupported`, error 4,
+at `app.log:52810`. The earlier mono session also reported that error, and
+this session subsequently supplies two Unity eyes. That error alone is not
+a diagnosis of the visual problem or proof that Unity remained in mono.
+
+The wearer **unplugs at 14:17:46.389** (`glasses-startup.txt:118`), before
+the 14:18:03 export. `device-and-session.txt`, `display.txt`, and the active
+SurfaceFlinger display list therefore contain only the phone display. The
+last renderer sample is also shutdown state. These must not be read as a
+stereo-startup failure. Unlike the earlier 2946 export, this archive cannot
+establish the glasses layer's final buffer/crop/transform while connected.
+There is also no initialized Force-3D-off baseline in the retained geometry.
+
+### Remaining diagnostic target
+
+The earlier one-eye-versus-two-eye uncertainty is resolved on the Unity side.
+The native compositor's final per-eye output mapping and the visible symptom
+remain unknown. Final composition, an app-surface issue, and a headset/link
+issue remain possibilities; none is established as the cause. Do not change
+projection, FOV, eye-texture size, or the physical mode based on this capture
+alone. This investigation changes documentation only; no fix or new APK is
+claimed, and updating to 0.2.3 is not a validated correction for this report.
+
+The useful next reproduction is a short description of the symptom and a
+debug export **while the bad 3D view is still running and the glasses are
+connected**, preferably after collecting a Force-3D-off baseline in the same
+collection. A description should distinguish the launcher from app windows,
+stretching from doubling/blank output, and one eye from both. Native output
+viewport/framebuffer readback is the next instrumentation target if the
+connected dump still leaves composition ambiguous. Until there is a confirmed
+correction, keep Force 3D off on this affected combination and reconnect.
+
+The follow-up ZIP's SHA-256 is
+`93cd654d042a6b5d522d6c95f13911484449844e4d0e40cfed78644ed354f2cf`.
+
+## Original report: stretched 3D on 0.2.0 / build 2946
 
 The wearer reports: “3d was unusable so i had to turn it off” and “i could
 see things but they were stretched.” The supplied

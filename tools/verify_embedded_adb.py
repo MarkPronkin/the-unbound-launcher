@@ -42,6 +42,9 @@ from egl_colorspace_compat import patch_egl_colorspace, verify_egl_colorspace
 from overlay_routing import patch_overlay_routing, verify_overlay_routing
 from app_surface_routing import patch_surface_routing, verify_surface_routing
 from recording_duration import patch_recording_duration, verify_recording_duration
+from high_performance_apps import patch_high_performance_apps, verify_high_performance_apps
+from anchor_windows import patch_anchor_windows, verify_anchor_windows
+from recording_logo import patch_recording_logo, verify_recording_logo
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
@@ -262,13 +265,19 @@ def verify(apk):
             restored = patch_icon_resolution(restored,Path(work)/"icons",java,restore=True,baseline=base.read("classes2.dex"))
             assert restored == base.read("classes2.dex"), "Headset icon hook scope differs from the baseline"
             routed = patch_binary_identity(LIBRARY, z.read(LIBRARY), restore=True)
+            recording_logo_report = verify_recording_logo(routed)
+            routed = patch_recording_logo(routed, restore=True)
+            anchor_report = verify_anchor_windows(routed)
+            routed = patch_anchor_windows(routed, restore=True)
+            high_performance_report = verify_high_performance_apps(routed)
+            routed = patch_high_performance_apps(routed, restore=True)
             recording_report = verify_recording_duration(routed)
             routed = patch_recording_duration(routed, restore=True)
             surface_report = verify_surface_routing(routed)
             routed = patch_surface_routing(routed, restore=True)
             routing_report = verify_overlay_routing(routed)
             native = patch_startup_tutorial(patch_stereo_native(patch_overlay_routing(routed, restore=True), restore=True), restore=True)
-            assert patch_color_native(native,restore=True)==base.read(LIBRARY), "Native color/tutorial/stereo/recording patch scope differs"
+            assert patch_color_native(native,restore=True)==base.read(LIBRARY), "Native color/tutorial/stereo/recording/logo/high-performance/anchor-window patch scope differs"
         mode_library = z.read(MODE_LIBRARY)
         egl_report = verify_egl_colorspace(mode_library)
         mode_library = patch_egl_colorspace(mode_library, restore=True)
@@ -381,7 +390,7 @@ def verify(apk):
                          "package_identity.py", "RepackageDex.java", "ping_cancellation.py", "PatchPingCancellationDex.java",
                          "glasses_startup.py", "PatchGlassesStartupDex.java", "ethernet_ping.py", "PatchEthernetPingDex.java",
                          "notifications.py", "PatchNotificationsDex.java",
-                         "display_mode_compat.py", "overlay_routing.py", "recording_duration.py", "app_surface_routing.py",
+                         "display_mode_compat.py", "overlay_routing.py", "recording_duration.py", "recording_logo.py", "high_performance_apps.py", "anchor_windows.py", "app_surface_routing.py",
                          "app_surface_routing.S", "app_surface_routing_native.json", "unity_shader_loader.py", "hardware_buffer_texture.py", "phone_pointer.py", "renderer_diagnostics.py",
                          "controller_mode.py", "PatchControllerModeDex.java", "home_button.py", "PatchHomeButtonDex.java",
                          "input_compat.py", "PatchInputCompatDex.java", "brightness_lock.py", "PatchBrightnessLockDex.java"):
@@ -423,13 +432,16 @@ def verify(apk):
             "android_11_provider_contract_adapter_wired": True,
             "manufacturer_setup_help_packaged": True,
             "class_definitions": len(definitions), "duplicate_classes": 0, "original_permissions_preserved": True,
-            "native_libraries_unchanged_except_audited_color_tutorial_stereo_mode_overlay_and_recording": True,
+            "native_libraries_unchanged_except_audited_color_tutorial_stereo_mode_overlay_recording_logo_high_performance_and_anchor_windows": True,
             "display_mode_compatibility": mode_report,
             "egl_colorspace_compatibility": egl_report,
             "overlay_color": overlay_report,
             "overlay_routing": routing_report,
             "app_surface_routing": surface_report,
             "recording_duration": recording_report,
+            "recording_logo": recording_logo_report,
+            "high_performance_apps": high_performance_report,
+            "anchor_windows": anchor_report,
             "automatic_first_use_tutorial_disabled_with_exact_native_scope": True,
             "experimental_stereo_default_off_and_both_selectors_scoped": True,
             "all_original_resources_except_audited_app_shader_and_package_identity_identical": True,

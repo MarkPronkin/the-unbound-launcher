@@ -45,7 +45,16 @@ public final class GlassesNetworkDeviceChecks extends Instrumentation {
             GlassesNetworkCompat.deliver(deliver,callback,true);
             check(callback.calls==1&&!callback.ready,"No authorized glasses stops native startup under real Android services");
             check(cm.getBoundNetworkForProcess()==null,"Rejected setup leaves process routing clear");
+            try{GlassesNetworkCompat.select(context,0);throw new AssertionError("Expected absent renderer glasses");}
+            catch(java.io.IOException expected){}
+            check(cm.getBoundNetworkForProcess()==null,"Renderer also rejects absent glasses without changing routing");
             com.xreal.glassesdisplayplugevent.GlassesInitSetting.ethernet=false;
+            check(GlassesNetworkCompat.select(context,0)==null,"Non-Ethernet renderer bypasses process binding under ART");
+            check(cm.bindProcessToNetwork(network),"Select a real Android network for renderer lease cleanup");
+            GlassesNetworkCompat.Lease renderer=new GlassesNetworkCompat.Lease(null,null,cm,network,null);
+            int rendererMark=socketMark(true);renderer.close();renderer.close();
+            check(cm.getBoundNetworkForProcess()==null,"Shipped renderer lease clears process binding idempotently");
+            check(socketMark(false)==rendererMark,"Renderer control socket keeps its network after lease cleanup");
             callback=new Callback();GlassesNetworkCompat.deliver(deliver,callback,true);
             check(callback.calls==1&&callback.ready,"Non-Ethernet startup remains unchanged in shipped adapter");
             callback=new Callback();GlassesNetworkCompat.deliver(deliver,callback,false);

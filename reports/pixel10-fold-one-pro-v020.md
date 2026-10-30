@@ -1,6 +1,197 @@
-# Pixel 10 Pro Fold / XREAL One Pro: native controller startup still fails on stable firmware
+# Pixel 10 Pro Fold / XREAL One Pro: AR startup confirmed after renderer network selection
 
-## Candidate fix — build 2956
+## Reporter confirms working AR Space
+
+In the follow-up relayed by the user, the reporter confirms that **AR Space
+works on the Pixel 10 Pro Fold / XREAL One Pro with the renderer network
+changes described below**. This is a successful hardware result for that
+implementation.
+
+The reported working implementation extracts `GlassesNetworkCompat.select()`
+into a scoped `Lease` shared with `deliver(...)`. The renderer selects the
+glasses Ethernet network before launching Unity and again during display mode
+switches in `Session.onDisplayAdded(int)`. It releases the temporary binding
+one second after the native Presentation attaches, or when the session closes.
+Its reported host suite passes 28 assertions.
+
+The hardware confirmation applies to this `select()`/`Lease` implementation.
+The separately built development APK 2958 below uses a different implementation
+and retains its own validation status.
+
+## Implementation of the supplied specification in development build 2959
+
+Build 2959 implements the supplied shared `select()`/`Lease` design. Both
+`deliver(...)` and the renderer session use the same USB validation, Ethernet
+network selection and process-binding restoration. The SDK callback keeps its
+three-second network-publication wait and exactly-once result delivery.
+Non-Ethernet glasses bypass process binding.
+
+`Session.selectNetwork()` acquires the lease immediately before Unity launches
+and again when a glasses display re-enumerates. It releases the previous lease
+before selecting the current Android network, and notifies the SDK of the new
+display only after selection succeeds. UI callbacks use the selector's zero-wait
+overload and retry through their Handler, retaining the existing startup deadline.
+
+The renderer releases its temporary binding **one second after the native
+Presentation attaches**, or immediately when the session closes. A display
+switch cancels the old release timer. Each timer also checks its captured lease
+identity, so a stale callback cannot release a newer selection. The existing
+Starting/Running notification distinction and failed-start cleanup are retained.
+
+Local validation passes:
+
+- 44 shared-selector and callback assertions, including delayed network
+  publication, USB replacement, rejected binding, routing restoration and
+  non-Ethernet bypass.
+- 22 renderer-session assertions, including the full one-second grace period,
+  switching to a fresh or unchanged network, stale timers, delayed publication,
+  duplicate display events, unrelated monitors and failed-switch cleanup.
+- 70 Android Presentation/lifecycle assertions and 19 Android checks executing
+  the signed APK's actual network adapter and a native libc socket.
+- Existing connection recovery (114 assertions), firmware policy (95), direct
+  display routing (13) and physical-mode readiness (103), including SDK DEX
+  patch/restoration tests.
+- The full APK audit passes, including shared-lease use by the SDK callback,
+  renderer selection and cleanup wiring, the delayed-release hook, original
+  SDK restoration, helper checks and bundled runtime source matching.
+
+The comparison against build 2958 verifies that only
+`GlassesNetworkCompat.java` and `PresentationOnlyCompat.java` changed among
+107 bundled runtime source files. All 88 native libraries, the three original
+SDK DEX files, Unity assets, settings resources and helper executable payload
+are identical. The manifest changes only its version code. The source archive
+adds the two source edits and `version.json`; the rebuilt helper JAR's archive
+metadata changes while its extracted payload stays identical.
+
+The signed candidate is
+`artifacts/unbound-launcher-network-lease-2959/the-unbound-launcher.apk`,
+SHA-256 `fcb3a4de7130dd73ff81d83bda4a5172012222733fb39127b52aa08fccbb5f30`.
+It keeps version name **0.2.3 alpha** with development build code **2959**.
+The signing certificate matches build 2958 and public 0.2.3, and signature
+verification and 16 KB alignment pass, allowing an in-place update.
+Scope and runtime evidence are under `artifacts/renderer-network-lease-2959/`.
+The build log and full package audit accompany the APK in
+`artifacts/unbound-launcher-network-lease-2959/`.
+The reporter's successful hardware result applies to his implementation of
+this specification; this exact locally built APK still needs a hardware retest.
+
+## 0.2.3 retest establishes a second startup failure
+
+`unbound-debug-20261029-232948-0c762c8a.zip` is from **Google Pixel 10 Pro
+Fold, Android 17 / API 37, XREAL One Pro, Unbound 0.2.3 alpha build 2957**.
+The reporter sees the mirrored display split in half and a persistent
+**AR Space is running** notification, without AR Space in the glasses.
+The recommended stable firmware **1.9.1.20260914175625** is accepted without
+an override. Force 3D is off.
+
+**The main-process network fix works in this report. Unity's separate
+`:space` process still opens its own control connection through Wi-Fi and
+fails before creating an XR session.** The glasses reach 3840 × 1080 at
+60 Hz, so this failure occurs after the stereo switch. It is distinct from
+the [Pixel 10 Pro's VGA-only stereo failure](pixel10-pro-one-pro-v012.md).
+
+The retained 16:28:37–16:29:28 MST attempt (`1a189fe7617-6`) separates the two
+connections. Times below are October 29 device-local MST (UTC−7). File line
+numbers refer to the unmodified extraction under
+`artifacts/pixel10-fold-renderer-network/export/`.
+
+| Evidence | Observation |
+| --- | --- |
+| `app.log:51654,51766,52012,52042` | Main PID 12596 selects Android network 116 at 16:28:40.948, logs `Leopard Mcu Started. 0`, restores routing at 16:28:41.254 and returns SDK result 0. |
+| `glasses-control-trace.txt:49–52` | An app-owned TCP connection from 169.254.2.10 to the glasses' port 52999 reaches `ESTABLISHED` and exchanges data. |
+| `app.log:52343–52445` | Renderer PID 20785 starts the phone-owned Unity lifecycle at 16:28:44.390 and immediately starts the foreground service, before any glasses Presentation. |
+| `app.log:53044–53045`; `glasses-control-trace.txt:55,60–66,70–71` | At 16:28:45.326, renderer `NRSDK` cannot bind to `eth0`. A second app-owned control socket appears with the Wi-Fi source address and remains in `SYN_SENT`, retransmitting while the first Ethernet connection stays established. |
+| `app.log:53399–53439` | After 20 seconds, renderer MCU startup returns 1; Unity logs `Glasses Start Failed!` and `Unable to start XREAL XR Plugin. Failed to create XREAL session.` |
+| `renderer-geometry.txt`; `immersive-windows.txt` | Renderer samples retain `enabled=false`, `isDeviceActive=false`, zero eye-texture dimensions and no XR display subsystem. No native glasses Presentation is captured. |
+| `device-and-session.txt:21`; `display.txt:431` | The connected glasses are at 3840 × 1080 / 60 Hz. Android's external display remains in Mirror routing (`canHostTasks=false`). |
+| `app.log:55717–55719` | The main connection screen eventually times out with `AR Space could not finish starting`. |
+
+The trace records UIDs, not per-socket PIDs; attribution of the second socket
+to renderer startup comes from its timing alongside the renderer's native
+client logs. The interface-bind warning also appears during successful main
+startup; the socket source and connection state distinguish the two paths.
+The later attempt at 16:29:29 is cancelled after main SDK success
+and adds no completed renderer test. The ZIP also retains an 11:37 failure
+from the earlier build; it is historical evidence, not a fresh 0.2.3 failure.
+
+The stereo scanout with mirrored phone content and no XR Presentation explains
+the reported split image. The notification is a separate readiness defect:
+`ArSessionService` labels an activity-owned session as running as soon as its
+service starts. It does not establish that the XR plugin or glasses output
+has started.
+
+## Earlier candidate renderer fix in development build 2958
+
+`GlassesNetworkCompat.renderer` now selects the same strictly identified
+glasses Ethernet network in the renderer process before launching Unity.
+The Presentation waiter retries an unpublished network without blocking the
+UI thread. Non-Ethernet glasses keep their original networking behavior.
+
+One session owns the temporary binding across asynchronous Unity startup.
+It checks the authorized USB attachment and network while waiting, releases
+the binding when the native glasses Presentation attaches, and restores
+routing on failure, session closure or the 45-second startup deadline. A
+launch that never creates its activity also has a cleanup deadline. Cleanup
+preserves another owner's later binding and clears the temporary network if
+the prior network is no longer available.
+
+This binding is process-local: it covers the renderer's new sockets rather
+than relying on the earlier main-process callback. Android documents these
+semantics in [ConnectivityManager.bindProcessToNetwork](https://developer.android.com/reference/android/net/ConnectivityManager#bindProcessToNetwork(android.net.Network)).
+New internet connections and DNS in `:space` temporarily use the glasses
+network during startup. The main UI and other apps keep their normal routing.
+The established control socket retains its selected network after restoration;
+later native reconnections outside the startup interval still require a
+hardware check.
+
+The service now shows **Starting AR Space** until a native glasses Presentation
+attaches, then changes to **AR Space is running**. Failed startup closes the
+session and removes its ongoing notification through the existing deadline.
+Presentation attachment is a startup milestone, not a measurement of optical
+correctness.
+
+Local checks pass:
+
+- Host fixtures: 40 network assertions, 114 connection-recovery assertions,
+  95 firmware-policy assertions, 13 direct-routing assertions and 103
+  SDK-derived physical-mode checks, plus the DEX patch/restoration tests.
+- An isolated Android 13 emulator passes 70 Presentation lifecycle checks,
+  including delayed output changing the notification from Starting to Running,
+  failed-start notification removal, disconnect, reconnect, Stop AR and
+  continued GLES frames while another phone activity is in front.
+- The signed APK's actual network adapter runs under ART and passes 19
+  assertions. A native libc socket inherits Android network 101 (mark 65637)
+  and retains it after the renderer binding is released. Absent-glasses
+  rejection and non-Ethernet bypass also pass.
+- All 88 native libraries match public 0.2.3 byte for byte. APK signing and
+  16 KB alignment pass, and the signing certificate matches public 0.2.3.
+- The full `verify_embedded_adb.py` package audit passes, including renderer
+  binding/cleanup and notification wiring in the shipped DEX, exact restoration
+  of the original SDK patches, helper checks and bundled source matching.
+
+These emulator checks cover the Android mechanism and lifecycle, with a
+controlled Unity boundary. Physical validation of this exact development
+build 2958 on the Pixel Fold remains pending.
+
+The candidate APK is
+`artifacts/unbound-launcher-renderer-network-2958/the-unbound-launcher.apk`,
+SHA-256 `6f8c993c26e7c51774af35b64270aaa8638943ee1351733f069929a1a9e21701`.
+It retains version name **0.2.3 alpha** with development build code **2958**
+and can update public 0.2.3 in place. The public release remains build 2957.
+Runtime evidence is retained under `artifacts/pixel10-fold-renderer-network/`.
+The APK, build log and full package audit are retained together in
+`artifacts/unbound-launcher-renderer-network-2958/`.
+
+For the affected-device retest, update to development build 2958, reopen
+Unbound, confirm the helper is Ready and reconnect with Wi-Fi left on. Collect
+from before the first attempt. Success requires a **renderer** network-selection
+log, renderer `Leopard Mcu Started. 0`, an attached glasses Presentation and
+wearer-confirmed AR Space. Test reconnect and return from another phone app
+as well. To recover from the current failed session, use **Stop AR** in its
+notification, unplug the glasses and reopen Unbound before reconnecting. If
+the notification remains, force-stop Unbound in Android's app settings first.
+
+## Earlier main-process fix in build 2956
 
 Build 2956 adds a scoped Android network selection around the original SDK's
 synchronous native-startup callback. The existing `PingCallbackCompat` guard

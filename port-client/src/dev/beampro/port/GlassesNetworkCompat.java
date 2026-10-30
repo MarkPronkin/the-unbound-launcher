@@ -16,60 +16,96 @@ import java.io.IOException;
 import java.lang.reflect.Method;
 import java.net.InetAddress;
 
-/** Select the glasses network only while the SDK's synchronous native startup opens its sockets. */
+/** Select the glasses network while each process opens its native control sockets. */
 public final class GlassesNetworkCompat {
     private static final String TAG = "UnboundEthernet";
     private static final Object ROUTING = new Object();
     private static final long NETWORK_WAIT_MS = 3000;
 
+    /** Shared selection for the synchronous SDK callback and asynchronous renderer startup. */
+    static Lease select(Context context) throws Exception {
+        return select(context, NETWORK_WAIT_MS);
+    }
+
+    /** A zero wait lets UI lifecycle callbacks retry through their Handler instead of sleeping. */
+    static Lease select(Context context, long waitMs) throws Exception {
+        Class<?> api = Class.forName("com.xreal.glassesdisplayplugevent.GlassesInitSetting");
+        Object settings = api.getMethod("getInstance").invoke(null);
+        // Air/H-series startup does not use the Ethernet control channel.
+        if (!Boolean.TRUE.equals(api.getMethod("isEthernetSeriesGlasses").invoke(settings))) return null;
+        if (context == null) context = (Context) api.getMethod("getContext").invoke(settings);
+        if (context == null) throw new IOException("Glasses context is unavailable");
+        synchronized (ROUTING) {
+            UsbManager usb = context.getSystemService(UsbManager.class);
+            UsbDevice device = attachedGlasses(usb);
+            if (device == null) throw new IOException("Glasses USB access is unavailable or ambiguous");
+            ConnectivityManager connectivity = context.getSystemService(ConnectivityManager.class);
+            if (connectivity == null) throw new IOException("Android connectivity service is unavailable");
+            Network selected;
+            long deadline = SystemClock.uptimeMillis() + waitMs;
+            do {
+                requireAttachment(usb, device);
+                selected = controlNetwork(connectivity);
+                if (selected != null) break;
+                long remaining = deadline - SystemClock.uptimeMillis();
+                if (remaining <= 0) throw new NetworkPendingException();
+                SystemClock.sleep(Math.min(100, remaining));
+            } while (true);
+            Network previous = connectivity.getBoundNetworkForProcess();
+            Lease lease = new Lease(usb, device, connectivity, selected, previous);
+            try {
+                if (!selected.equals(previous) && !connectivity.bindProcessToNetwork(selected))
+                    throw new IOException("Android rejected the glasses control network");
+                lease.validate();
+                return lease;
+            } catch (Exception error) { lease.close(); throw error; }
+        }
+    }
+
+    static final class NetworkPendingException extends IOException {
+        NetworkPendingException() { super("Android has not published the glasses control network"); }
+    }
+
+    /** Restores only the process binding owned by this selection; closing is idempotent. */
+    static final class Lease implements AutoCloseable {
+        final UsbManager usb; final UsbDevice device;
+        final ConnectivityManager connectivity; final Network selected, previous;
+        private boolean closed;
+        Lease(UsbManager usb, UsbDevice device, ConnectivityManager connectivity, Network selected, Network previous) {
+            this.usb=usb; this.device=device; this.connectivity=connectivity; this.selected=selected; this.previous=previous;
+        }
+        void validate() throws IOException {
+            requireAttachment(usb, device);
+            if (!selected.equals(controlNetwork(connectivity)) || !selected.equals(connectivity.getBoundNetworkForProcess()))
+                throw new IOException("Glasses control network changed during startup");
+        }
+        public void close() {
+            synchronized (ROUTING) {
+                if (closed) return;
+                closed=true;
+                if (!selected.equals(previous)) restore(connectivity, selected, previous);
+            }
+        }
+    }
+
     /** The guarded ping callback synchronously runs nativeInitService/startService/glassesInit. */
     static void deliver(Method result, Object callback, boolean success) throws Exception {
         if (!success) { result.invoke(callback, false); return; }
         synchronized (ROUTING) {
-            ConnectivityManager connectivity = null;
-            Network previous = null, selected = null;
-            boolean attemptedBinding = false, ready = false;
+            Lease lease = null;
+            boolean ready = false;
             try {
                 try {
-                    Class<?> api = Class.forName("com.xreal.glassesdisplayplugevent.GlassesInitSetting");
-                    Object settings = api.getMethod("getInstance").invoke(null);
-                    // Air/H-series startup does not use the Ethernet control channel.
-                    if (!Boolean.TRUE.equals(api.getMethod("isEthernetSeriesGlasses").invoke(settings))) {
-                        ready = true;
-                    } else {
-                        Context context = (Context) api.getMethod("getContext").invoke(settings);
-                        if (context == null) throw new IOException("Glasses context is unavailable");
-                        UsbManager usb = context.getSystemService(UsbManager.class);
-                        UsbDevice device = attachedGlasses(usb);
-                        if (device == null) throw new IOException("Glasses USB access is unavailable or ambiguous");
-                        connectivity = context.getSystemService(ConnectivityManager.class);
-                        if (connectivity == null) throw new IOException("Android connectivity service is unavailable");
-                        long deadline = SystemClock.uptimeMillis() + NETWORK_WAIT_MS;
-                        do {
-                            requireAttachment(usb, device);
-                            selected = controlNetwork(connectivity);
-                            if (selected != null) break;
-                            if (SystemClock.uptimeMillis() >= deadline)
-                                throw new IOException("Android has not published the glasses control network");
-                            SystemClock.sleep(100);
-                        } while (true);
-                        previous = connectivity.getBoundNetworkForProcess();
-                        if (!selected.equals(previous)) {
-                            attemptedBinding = true;
-                            if (!connectivity.bindProcessToNetwork(selected))
-                                throw new IOException("Android rejected the glasses control network");
-                        }
-                        requireAttachment(usb, device);
-                        Log.i(TAG, "Native startup network selected: " + selected + "; previous=" + previous);
-                        ready = true;
-                    }
+                    lease = select(null);
+                    if (lease != null) Log.i(TAG, "Native startup network selected: " + lease.selected + "; previous=" + lease.previous);
+                    ready = true;
                 } catch (Exception error) {
                     Log.w(TAG, "Cannot select the glasses control network; native startup is stopped", error);
                 }
                 // Invoke exactly once. An exception from native startup must not trigger a second callback.
                 result.invoke(callback, ready);
             } finally {
-                if (attemptedBinding && connectivity != null) restore(connectivity, selected, previous);
+                if (lease != null) lease.close();
             }
         }
     }

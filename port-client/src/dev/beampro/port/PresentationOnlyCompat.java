@@ -72,6 +72,7 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
         try {
             context=(Activity)get(app,"mContext");
             if(active!=null && active.app==app && active.owner!=null && !active.closed)return false;
+            if(active!=null)active.close();
             if(pending!=null) {
                 if(pending.app==app)return true;
                 pending.close();
@@ -89,6 +90,9 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
     public static boolean owns(Object app) {return (pending!=null&&pending.app==app)||(active!=null&&active.app==app&&!active.closed);}
     public static Activity renderingActivity() {return active!=null&&!active.closed?active.owner:null;}
     static long sessionToken() {return active==null||active.closed?0:active.token;}
+    static boolean outputReady(long token) {
+        return active!=null&&!active.closed&&active.token==token&&active.seenPresentation;
+    }
     static void foreground(long token,boolean ready) {
         if(active!=null&&!active.closed&&active.token==token)active.foreground=ready;
     }
@@ -180,8 +184,17 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
                 if(selected!=null) {
                     if(lastDisplay!=selected.getDisplayId()){lastDisplay=selected.getDisplayId();stableSince=now;}
                     if(now-stableSince>=1000) {
-                        Session next=new Session(app,selected.getDisplayId(),(Boolean)get(app,"mMultiResumeMode"));
+                        boolean originalMultiResume=(Boolean)get(app,"mMultiResumeMode");
+                        Session next=new Session(app,context,selected.getDisplayId(),originalMultiResume);
+                        try {next.selectNetwork();}
+                        catch(GlassesNetworkCompat.NetworkPendingException waiting) {
+                            status("Waiting for the glasses control network");
+                            if(now>=deadline){fail(FAILED);return;}
+                            MAIN.postDelayed(this,250);return;
+                        }
                         active=next;
+                        // Release routing even if Android never creates the requested activity.
+                        MAIN.postDelayed(next,45000);
                         intent.putExtra(EXTRA,next.token);
                         field(app,"mMultiResumeMode").setBoolean(app,false);
                         field(app,"mDisplayId").setInt(app,selected.getDisplayId());
@@ -202,7 +215,7 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
                     fail("The glasses didn't reach full resolution. Make sure On-device ADB is running and DeX/Desktop is off, then reconnect your glasses.");return;
                 }
             } catch(Exception failure) {
-                if(active!=null&&active.app==app&&active.owner==null)active.close();
+                if(active!=null&&active.app==app)active.close();
                 Log.e(TAG,"Direct display startup failed",failure);
                 if(closed){Toast.makeText(context,FAILED,Toast.LENGTH_LONG).show();context.finish();}
                 else fail(FAILED);
@@ -216,11 +229,15 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
     }
 
     private static final class Session implements Runnable,DisplayManager.DisplayListener {
-        final Object app;final long token=++sequence;final boolean originalMultiResume;
+        final Object app;final Context context;final long token=++sequence;final boolean originalMultiResume;
         Activity owner;DisplayManager displays;int displayId,switchFrom=-1;boolean closed,seenPresentation,foreground;
         BackgroundUnitySurface backgroundSurface;
+        GlassesNetworkCompat.Lease network;
+        Runnable networkRelease;boolean networkPending;
         long deadline=SystemClock.uptimeMillis()+45000,missingSince,switchUntil;String switchMode;
-        Session(Object app,int displayId,boolean originalMultiResume){this.app=app;this.displayId=displayId;this.originalMultiResume=originalMultiResume;}
+        Session(Object app,Context context,int displayId,boolean originalMultiResume){
+            this.app=app;this.context=context.getApplicationContext();this.displayId=displayId;this.originalMultiResume=originalMultiResume;
+        }
         void attach(Activity activity) {
             if(owner==activity)return;owner=activity;displays=activity.getSystemService(DisplayManager.class);
             displays.registerDisplayListener(this,MAIN);StereoPresentationCompat.track(owner);run();
@@ -237,12 +254,32 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
         }
         void close() {
             if(closed)return;closed=true;MAIN.removeCallbacks(this);
+            releaseNetwork();
             restorePhoneSurface();
             if(displays!=null)displays.unregisterDisplayListener(this);
             if(owner!=null)owner.stopService(new Intent(owner,ArSessionService.class));
             try {field(app,"mMultiResumeMode").setBoolean(app,originalMultiResume);}
             catch(Exception failure){Log.w(TAG,"Cannot restore SDK lifecycle selection",failure);}
             if(active==this)active=null;
+        }
+        void releaseNetwork() {
+            if(networkRelease!=null){MAIN.removeCallbacks(networkRelease);networkRelease=null;}
+            if(network!=null){network.close();network=null;Log.i(TAG,"Renderer startup network released");}
+        }
+        void selectNetwork() throws Exception {
+            releaseNetwork();
+            network=GlassesNetworkCompat.select(context,0);
+            if(network!=null)Log.i(TAG,"Renderer startup network selected: "+network.selected+"; previous="+network.previous);
+        }
+        void releaseNetworkAfterPresentation() {
+            if(network==null||networkRelease!=null)return;
+            final GlassesNetworkCompat.Lease selected=network;
+            networkRelease=()->{if(!closed&&network==selected)releaseNetwork();};
+            MAIN.postDelayed(networkRelease,1000);
+        }
+        void startService() {
+            try {owner.startForegroundService(new Intent(owner,ArSessionService.class).putExtra(ArSessionService.TOKEN,token));}
+            catch(RuntimeException failure){Log.w(TAG,"Cannot keep the renderer process active in the background",failure);}
         }
         void retainRenderSurface() {
             if(backgroundSurface!=null||!keepRendering())return;
@@ -282,12 +319,22 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
             } else {
                 missingSince=0;
                 if(dex(display)){finish(DEX);return;}
+                if(networkPending)try {
+                    selectNetwork();networkPending=false;
+                    notifyDisplay("onXRDisplayAdded",displayId,display.getMode().getPhysicalWidth(),display.getMode().getPhysicalHeight());
+                } catch(GlassesNetworkCompat.NetworkPendingException waiting) {
+                    if(SystemClock.uptimeMillis()>deadline){finish(FAILED);return;}
+                    MAIN.postDelayed(this,250);return;
+                } catch(Exception failure){Log.w(TAG,"Cannot select the glasses network after a display switch",failure);finish(FAILED);return;}
+                if(network!=null)try {network.validate();}
+                catch(Exception failure){Log.w(TAG,"Renderer startup network was lost",failure);finish(FAILED);return;}
                 if(!seenPresentation)for(View root:WindowInspector.getGlobalWindowViews()) {
                     if(!root.isAttachedToWindow()||root.getDisplay()==null||root.getDisplay().getDisplayId()!=displayId
                             ||!(root.getLayoutParams() instanceof WindowManager.LayoutParams))continue;
                     int type=((WindowManager.LayoutParams)root.getLayoutParams()).type;
                     if(type==2037||type==WindowManager.LayoutParams.TYPE_PRIVATE_PRESENTATION) {
-                        seenPresentation=true;Log.i(TAG,"Native Presentation attached on display="+displayId+"; phone owns the session");break;
+                        seenPresentation=true;releaseNetworkAfterPresentation();startService();
+                        Log.i(TAG,"Native Presentation attached on display="+displayId+"; phone owns the session");break;
                     }
                 }
                 if(!seenPresentation&&SystemClock.uptimeMillis()>deadline){finish(FAILED);return;}
@@ -298,9 +345,10 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
             Display display=displays.getDisplay(id);
             if(!DisplayStartupCompat.xreal(display)||dex(display))return;
             if(displayId!=id) {
+                releaseNetwork();networkPending=true;
                 displayId=id;seenPresentation=false;deadline=SystemClock.uptimeMillis()+45000;missingSince=0;
                 try {field(app,"mDisplayId").setInt(app,id);}catch(Exception failure){Log.w(TAG,"Cannot update direct display ID",failure);}
-                notifyDisplay("onXRDisplayAdded",id,display.getMode().getPhysicalWidth(),display.getMode().getPhysicalHeight());
+                startService();
             }
             run();
         }
@@ -323,9 +371,7 @@ public final class PresentationOnlyCompat implements Application.ActivityLifecyc
     }
     public void onActivityStarted(Activity activity) {
         if(!isActive(activity))return;
-        try {activity.startForegroundService(new Intent(activity,ArSessionService.class)
-                .putExtra(ArSessionService.TOKEN,active.token));}
-        catch(RuntimeException failure){Log.w(TAG,"Cannot keep the renderer process active in the background",failure);}
+        active.startService();
         StereoPresentationCompat.track(activity);
     }
     public void onActivityResumed(Activity activity){}

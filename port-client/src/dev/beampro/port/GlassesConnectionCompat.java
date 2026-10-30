@@ -451,6 +451,8 @@ public final class GlassesConnectionCompat {
                         if (!active() || !firmwareUsb.equals(liveUsb())) throw new IllegalStateException("Glasses detached during firmware read");
                         String version=(String)call(reader,"readFWVersion",new Class<?>[]{int.class},component);
                         if (!active() || !firmwareUsb.equals(liveUsb())) throw new IllegalStateException("Glasses detached during firmware read");
+                        debug("firmware_component","model="+firmwareType+"; component="+FirmwarePolicy.label(component)
+                                +"; detected="+FirmwarePolicy.clean(version));
                         return version;
                     });
                 } catch(Exception|LinkageError error) {

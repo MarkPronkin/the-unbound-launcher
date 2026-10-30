@@ -13,11 +13,25 @@ public final class VerifyPresentationDex {
                 "readyForDynamicSwitchDPImpl","dynamicReady","readyForRestartSessionImpl","restartReady","getFakeActivity","renderingActivity");
         Set<String> found=new HashSet<>();Map<String,Integer> lifecycle=new HashMap<>();int installs=0;boolean settingClass=false,settingCall=false;
         Set<String> surfaceHooks=new HashSet<>();
+        Set<String> networkHooks=new HashSet<>();
+        Set<String> expectedNetworkHooks=Set.of(
+                "Ldev/beampro/port/PresentationOnlyCompat$Waiter;#run->Ldev/beampro/port/PresentationOnlyCompat$Session;#selectNetwork",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#selectNetwork->Ldev/beampro/port/GlassesNetworkCompat;#select",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#close->Ldev/beampro/port/PresentationOnlyCompat$Session;#releaseNetwork",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#run->Ldev/beampro/port/GlassesNetworkCompat$Lease;#validate",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#run->Ldev/beampro/port/PresentationOnlyCompat$Session;#selectNetwork",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#onDisplayAdded->Ldev/beampro/port/PresentationOnlyCompat$Session;#releaseNetwork",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#run->Ldev/beampro/port/PresentationOnlyCompat$Session;#releaseNetworkAfterPresentation",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#releaseNetwork->Ldev/beampro/port/GlassesNetworkCompat$Lease;#close",
+                "Ldev/beampro/port/PresentationOnlyCompat$Session;#releaseNetworkAfterPresentation->Landroid/os/Handler;#postDelayed",
+                "Ldev/beampro/port/ArSessionService;#onStartCommand->Ldev/beampro/port/PresentationOnlyCompat;#outputReady");
         for(String entry:apk.getDexEntryNames())for(ClassDef cls:apk.getEntry(entry).getDexFile().getClasses()) {
             if(cls.getType().equals("Ldev/beampro/settings/ExperimentalPresentation;"))settingClass=true;
             for(Method method:cls.getMethods())if(method.getImplementation()!=null)
                 for(Instruction instruction:method.getImplementation().getInstructions())if(instruction instanceof ReferenceInstruction ref) {
                     if(!(ref.getReference() instanceof MethodReference call))continue;
+                    String hook=cls.getType()+"#"+method.getName()+"->"+call.getDefiningClass()+"#"+call.getName();
+                    if(expectedNetworkHooks.contains(hook))networkHooks.add(hook);
                     if(cls.getType().equals("Ldev/beampro/port/PresentationOnlyCompat;")
                             &&call.getDefiningClass().equals("Ldev/beampro/port/PresentationOnlyCompat$Session;")) {
                         String link=method.getName()+"->"+call.getName();
@@ -49,6 +63,7 @@ public final class VerifyPresentationDex {
         if(!surfaceHooks.equals(Set.of("onActivityPrePaused->retainRenderSurface","onActivityPostResumed->restorePhoneSurface",
                 "close->restorePhoneSurface","retainRenderSurface->BackgroundUnitySurface")))
             throw new IllegalStateException("Incomplete background Unity surface lifecycle: "+surfaceHooks);
+        if(!networkHooks.equals(expectedNetworkHooks))throw new IllegalStateException("Incomplete renderer startup routing/notification lifecycle: "+networkHooks);
         var helper=DexFileFactory.loadDexFile(args[1],Opcodes.forApi(33));int routes=0;boolean state=false,presentationOnly=false;
         for(ClassDef cls:helper.getClasses()) {
             state|=cls.getType().equals("Ldev/beampro/bridge/PresentationModeState;");

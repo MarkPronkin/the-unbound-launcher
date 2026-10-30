@@ -5,25 +5,33 @@ import java.util.Locale;
 /** Offline, exact stable-release checks. Never starts OTA or changes a glasses setting. */
 public final class FirmwarePolicy {
     public static final String UPDATER = "https://www.xreal.com/ota/";
+    public static final String ROG_UPDATER = "https://rog.asus.com/glasses/rog-xreal-r1/helpdesk_bios/";
     public static final String VERIFIED_ON = "2026-10-29";
+    public static final String ROG_VERIFIED_ON = "2026-10-30";
 
     public interface Reader { String read(int component) throws Exception; }
 
     public static final class Result {
         public final boolean supported;
-        public final String model, detected, recommended, detail;
+        public final String model, detected, recommended, detail, updater;
         Result(boolean supported, String model, String detected, String recommended, String detail) {
+            this(supported,model,detected,recommended,detail,UPDATER);
+        }
+        Result(boolean supported, String model, String detected, String recommended, String detail, String updater) {
             this.supported=supported;this.model=model;this.detected=detected;
-            this.recommended=recommended;this.detail=detail;
+            this.recommended=recommended;this.detail=detail;this.updater=updater;
         }
     }
 
     static final class Profile {
-        final String model;
+        final String model, updater;
         final int[] components;
         final String[] versions;
         Profile(String model, int[] components, String... versions) {
-            this.model=model;this.components=components;this.versions=versions;
+            this(model,UPDATER,components,versions);
+        }
+        Profile(String model, String updater, int[] components, String... versions) {
+            this.model=model;this.updater=updater;this.components=components;this.versions=versions;
         }
     }
 
@@ -51,6 +59,13 @@ public final class FirmwarePolicy {
                     "19.1.01.125_20260624", "001C", "0425103S0425103H00425103H10425103C0425103E0425103G", "OSD.V0013");
             case 20: return new Profile("XREAL 1 Pro+", new int[]{6,1,3},
                     "2.0.0.20260920102250", "15.1.03.643_20261010", "15.A.01.103_20260710");
+            // ASUS stable package ASUS_R1_MCM103.104.zip (2026-10-08), checked on
+            // ROG_VERIFIED_ON. The .104 is the dock; the glasses are MCM103.
+            // MCU: R1/Firmware/ASUS_ROG_XREAL_R1_MCM103.bin header; Pilot:
+            // embedded pilot/pilot_version.txt; DSP: R1/Firmware/glasses.cfg.
+            // This policy identity must never be passed to native SDK startup.
+            case 1003: return new Profile("ROG XREAL R1", ROG_UPDATER, new int[]{1,6,3},
+                    "MCM103", "1.9.0.20260709183133", "15.A.01.097_20250430");
             default: return null;
         }
     }
@@ -65,21 +80,21 @@ public final class FirmwarePolicy {
             try { actual=clean(reader.read(component)); }
             catch(Exception error) {
                 return new Result(false,p.model,"Not readable",p.versions[i]+" · stable",
-                        "Could not read the glasses’ "+label(component)+" firmware. Compatibility could not be verified.");
+                        "Could not read the glasses’ "+label(component)+" firmware. Compatibility could not be verified.",p.updater);
             }
             if(i==0) primary=actual.isEmpty()?"Not readable":actual;
             if(!matches(actual,p.versions[i])) return new Result(false,p.model,
                     actual.isEmpty()?"Not readable":actual, p.versions[i]+" · stable",
                     label(component)+" firmware "+(actual.isEmpty()?"could not be read.":"does not match the recommended stable release.")
-                    +" Only the exact recommended release is supported.");
+                    +" Only the exact recommended release is supported.",p.updater);
         }
-        return new Result(true,p.model,primary,p.versions[0]+" · stable","Firmware matches the recommended stable release.");
+        return new Result(true,p.model,primary,p.versions[0]+" · stable","Firmware matches the recommended stable release.",p.updater);
     }
 
     public static Result unavailable(int type, String detail) {
         Profile p=profile(type);
         String model=p==null?(type==1003?"ROG XREAL R1":"XREAL glasses"):p.model;
-        return new Result(false,model,"Not verified",p==null?"No verified release":p.versions[0]+" · stable",detail);
+        return new Result(false,model,"Not verified",p==null?"No verified release":p.versions[0]+" · stable",detail,p==null?UPDATER:p.updater);
     }
 
     static String label(int component) {
