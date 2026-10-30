@@ -5,7 +5,7 @@ Plain HTML, CSS and JavaScript; no runtime dependencies, external fonts, tracker
 CDN libraries, build framework or server. All interactions run in the browser.
 The site contains feature explanations, real app screenshots, setup and requirements.
 Release notes and individual phone names are intentionally excluded. Feature,
-setup and upgrade copy reflects the published 0.2.3 alpha, while compatibility
+setup and upgrade copy reflects the published 0.2.4 alpha, while compatibility
 language distinguishes working-session tests from pending hardware checks.
 Prominent feature cards highlight XREAL Eye video recording without a fixed
 launcher time limit and ROG XREAL R1 support confirmed working on real hardware.
@@ -44,7 +44,7 @@ in `website/site.json` can supply the URL; `--repository owner/repo` overrides i
 Upload the roughly 1 GB APK as a **GitHub Release asset**, never into the Pages
 directory or Git history. After the asset exists, set the repository Actions
 variable `UNBOUND_DOWNLOAD_URL` to its full HTTPS download URL and run the
-workflow. The site's main action then becomes **Download 0.2.3 alpha**. Update
+workflow. The site's main action then becomes **Download 0.2.4 alpha**. Update
 the version in `index.html` and `app.js` alongside each public release. You can
 alternatively set `downloadUrl` in `site.json`.
 
