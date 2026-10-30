@@ -94,7 +94,7 @@ public class PermissionSetupActivity extends Activity {
         boolean acknowledged = activity.getIntent().getBooleanExtra(PASSED, false);
         if (activity.getClass().getName().endsWith(".SplashActivity") && !acknowledged) acknowledgedSession = false;
         if (!hasAcceptedDisclaimer(activity) || AdbEntry.needsSetup(activity) || TermsConsent.required(activity) || !Settings.canDrawOverlays(activity)
-                || (!acknowledged && !acknowledgedSession && hasMissing(activity))) {
+                || (!acknowledged && !acknowledgedSession && !hasReviewedPermissions(activity) && hasMissing(activity))) {
             Intent intent = SetupNavigation.forward(activity, PermissionSetupActivity.class);
             intent.removeExtra(PASSED);
             intent.removeExtra(REVIEW);
@@ -119,7 +119,7 @@ public class PermissionSetupActivity extends Activity {
         if (hasAcceptedDisclaimer(this) && !AdbEntry.needsSetup(this) && Settings.canDrawOverlays(this)) initialize(getApplication());
         if (hasAcceptedDisclaimer(this) && !AdbEntry.needsSetup(this) && !getIntent().getBooleanExtra(REVIEW, false)
                 && !TermsConsent.required(this)
-                && (!hasMissing(this) || (getIntent().getBooleanExtra(PASSED, false) && hasReviewedPermissions(this)))) { proceed(); return; }
+                && (!hasMissing(this) || hasReviewedPermissions(this))) { proceed(); return; }
         render();
     }
     @Override public void onResume() { super.onResume(); if (!leaving) render(); }

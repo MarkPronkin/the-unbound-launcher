@@ -66,9 +66,12 @@ STUBS.update({
     'android/os/HandlerThread.java': '''package android.os;public class HandlerThread {
       public boolean stopped;public HandlerThread(String n){}public void start(){}public Looper getLooper(){return Looper.getMainLooper();}
       public boolean quitSafely(){stopped=true;return true;}}''',
+    'android/content/SharedPreferences.java': '''package android.content;public class SharedPreferences {
+      public boolean getBoolean(String k,boolean d){return d;}public Editor edit(){return new Editor();}
+      public static class Editor {public Editor putBoolean(String k,boolean v){return this;}public Editor clear(){return this;}public boolean commit(){return true;}}}''',
     'android/content/Context.java': '''package android.content;import android.app.*;import android.hardware.display.*;import android.hardware.usb.*;
       public class Context {public static Application app;public static DisplayManager displays;public static ActivityManager manager;public static UsbManager usb;
-      public Context getApplicationContext(){return app;}public String getPackageName(){return "dev.markpronkin.unbound";}
+      public android.content.SharedPreferences getSharedPreferences(String n,int m){return new android.content.SharedPreferences();}public Context getApplicationContext(){return app;}public String getPackageName(){return "dev.markpronkin.unbound";}
       public <T>T getSystemService(Class<T> c){return c.cast(c==DisplayManager.class?displays:c==UsbManager.class?usb:manager);}}''',
     'android/app/Activity.java': '''package android.app;import android.os.Bundle;import android.content.Intent;import android.view.*;import android.widget.*;
       public class Activity extends android.content.Context {public boolean finishing,destroyed;public Display display;public Bundle lastOptions;public Intent lastIntent;
