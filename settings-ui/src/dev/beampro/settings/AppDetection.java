@@ -56,7 +56,7 @@ final class AppDetection {
                 } else {
                     IBinder bridge = bridge();
                     if (bridge != null) category = transact(bridge, operation);
-                    else if (operation != -1) throw new IOException("Start the helper in On-device ADB, then try again.");
+                    else if (operation != -1) throw new IOException("Start the helper in AR connection, then try again.");
                     else category = packages.getApplicationInfo(own, 0).category;
                 }
             } catch (Exception problem) {
@@ -93,7 +93,7 @@ final class AppDetection {
         Parcel data = Parcel.obtain(), reply = Parcel.obtain();
         try {
             data.writeInterfaceToken(TOKEN); data.writeInt(operation);
-            if (!bridge.transact(TRANSACTION, data, reply, 0)) throw new IOException("Restart the helper in On-device ADB to use app detection.");
+            if (!bridge.transact(TRANSACTION, data, reply, 0)) throw new IOException("Restart the helper in AR connection to use app detection.");
             reply.readException();
             String error = reply.readString();
             int category = reply.readInt();

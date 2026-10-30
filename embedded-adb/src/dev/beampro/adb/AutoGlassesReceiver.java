@@ -66,7 +66,7 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
         WORK.execute(()->{
             try {
                 if(attached && !AdbBootstrap.ready(context)) {
-                    if(AdbBootstrap.paired(context))AdbBootstrap.connect(context,0,null);
+                    if(AdbBootstrap.usesShizuku(context)||AdbBootstrap.paired(context))AdbBootstrap.connect(context,0,null);
                     return; // The bootstrap calls helperReady once its Binder is available.
                 }
                 dispatch(context,device,attached);

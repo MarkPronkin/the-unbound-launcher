@@ -28,6 +28,8 @@ public final class AdbPairingActivity extends Activity {
     private Button pair, connect, notification, next;
     private LinearLayout advanced;
     private AdbDiscovery discovery;
+    private LinearLayout adbBody, shizukuBody;
+    private Button adbMethod, shizukuMethod, shizukuStart;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable refresh = new Runnable() {
         public void run() { updateState(); handler.postDelayed(this, 700); }
@@ -55,7 +57,20 @@ public final class AdbPairingActivity extends Activity {
         LinearLayout body = page.body;
         if (onboarding) add(page.intro, stepper(this, 2), 8, 16);
         add(page.intro, display(this, "Connect this phone"), 8, 0);
-        add(page.intro, text(this, "On-device ADB powers your AR app windows. Set it up here, with no computer needed.", BODY, TEXT_SECONDARY), 8, 0);
+        add(page.intro, text(this, "Choose Shizuku or on-device ADB to enable AR app windows on this phone.", BODY, TEXT_SECONDARY), 8, 0);
+        ShizukuBootstrap.initialize(this);
+
+        LinearLayout methods = panel(this);
+        add(methods, medium(this, "Connection method", TITLE, TEXT), 0, 12);
+        shizukuMethod = button(this, "Shizuku", SECONDARY);
+        shizukuMethod.setTag("connection-method-shizuku");
+        shizukuMethod.setOnClickListener(v -> selectMethod(true));
+        add(methods, shizukuMethod, 0, 12);
+        adbMethod = button(this, "On-device ADB", SECONDARY);
+        adbMethod.setTag("connection-method-adb");
+        adbMethod.setOnClickListener(v -> selectMethod(false));
+        add(methods, adbMethod, 0, 0);
+        add(page.intro, methods, 20, 0);
 
         LinearLayout live = panel(this);
         state = new Status(this, OVERLINE);
@@ -64,6 +79,27 @@ public final class AdbPairingActivity extends Activity {
         status = text(this, "", SUPPORTING, TEXT_SECONDARY); status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         add(live, status, 10, 0);
         add(page.intro, live, 24, 8);
+
+        shizukuBody = column(this); add(body, shizukuBody, 0, 0);
+        LinearLayout shizuku = step(shizukuBody, "1", "Start Shizuku", "Install and start Shizuku using Wireless debugging or root. If it is already running, continue below.");
+        Button openShizuku = button(this, "Open Shizuku", SECONDARY);
+        openShizuku.setOnClickListener(v -> {
+            Intent launch = getPackageManager().getLaunchIntentForPackage("moe.shizuku.privileged.api");
+            if (launch == null) launch = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://shizuku.rikka.app/download/"));
+            try { startActivity(launch); }
+            catch (ActivityNotFoundException | SecurityException error) { Toast.makeText(this, "Install or open Shizuku manually.", Toast.LENGTH_LONG).show(); }
+        });
+        add(shizuku, openShizuku, 16, 0);
+        LinearLayout allow = step(shizukuBody, "2", "Allow Unbound", "Approve Unbound's access in Shizuku. The bundled AR helper then starts with the same shell access used by ADB.");
+        shizukuStart = button(this, "Allow Shizuku and start", PRIMARY);
+        shizukuStart.setTag("shizuku-start");
+        shizukuStart.setOnClickListener(v -> { ShizukuBootstrap.request(this); updateState(); });
+        add(allow, shizukuStart, 16, 0);
+        add(shizukuBody, text(this, "After a reboot, start Shizuku again. Unbound remembers your choice. Overlay and other app permissions still use Android's permission screens.\n\nTo revoke access, disable Unbound in Shizuku > Authorized applications, then force stop Unbound to stop its running AR helper.", SUPPORTING, TEXT_SECONDARY), 24, 8);
+        add(shizukuBody, text(this, "Shizuku API 13.1.5 — MIT License, Copyright (c) 2021 RikkaW. Sources: github.com/RikkaApps/Shizuku-API. Full license and notices are bundled with this app.", CAPTION, TEXT_SECONDARY), 12, 8);
+
+        adbBody = column(this); add(body, adbBody, 0, 0);
+        body = adbBody;
 
         LinearLayout wifi = step(body, "1", "Enable Wireless debugging", "Connect to Wi-Fi, then turn on Wireless debugging in Android's Developer options. Approve your network when asked.");
         Button developer = button(this, "Open Developer options", SECONDARY);
@@ -149,7 +185,16 @@ public final class AdbPairingActivity extends Activity {
         if (status == null) return;
         boolean supported = Build.VERSION.SDK_INT >= 30;
         boolean ready = AdbBootstrap.ready(this), paired = AdbBootstrap.paired(this), busy = AdbBootstrap.busy();
-        state.set(ready ? "READY FOR AR SPACE" : busy ? "CONNECTING" : paired ? "PHONE PAIRED" : "WAITING FOR SETUP",
+        boolean shizuku = AdbBootstrap.usesShizuku(this);
+        adbBody.setVisibility(shizuku ? View.GONE : View.VISIBLE);
+        shizukuBody.setVisibility(shizuku ? View.VISIBLE : View.GONE);
+        adbMethod.setEnabled(!busy); shizukuMethod.setEnabled(!busy);
+        setText(adbMethod, shizuku ? "On-device ADB" : "On-device ADB (selected)");
+        setText(shizukuMethod, shizuku ? "Shizuku (selected)" : "Shizuku");
+        shizukuMethod.setSelected(shizuku); adbMethod.setSelected(!shizuku);
+        shizukuStart.setEnabled(supported && !busy && !ready);
+        setText(shizukuStart, ready ? "Ready" : "Allow Shizuku and start");
+        state.set(ready ? "READY FOR AR SPACE" : busy ? "CONNECTING" : !shizuku && paired ? "PHONE PAIRED" : "WAITING FOR SETUP",
                 ready ? POSITIVE : busy || paired ? TEXT : TEXT_TERTIARY, TEXT);
         setText(status, supported ? AdbBootstrap.status(this) : "Wireless pairing requires Android 11 or newer.");
         pair.setEnabled(supported && !busy); notification.setEnabled(supported && !busy);
@@ -163,6 +208,12 @@ public final class AdbPairingActivity extends Activity {
         String connections = discovery == null ? "" : discovery.ports(false).toString();
         setText(discovered, "Detected pairing ports: " + (pairs.isEmpty() || "[]".equals(pairs) ? "none yet" : pairs)
                 + "\nDetected connection ports: " + (connections.isEmpty() || "[]".equals(connections) ? "none yet" : connections));
+    }
+    private void selectMethod(boolean shizuku) {
+        AdbBootstrap.selectMethod(this, shizuku);
+        if (shizuku && discovery != null) { discovery.close(); discovery = null; }
+        if (!shizuku && discovery == null && Build.VERSION.SDK_INT >= 30) discovery = new AdbDiscovery(getApplicationContext());
+        updateState();
     }
     private void complete() {
         if (!onboarding) { finish(); return; }
@@ -200,7 +251,7 @@ public final class AdbPairingActivity extends Activity {
     }
     @Override protected void onStart() {
         super.onStart(); if (status == null) return;
-        if (Build.VERSION.SDK_INT >= 30) discovery = new AdbDiscovery(getApplicationContext());
+        if (Build.VERSION.SDK_INT >= 30 && !AdbBootstrap.usesShizuku(this)) discovery = new AdbDiscovery(getApplicationContext());
         handler.post(refresh);
     }
     @Override protected void onStop() {

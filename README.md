@@ -602,6 +602,7 @@ permission and changes no settings.
 
 - [Embedded ADB](embedded-adb/README.md): pairing, the helper's lifecycle and
   display management
+- [Shizuku connection option](reports/shizuku.md)
 - [Direct glasses display and background AR](reports/direct-glasses-display.md)
 - [Controller-mode fixes](reports/controller-mode-switch.md), [Home hold
   cancellation](reports/pointer-reset.md), [Spatial Mouse brightness

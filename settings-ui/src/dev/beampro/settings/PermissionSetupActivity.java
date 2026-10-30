@@ -279,7 +279,7 @@ public class PermissionSetupActivity extends Activity {
         boolean needsAdb = !review && AdbEntry.needsSetup(this);
         if (AdbEntry.available() && !review) add(page.intro, stepper(this, 1), 8, 16);
         add(page.intro, display(this, "App permissions"), 8, 0);
-        add(page.intro, text(this, needsAdb ? "You're in control. Review access, then connect this phone with on-device ADB."
+        add(page.intro, text(this, needsAdb ? "You're in control. Review access, then connect this phone with Shizuku or on-device ADB."
                 : "You're in control. Review access, then continue to your glasses.", BODY, TEXT_SECONDARY), 8, 0);
         List<Access> items = accesses(this);
         int granted = 0;

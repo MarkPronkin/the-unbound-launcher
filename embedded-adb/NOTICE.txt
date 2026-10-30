@@ -45,3 +45,8 @@ Compile-time only; not added to the APK's runtime DEX.
 
 The original XREAL software remains the property of its respective owners.
 The licenses above describe the added ADB components, not the original software.
+
+Shizuku API, provider, aidl and shared 13.1.5, Copyright (c) 2021 RikkaW.
+https://github.com/RikkaApps/Shizuku-API
+MIT License. Full license: shizuku-LICENSE.txt (also included in pairing-sources.zip).
+Unmodified Maven artifacts are pinned by SHA-256 in tools/shizuku_deps.py.
