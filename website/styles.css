@@ -1265,6 +1265,18 @@ h3 {
   gap:24px;
   margin-top:100px
 }
+.feature-pair.feature-highlights {
+  margin-top:40px
+}
+.feature-highlights .recording-tile {
+  border-color:var(--green)
+}
+.feature-highlights .recording-tile .tile-label {
+  color:var(--green)
+}
+.feature-highlights small {
+  margin-top:20px
+}
 .feature-tile {
   border:1px solid var(--line);
   border-radius:8px;

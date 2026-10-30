@@ -7,6 +7,9 @@ The site contains feature explanations, real app screenshots, setup and requirem
 Release notes and individual phone names are intentionally excluded. Feature,
 setup and upgrade copy reflects the published 0.2.3 alpha, while compatibility
 language distinguishes working-session tests from pending hardware checks.
+Prominent feature cards highlight XREAL Eye video recording without a fixed
+launcher time limit and implemented experimental ROG XREAL R1 support. R1
+copy keeps the pending physical-validation status explicit.
 
 ## Preview
 
