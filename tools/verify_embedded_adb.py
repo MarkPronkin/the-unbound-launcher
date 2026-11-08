@@ -152,7 +152,9 @@ def verify(apk):
                 if cls in definitions: duplicate.append(cls)
                 definitions[cls] = name
         assert not duplicate, duplicate
-        for required in ["dev/beampro/adb/LocalAdb", "dev/beampro/adb/AdbBootstrap", "dev/beampro/adb/LocalBridgeProvider", "dev/beampro/adb/PhoneSetupHelp", "io/github/muntashirakon/crypto/spake2/Spake2Context", "org/conscrypt/Conscrypt", "dev/beampro/settings/AdaptiveLayout", "dev/beampro/settings/AppVersion",
+        for required in ("Ldev/beampro/adb/AdbDiscovery;", "Lio/github/muntashirakon/adb/AdbSocket;"):
+            assert required in definitions
+        for required in ["dev/beampro/adb/LocalAdb", "dev/beampro/adb/AdbBootstrap", "dev/beampro/adb/AdbNetworkState", "dev/beampro/adb/LocalBridgeProvider", "dev/beampro/adb/PhoneSetupHelp", "io/github/muntashirakon/crypto/spake2/Spake2Context", "org/conscrypt/Conscrypt", "dev/beampro/settings/AdaptiveLayout", "dev/beampro/settings/AppVersion",
                          "dev/beampro/settings/HelpPage", "dev/beampro/settings/MenuActivity", "dev/beampro/settings/DebugData",
                          "dev/beampro/settings/DebugArchive", "dev/beampro/settings/DebugFileProvider"]:
             assert "L" + required + ";" in definitions
@@ -170,6 +172,9 @@ def verify(apk):
         assert "Ldev/beampro/port/HeadsetIconCompat;" in definitions
         assert "Ldev/beampro/port/AppColorCompat;" in definitions
         assert "Ldev/beampro/port/AppSurfacePolicy;" in definitions
+        surface_policy=z.read(definitions["Ldev/beampro/port/AppSurfacePolicy;"])
+        assert b"protectedSessionReady" in surface_policy and b"protected_app_session_ready=" in surface_policy
+        assert b"capability_complete=" in surface_policy and b"UnboundAppSurfaceProbe" in surface_policy
         assert "Ldev/beampro/port/UsbPermissionCompat;" in definitions
         assert "Ldev/beampro/port/GlassesConnectionCompat;" in definitions
         assert "Ldev/beampro/port/FirmwarePolicy;" in definitions
@@ -196,8 +201,8 @@ def verify(apk):
         assert "Ldev/beampro/settings/TermsConsent;" in definitions
         assert "Ldev/beampro/settings/ExperimentalStereo;" in definitions
         assert b"force-3d-sbs" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
-        assert b"force-2d-60" not in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
-        assert b"Use 60 Hz in 2D" not in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
+        assert b"force-2d-60" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
+        assert b"Use 60 Hz in 2D" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
         for cls in ('AppUpdater', 'UpdateClient', 'ReleaseVersion', 'UpdateInstallActivity', 'UpdateFileProvider'):
             assert 'Ldev/beampro/settings/' + cls + ';' in definitions
         assert 'Ldev/beampro/settings/AppUpdateChecks;' not in definitions
@@ -319,9 +324,13 @@ def verify(apk):
             assert b"SurfaceFlinger" in server and b"createPipe" in server
             assert "Ldev/beampro/settings/DebugDisplay;" in definitions
             assert "Ldev/beampro/settings/StartupTrace;" in definitions
+            assert "Ldev/beampro/settings/DisplayTransitions;" in definitions
             diagnostics = z.read(definitions["Ldev/beampro/settings/DebugData;"])
             startup_archive = z.read(definitions["Ldev/beampro/settings/DebugArchive;"])
             assert b"glasses-startup.txt" in startup_archive and b"glasses-control.txt" in startup_archive
+            assert b"display-startup.txt" in startup_archive
+            assert b"captureStartup" in diagnostics and b"display_change" in diagnostics
+            assert b"Connected display startup" in server and b"preceding 120 seconds" in server
             assert b"captureControl" in diagnostics and b"connectionEvent" in diagnostics
             assert b"Glasses control channel" in server and b"Interface counter deltas" in server
             for marker in (b"USB/DisplayPort link", b"UsbPortManager:V", b"/system/bin/dmesg", b"/sys/class/drm/card*-DP-*",
@@ -377,12 +386,30 @@ def verify(apk):
                          "port-client/src/dev/beampro/port/PresentationWindowDiagnostics.java",
                          "settings-ui/src/dev/beampro/settings/RendererDiagnostics.java",
                          "settings-ui/src/dev/beampro/settings/RendererTrace.java",
+                         "settings-ui/src/dev/beampro/settings/DebugData.java",
+                         "settings-ui/src/dev/beampro/settings/DebugArchive.java",
+                         "settings-ui/src/dev/beampro/settings/DebugDisplay.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayTransitions.java",
+                         "settings-ui/src/dev/beampro/settings/StartupTrace.java",
+                         "settings-ui/src/dev/beampro/settings/HelpPage.java",
+                         "bridge/src/dev/beampro/bridge/DisplayDumpPipe.java",
                          "port-client/src/dev/beampro/port/HomeButtonCompat.java",
                          "port-client/src/dev/beampro/port/BrightnessLockCompat.java",
                          "port-client/src/dev/beampro/port/KeyboardCompat.java",
                          "port-client/src/dev/beampro/port/SettingsCompat.java",
+                         "port-client/src/dev/beampro/port/AppSurfacePolicy.java",
                          "port-client/src/dev/beampro/port/PresentationOnlyCompat.java",
                          "tools/PatchPresentationDex.java", "tools/embedded_adb_manifest.py", "tools/permission_manifest.py",
+                         "embedded-adb/src/dev/beampro/adb/AdbBootstrap.java",
+                         "embedded-adb/src/dev/beampro/adb/AdbNetworkState.java",
+                         "embedded-adb/src/dev/beampro/adb/AdbDiscovery.java",
+                         "embedded-adb/vendor/libadb/java/io/github/muntashirakon/adb/AdbSocket.java",
+                         "embedded-adb/vendor/libadb/java/io/github/muntashirakon/adb/AdbConnection.java",
+                         "embedded-adb/vendor/libadb/java/io/github/muntashirakon/adb/PairingConnectionCtx.java",
+                         "embedded-adb/src/dev/beampro/adb/AdbPairingActivity.java",
+                         "embedded-adb/src/dev/beampro/adb/PhoneSetupHelp.java",
+                         "settings-ui/src/dev/beampro/settings/NetworkDiagnostics.java",
                          "embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java"):
                 assert sources.read(name) == (ROOT / name).read_bytes(), "Bundled runtime source differs"
             for name in ("skip_ota.py", "PatchSkipOtaDex.java", "startup_tutorial.py", "updater_manifest.py", "debug_manifest.py",
@@ -444,6 +471,7 @@ def verify(apk):
             "anchor_windows": anchor_report,
             "automatic_first_use_tutorial_disabled_with_exact_native_scope": True,
             "experimental_stereo_default_off_and_both_selectors_scoped": True,
+            "optional_mono_60_hz_and_mutually_exclusive_ui_packaged": True,
             "all_original_resources_except_audited_app_shader_and_package_identity_identical": True,
             "all_original_native_libraries_and_resources_identical": False,
             "app_colors": color_report,

@@ -1,0 +1,4 @@
+<resources>
+    <!-- The isolated APK has no original launcher resources. Keep the production theme lookup intact. -->
+    <style name="Theme.Transparent" parent="android:style/Theme.Material.NoActionBar" />
+</resources>

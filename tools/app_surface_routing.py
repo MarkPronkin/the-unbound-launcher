@@ -1,11 +1,12 @@
-"""Use the copy path for SDK-protected app hints on GPUs missing the sRGB override.
+"""Use app copies when optional protected-overlay prerequisites are unavailable.
 
 Entering immersive mode requests the same compositor overlay, so that request
 follows the same capability result.
 
-The private capability file is created by AppSurfacePolicy's isolated EGL probe.
+The private capability file is created by AppSurfacePolicy's EGL/DRM checks.
 It does not change Android secure-window flags or the virtual display's security.
-An absent, malformed, false or unreadable result preserves the stock overlay.
+An absent, malformed, false or unreadable file preserves the native overlay.
+Java publishes true before probing, and retains it on failure or timeout.
 """
 import hashlib
 import json
@@ -39,5 +40,6 @@ def verify_surface_routing(blob):
     patch_surface_routing(blob,restore=True)
     return {'capability_gated_protected_hint_stores':6,'capability_gated_immersive_overlay_request':True,
             'unknown_capability_preserves_overlay':True,
-            'hardware_override_gpus_preserve_overlay':True,'android_secure_flags_unchanged':True,
+            'overlay_requires_gpu_and_drm_readiness':True,'android_secure_flags_unchanged':True,
+            'failed_or_timed_out_probe_uses_copy':True,'no_provisioning_or_license_requests':True,
             'virtual_display_security_unchanged':True,'hardware_validation':'pending'}

@@ -11,14 +11,19 @@ import com.android.tools.smali.dexlib2.writer.pool.DexPool;
 import java.nio.file.*;
 import java.util.*;
 
-/** Preserve stock input callbacks; replace only IME classification and private flag access. */
+/** Preserve stock input callbacks; correct IME classification, mask touch routing and private flag access. */
 public final class PatchInputCompatDex {
     static final String LAYOUT = "Lai/nreal/nebula/service/InputDetectService$1$1;";
+    static final String PHONE = "Lai/nreal/nebula/space/LaunchSpaceAcrivity;";
     static final String INPUT = "Lcom/xreal/evapro/InputHelper;";
     static final String RESOLVER = "Landroid/content/ContentResolver;";
     static int target(Method m) {
         if (m.getDefiningClass().equals(LAYOUT) && m.getName().equals("onGlobalLayout")
                 && m.getParameterTypes().isEmpty() && m.getReturnType().equals("V")) return 1;
+        if (m.getDefiningClass().equals(PHONE) && m.getReturnType().equals("V")) {
+            if (m.getName().equals("onCreate") && m.getParameterTypes().equals(List.of("Landroid/os/Bundle;"))) return 4;
+            if (m.getName().equals("onResume") && m.getParameterTypes().isEmpty()) return 5;
+        }
         if (m.getDefiningClass().equals(INPUT)) {
             if (m.getName().equals("hidePointerIcon") && m.getParameterTypes().equals(List.of("Z", "Z"))
                     && m.getReturnType().equals("V")) return 2;
@@ -73,6 +78,28 @@ public final class PatchInputCompatDex {
                 throw new IllegalStateException("Unexpected keyboard predicate address");
             code.subList(27, 38).clear();
             code.addAll(27, replacement);
+        } else if (kind == 4 || kind == 5) {
+            for (int i = 0; i < code.size(); i++) {
+                Instruction instruction = code.get(i);
+                if (!(instruction instanceof ReferenceInstruction ref)
+                        || !(ref.getReference() instanceof MethodReference call)) continue;
+                if (call.getDefiningClass().equals("Ldev/beampro/port/KeyboardCompat;"))
+                    throw new IllegalStateException("IME mask hook already present");
+                if (!call.getDefiningClass().equals("Landroid/view/WindowManager;")
+                        || !call.getName().equals("addView")) continue;
+                if (!call.getParameterTypes().equals(List.of("Landroid/view/View;", "Landroid/view/ViewGroup$LayoutParams;"))
+                        || !call.getReturnType().equals("V") || instruction.getOpcode() != Opcode.INVOKE_INTERFACE
+                        || !(instruction instanceof Instruction35c invoke) || invoke.getRegisterCount() != 3)
+                    throw new IllegalStateException("Unexpected IME mask window addition");
+                // Same receiver, view and layout registers, and the same three
+                // code units. Lifecycle, removal and keyboard callbacks stay intact.
+                code.set(i, new ImmutableInstruction35c(Opcode.INVOKE_STATIC, 3,
+                        invoke.getRegisterC(), invoke.getRegisterD(), invoke.getRegisterE(), 0, 0,
+                        new ImmutableMethodReference("Ldev/beampro/port/KeyboardCompat;", "addImeMask",
+                                List.of("Landroid/view/WindowManager;", "Landroid/view/View;", "Landroid/view/ViewGroup$LayoutParams;"), "V")));
+                edits++;
+            }
+            if (edits != 1) throw new IllegalStateException("Expected one IME mask addition in " + m.getName());
         } else {
             boolean marker = false;
             for (int i = 0; i < code.size(); i++) {
@@ -124,8 +151,8 @@ public final class PatchInputCompatDex {
             expected.put(cls.getType(), restore ? after : cls);
             patched.put(cls.getType(), after);
         }
-        if (!targets.equals(Set.of(1)) && !targets.equals(Set.of(2, 3)))
-            throw new IllegalStateException("Expected keyboard detection or both pointer flag accesses");
+        if (!targets.equals(Set.of(1, 4, 5)) && !targets.equals(Set.of(2, 3)))
+            throw new IllegalStateException("Expected keyboard detection and both IME mask additions, or both pointer flag accesses");
         List<ClassDef> output = new ArrayList<>();
         for (ClassDef cls : input.getClasses()) {
             ClassDef reference = expected.remove(cls.getType());

@@ -34,7 +34,8 @@ public final class VerifyAutoArEntryDex {
                     if(receiver&&call.getDefiningClass().equals("Landroid/os/IBinder;")&&call.getName().equals("transact"))transacts++;
                 }
             }
-        if(helperReady!=2||transacts!=1||!token||!setup||!mirroring||preferenceGuards!=1)throw new IllegalStateException("Automatic USB trigger or mirroring guard is incomplete: "+helperReady+","+transacts+","+preferenceGuards);
+        // Setup completion, normal startup, and recovery after a lost shell reply.
+        if(helperReady!=3||transacts!=1||!token||!setup||!mirroring||preferenceGuards!=1)throw new IllegalStateException("Automatic USB trigger or mirroring guard is incomplete: "+helperReady+","+transacts+","+preferenceGuards);
         System.out.println("Private USB trigger, setup gate, helper-ready recovery and fixed-component shell auto-entry are wired");
     }
 }

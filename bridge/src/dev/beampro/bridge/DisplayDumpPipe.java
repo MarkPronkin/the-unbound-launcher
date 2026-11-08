@@ -14,6 +14,7 @@ public final class DisplayDumpPipe {
     private final AtomicBoolean busy = new AtomicBoolean();
     private final AtomicBoolean controlBusy = new AtomicBoolean();
     private final AtomicBoolean traceBusy = new AtomicBoolean();
+    private final AtomicBoolean startupBusy = new AtomicBoolean();
 
     public DisplayDumpPipe(int uid) { this(uid, DisplayDiagnostics::capture); }
     public DisplayDumpPipe(int uid, Capture capture) { launcherUid = uid; this.capture = capture; }
@@ -23,7 +24,8 @@ public final class DisplayDumpPipe {
         DisplayDiagnostics.service(kind); // Validate before allocating a pipe or starting a worker.
         // A 12 s control trace must not delay failure snapshots or display dumps.
         AtomicBoolean slot=kind==DisplayDiagnostics.GLASSES_CONTROL ? controlBusy
-                : kind==DisplayDiagnostics.GLASSES_CONTROL_TRACE ? traceBusy : busy;
+                : kind==DisplayDiagnostics.GLASSES_CONTROL_TRACE ? traceBusy
+                : kind==DisplayDiagnostics.DISPLAY_STARTUP ? startupBusy : busy;
         if (!slot.compareAndSet(false, true)) throw new IOException("A "+DisplayDiagnostics.service(kind)+" diagnostic is still finishing; create a new debug file shortly");
         ParcelFileDescriptor[] pipe;
         try { pipe = ParcelFileDescriptor.createPipe(); }

@@ -126,6 +126,8 @@ public final class AdbSetupChecks extends Instrumentation {
         runOnMainSync(() -> {
             require(text("Connect this phone") != null, "guided ADB screen displayed");
             require(text("02  CONNECTION") != null, "ADB is step two after permissions");
+            require(current.findViewById(android.R.id.content).findViewWithTag("adb-mobile-status") != null,
+                    "Mobile use and restart recovery are explained during setup");
             require(PermissionSetupActivity.hasReviewedPermissions(current), "permission review is saved");
             require(current.getWindow().getStatusBarColor() == Color.BLACK && current.getWindow().getNavigationBarColor() == Color.BLACK, "OLED system bars");
             require(!buttonStarting("Continue").isEnabled(), "cannot continue without a live helper");

@@ -48,8 +48,9 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
             check(DebugDisplay.captureLink(getTargetContext()).equals(payload(2)),"Original link capture remains available");
             check(DisplayDiagnostics.GLASSES_CONTROL_TRACE==4&&ControlTrace.MAX_BYTES==24000,"Stable trace selector and byte budget");
             check(DebugDisplay.captureTrace(getTargetContext()).equals(payload(4)),"Trace capture crosses the real Binder descriptor pipe");
+            check(DebugDisplay.captureStartup(getTargetContext()).equals(payload(5)),"Connected startup capture crosses the real Binder pipe");
             DisplayDumpPipe direct=new DisplayDumpPipe(android.os.Process.myUid());
-            for(int kind:new int[]{0,1,2,3,4})try(ParcelFileDescriptor ignored=direct.open(android.os.Process.myUid()+1,kind)){
+            for(int kind:new int[]{0,1,2,3,4,5})try(ParcelFileDescriptor ignored=direct.open(android.os.Process.myUid()+1,kind)){
                 throw new AssertionError("Other UID accepted");
             }catch(SecurityException expected){checks++;}
             try(ParcelFileDescriptor ignored=direct.open(android.os.Process.myUid(),99)){throw new AssertionError("Unknown selector accepted");}
@@ -64,6 +65,7 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
             String trace=DebugDisplay.captureTrace(getTargetContext());
             check(trace.contains("Unknown display diagnostic")&&trace.contains("restart")&&trace.contains("Glasses control trace"),"The released 0.2.0 helper rejecting kind four gives an update explanation");
             check(DebugDisplay.captureLink(getTargetContext()).equals(payload(2)),"Pre-control helper still supplies link diagnostics");
+            check(DebugDisplay.captureStartup(getTargetContext()).contains("Unknown display diagnostic"),"Older helpers rejecting startup capture provide an update explanation");
             mode("missing");check(DebugDisplay.captureControl(getTargetContext()).contains("not running"),"Absent helper yields a readable control report");
             mode("empty");check(DebugDisplay.captureControl(getTargetContext()).contains("empty diagnostic pipe"),"Empty helper pipe is explained");
 
@@ -71,6 +73,7 @@ public final class ControlDiagnosticsRuntimeChecks extends Instrumentation {
             Thread linkThread=new Thread(()->link.set(DebugDisplay.captureLink(getTargetContext())));linkThread.start();entered();
             long start=SystemClock.uptimeMillis();control=DebugDisplay.captureControl(getTargetContext(),1200);
             check(control.equals(payload(3))&&SystemClock.uptimeMillis()-start<1200,"Control client and helper producer bypass a blocked link capture");
+            check(DebugDisplay.captureStartup(getTargetContext()).equals(payload(5)),"Startup dump bypasses an outstanding routine link capture");
             released();linkThread.join(2000);check(!linkThread.isAlive()&&payload(2).equals(link.get()),"Link capture drains after independent control capture");
 
             mode("blockLinkBinder");linkThread=new Thread(()->link.set(DebugDisplay.captureLink(getTargetContext())));linkThread.start();entered();

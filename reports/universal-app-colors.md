@@ -1,5 +1,17 @@
 # Universal app-window colors
 
+## Protected app readiness — development build 2964
+
+The [Moto Edge 2024 capture](moto-edge-2024-one-pro-v023.md) selects a
+protected app overlay on a GPU with the sRGB override, then records
+buffer-acquisition failures and auxiliary DRM-service crashes. The private
+app-surface policy now also requires a local Widevine session to open and
+close successfully before allowing that optional overlay. Failed or
+timed-out probes retain the existing copy route. The transfer curves,
+shader programs, native trampolines and Android secure-content flags are
+unchanged. This candidate still needs the Moto/One Pro retest; it does not
+change the pinned color calibration.
+
 ## Immersive mode routing — 2026-10-29, build 2950
 
 The wearer reports that immersive mode fails on the Pixel with 0.2.1 / 2949.

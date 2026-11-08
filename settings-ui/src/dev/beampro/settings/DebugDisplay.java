@@ -18,6 +18,7 @@ final class DebugDisplay {
     private static final AtomicReference<ReadPipe> active = new AtomicReference<>();
     private static final AtomicReference<ReadPipe> activeControl = new AtomicReference<>();
     private static final AtomicReference<ReadPipe> activeTrace = new AtomicReference<>();
+    private static final AtomicReference<ReadPipe> activeStartup = new AtomicReference<>();
     private static final ThreadPoolExecutor controlWorker = worker("unbound-control-helper");
     private static final ThreadPoolExecutor traceWorker = worker("unbound-trace-helper");
 
@@ -34,6 +35,7 @@ final class DebugDisplay {
     }
 
     static String captureLink(Context context) { return captureOne(context, DisplayDiagnostics.DISPLAY_LINK, 30_000); }
+    static String captureStartup(Context context) { return captureOne(context, DisplayDiagnostics.DISPLAY_STARTUP, 30_000); }
     static String captureControl(Context context) { return captureControl(context,6000); }
     static String captureControl(Context context, long timeoutMillis) { return captureOne(context,DisplayDiagnostics.GLASSES_CONTROL,timeoutMillis); }
     static String captureTrace(Context context) { return captureTrace(context,ControlTrace.DURATION_MS+8000); }
@@ -42,7 +44,8 @@ final class DebugDisplay {
     private static String captureOne(Context context, int kind, long timeoutMillis) {
         ReadPipe pipe = new ReadPipe();
         AtomicReference<ReadPipe> slot = kind==DisplayDiagnostics.GLASSES_CONTROL ? activeControl
-                : kind==DisplayDiagnostics.GLASSES_CONTROL_TRACE ? activeTrace : active;
+                : kind==DisplayDiagnostics.GLASSES_CONTROL_TRACE ? activeTrace
+                : kind==DisplayDiagnostics.DISPLAY_STARTUP ? activeStartup : active;
         FutureTask<String> request = null;
         try {
             if (!slot.compareAndSet(null, pipe)) throw new RejectedExecutionException("A "+DisplayDiagnostics.service(kind)+" diagnostic is still finishing");
@@ -97,6 +100,7 @@ final class DebugDisplay {
             while ((count = input.read(buffer)) != -1) {
                 int limit = kind == DisplayDiagnostics.GLASSES_CONTROL ? DisplayDiagnostics.MAX_CONTROL_BYTES
                         : kind == DisplayDiagnostics.GLASSES_CONTROL_TRACE ? ControlTrace.MAX_BYTES
+                        : kind == DisplayDiagnostics.DISPLAY_STARTUP ? DisplayDiagnostics.MAX_STARTUP_BYTES
                         : kind == DisplayDiagnostics.DISPLAY_LINK ? DisplayDiagnostics.MAX_LINK_BYTES : DisplayDiagnostics.MAX_BYTES;
                 int keep = Math.min(count, limit - output.size());
                 output.write(buffer, 0, keep);

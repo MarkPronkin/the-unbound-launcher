@@ -61,6 +61,32 @@ final class DebugData {
     private final AtomicBoolean traceRunning = new AtomicBoolean();
     private volatile String traceAttempt;
     private volatile Future<?> traceTask;
+    private final ExecutorService displayCaptures = Executors.newSingleThreadExecutor(task -> {
+        Thread thread = new Thread(task, "unbound-startup-display-snapshots"); thread.setDaemon(true); return thread;
+    });
+    private volatile Future<?> displayCaptureTask;
+    private boolean displayCapturePending;
+    private DisplayRequest pendingDisplayCapture;
+    private DisplayManager observedDisplays;
+    private int displayObservationEpoch, displayObservationSession;
+    private final AtomicBoolean displaySampleQueued = new AtomicBoolean(), displayFailureQueued = new AtomicBoolean();
+    private final DisplayTransitions displayTransitions = new DisplayTransitions(new DisplayTransitions.Sink() {
+        public void event(String attempt, String detail) { retainEvent(displayObservationEpoch, attempt, "display_change", detail); }
+        public void capture(String attempt, String reason) { queueDisplayStartup(attempt, reason); }
+    });
+    private final DisplayManager.DisplayListener displayListener = new DisplayManager.DisplayListener() {
+        public void onDisplayAdded(int id) { requestDisplaySample(false); }
+        public void onDisplayChanged(int id) { requestDisplaySample(false); }
+        public void onDisplayRemoved(int id) { requestDisplaySample(false); }
+    };
+    private final Runnable displayPoll = new Runnable() {
+        public void run() {
+            main.removeCallbacks(this);
+            if (!enabled() || !collecting() || !displayTransitions.active(SystemClock.uptimeMillis())) return;
+            requestDisplaySample(false);
+            main.postDelayed(this, 250);
+        }
+    };
     private final Object controlLock = new Object();
     private boolean controlPending;
     private String pendingControlFailure, controlStartAttempt;
@@ -139,6 +165,15 @@ final class DebugData {
         catch (IOException failure) { error = failure.getMessage(); }
         session++;
         pendingFailure = null;
+        pendingDisplayCapture = null;
+        displayTransitions.stop(); displayFailureQueued.set(false);
+        main.removeCallbacks(displayPoll);
+        main.post(() -> {
+            if (collecting()) return;
+            if (observedDisplays != null) try { observedDisplays.unregisterDisplayListener(displayListener); }
+            catch (RuntimeException error) { Log.w("UnboundDebug", "Cannot stop display observations", error); }
+            observedDisplays = null;
+        });
         synchronized (controlLock) { pendingControlFailure = null; controlStartAttempt = null; }
         if (logcat != null) logcat.destroy();
         logcat = null; collector = null;
@@ -183,6 +218,7 @@ final class DebugData {
                         catch (IOException ignored) {}
                         collector = null; logcat = null;
                         main.removeCallbacks(snapshot);
+                        displayTransitions.stop(); main.removeCallbacks(displayPoll);
                     }
                 }
                 changed();
@@ -190,6 +226,13 @@ final class DebugData {
         }, "unbound-debug-logs");
         collector.start();
         queueDiagnostics("Debug collection started; baseline before reproducing the connection problem.", false);
+        main.post(() -> {
+            if (!enabled() || !collecting() || capture != session || observedDisplays != null) return;
+            try {
+                observedDisplays = context.getSystemService(DisplayManager.class);
+                if (observedDisplays != null) observedDisplays.registerDisplayListener(displayListener, main);
+            } catch (RuntimeException error) { observedDisplays = null; Log.w("UnboundDebug", "Cannot observe display callbacks; polling remains available", error); }
+        });
         main.post(snapshot);
     }
 
@@ -216,6 +259,7 @@ final class DebugData {
         report.append("Network diagnostics include interface IP addresses, routes, Ethernet status and glasses ping output.\n");
         report.append("Display and SurfaceFlinger dumps may include display identifiers and app/window names.\n");
         report.append("Display-link diagnostics include USB port state, selected system display logs, available kernel/link messages and connector EDID. Android may deny some sources.\n");
+        report.append("Display changes are retained directly for 90 seconds after SDK startup, independently of logcat. display-startup.txt pins the first non-native output snapshot and the latest startup snapshot, including connected DisplayManager/SurfaceFlinger modes, USB port state and selected preceding system logs; later unplugging does not replace them.\n");
         report.append("Glasses startup diagnostics retain the first failure, recent SDK/control events and connection-attempt IDs. Control snapshots include fixed-peer socket state, routes and interface counters where Android permits them; they do not establish packet delivery.\n");
         report.append("Control traces sample kernel socket state for the fixed glasses peers every ").append(ControlTrace.INTERVAL_MS)
                 .append(" ms for ").append(ControlTrace.DURATION_MS / 1000).append(" s after an SDK start and record only changes. Startup events record the glasses display mode.\n");
@@ -247,6 +291,7 @@ final class DebugData {
     /** Called reflectively by the connection adapter, without coupling the renderer to settings. */
     public static void connectionFailure(Context context, String reason) {
         DebugData data = get(context);
+        data.requestDisplaySample(true);
         data.queueControl("Connection failure: " + reason, true);
         data.queueDiagnostics("Connection failure: " + reason, true);
     }
@@ -282,6 +327,13 @@ final class DebugData {
                 first = !id.equals(data.controlStartAttempt); data.controlStartAttempt = id;
             }
             if (first) {
+                try { data.startupEvents.execute(() -> {
+                    if (!data.enabled() || !data.collecting() || epoch != data.traceEpoch) return;
+                    data.displayObservationEpoch = epoch; data.displayObservationSession = data.session;
+                    data.displayTransitions.begin(id, SystemClock.uptimeMillis());
+                    data.requestDisplaySample(false);
+                    data.main.post(data.displayPoll);
+                }); } catch (RejectedExecutionException overloaded) { Log.w("UnboundDebug", "Cannot start display transition observations", overloaded); }
                 data.queueControl("Before SDK startup; attempt=" + id + "; " + text, false);
                 data.queueTrace(id, epoch);
             }
@@ -326,9 +378,18 @@ final class DebugData {
     }
 
     /** Physical external displays only; the app's own virtual displays carry no EDID product data. */
-    static String externalDisplays(Context context) {
+    static String externalDisplays(Context context) { return displayState(context).detail; }
+
+    private static final class DisplayState {
+        final String detail; final boolean physical, nativeOutput;
+        DisplayState(String detail, boolean physical, boolean nativeOutput) {
+            this.detail = detail; this.physical = physical; this.nativeOutput = nativeOutput;
+        }
+    }
+
+    private static DisplayState displayState(Context context) {
         try {
-            StringBuilder out = new StringBuilder(); int count = 0;
+            StringBuilder out = new StringBuilder(); int count = 0; boolean nativeOutput = false;
             for (Display display : context.getSystemService(DisplayManager.class).getDisplays()) {
                 if (display.getDisplayId() == Display.DEFAULT_DISPLAY) continue;
                 boolean physical = Build.VERSION.SDK_INT >= 31 ? display.getDeviceProductInfo() != null
@@ -336,6 +397,7 @@ final class DebugData {
                 if (!physical) continue;
                 if (++count > 3) { out.append("; [more omitted]"); break; }
                 Display.Mode mode = display.getMode();
+                nativeOutput |= display.getState() == Display.STATE_ON && nativeMode(mode);
                 Map<String, StringBuilder> rates = new LinkedHashMap<>();
                 for (Display.Mode supported : display.getSupportedModes()) {
                     StringBuilder list = rates.computeIfAbsent(supported.getPhysicalWidth() + "x" + supported.getPhysicalHeight(), size -> new StringBuilder());
@@ -347,10 +409,79 @@ final class DebugData {
                 out.append(count == 1 ? "" : "; ").append(display.getDisplayId()).append(" \"").append(display.getName()).append("\" ")
                         .append(mode.getPhysicalWidth()).append('x').append(mode.getPhysicalHeight()).append('@')
                         .append(String.format(Locale.ROOT, "%.1f", mode.getRefreshRate())).append(" mode=").append(mode.getModeId())
-                        .append(" state=").append(display.getState()).append(" supported=").append(supported);
+                        .append(" state=").append(display.getState()).append(" flags=0x").append(Integer.toHexString(display.getFlags()))
+                        .append(" rotation=").append(display.getRotation()).append(" supported=").append(supported);
+                out.append(" modeIds=");
+                int modes = 0;
+                for (Display.Mode item : display.getSupportedModes()) {
+                    if (++modes > 32) { out.append("[more omitted]"); break; }
+                    out.append(item.getModeId()).append(':').append(item.getPhysicalWidth()).append('x').append(item.getPhysicalHeight())
+                            .append('@').append(String.format(Locale.ROOT, "%.2f", item.getRefreshRate())).append(',');
+                }
+                if (Build.VERSION.SDK_INT >= 31 && display.getDeviceProductInfo() != null) {
+                    android.hardware.display.DeviceProductInfo product = display.getDeviceProductInfo();
+                    out.append(" product=").append(product.getManufacturerPnpId()).append(':').append(product.getProductId())
+                            .append(" name=\"").append(product.getName()).append('"');
+                }
             }
-            return count == 0 ? "no external physical display" : out.toString();
-        } catch (RuntimeException unavailable) { return "unavailable (" + unavailable + ")"; }
+            return new DisplayState(count == 0 ? "no external physical display" : bounded(out.toString(), 12_000), count != 0, nativeOutput);
+        } catch (RuntimeException unavailable) { return new DisplayState("unavailable (" + unavailable + ")", false, false); }
+    }
+
+    private static boolean nativeMode(Display.Mode mode) {
+        return (mode.getPhysicalWidth() == 1920 || mode.getPhysicalWidth() == 3840) && mode.getPhysicalHeight() == 1080;
+    }
+
+    private void requestDisplaySample(boolean failure) {
+        if (!enabled() || !collecting() || !displayTransitions.active(SystemClock.uptimeMillis())) return;
+        if (failure) displayFailureQueued.set(true);
+        if (!displaySampleQueued.compareAndSet(false, true)) return;
+        final int capture = session, epoch = traceEpoch;
+        try { startupEvents.execute(() -> {
+            try {
+                if (!enabled() || !collecting() || capture != session || epoch != traceEpoch) return;
+                DisplayState state = displayState(context);
+                displayTransitions.sample(System.currentTimeMillis(), SystemClock.uptimeMillis(), state.detail,
+                        state.physical, state.nativeOutput, displayFailureQueued.getAndSet(false));
+            } finally {
+                displaySampleQueued.set(false);
+                if (displayFailureQueued.get()) requestDisplaySample(false);
+            }
+        }); } catch (RejectedExecutionException overloaded) { displaySampleQueued.set(false); }
+    }
+
+    private static final class DisplayRequest {
+        final int session, epoch; final String text;
+        DisplayRequest(int session, int epoch, String text) { this.session = session; this.epoch = epoch; this.text = text; }
+    }
+
+    private void queueDisplayStartup(String attempt, String reason) {
+        captureDisplayStartup(new DisplayRequest(displayObservationSession, displayObservationEpoch, "Requested wallMs=" + System.currentTimeMillis()
+                + "; uptimeMs=" + SystemClock.uptimeMillis() + "; attempt=" + bounded(attempt, 128) + "\n" + bounded(reason, 16_000)));
+    }
+
+    private synchronized void captureDisplayStartup(DisplayRequest request) {
+        if (!enabled() || !collecting() || request.session != session || request.epoch != traceEpoch) return;
+        if (displayCapturePending) { pendingDisplayCapture = request; return; }
+        displayCapturePending = true;
+        displayCaptureTask = displayCaptures.submit(() -> {
+            try {
+                if (!enabled() || !collecting() || request.session != session || request.epoch != traceEpoch) return;
+                String result = request.text + "\nObserved before helper capture: " + externalDisplays(context)
+                        + "\n" + DebugDisplay.captureStartup(context);
+                synchronized (this) {
+                    if (!enabled() || !collecting() || request.session != session || request.epoch != traceEpoch) return;
+                    startupArchive().startupDisplay(result);
+                }
+            } catch (IOException | RuntimeException error) { Log.w("UnboundDebug", "Cannot retain startup display snapshot", error); }
+            finally {
+                synchronized (this) {
+                    displayCapturePending = false;
+                    DisplayRequest next = pendingDisplayCapture; pendingDisplayCapture = null;
+                    if (next != null) captureDisplayStartup(next);
+                }
+            }
+        });
     }
 
     private static String bounded(String value, int limit) {
@@ -431,6 +562,9 @@ final class DebugData {
         Future<?> trace = traceTask;
         if (trace != null && traceRunning.get()) try { trace.get(ControlTrace.DURATION_MS + 9000, TimeUnit.MILLISECONDS); }
         catch (Exception pending) { Log.w("UnboundDebug", "Control trace did not finish before export", pending); }
+        Future<?> display = displayCaptureTask;
+        if (display != null) try { display.get(32_000, TimeUnit.MILLISECONDS); }
+        catch (Exception pending) { Log.w("UnboundDebug", "Startup display snapshot did not finish before export", pending); }
         if (enabled()) startupArchive().startupSnapshot("Debug export requested; current control state.\n" + DebugDisplay.captureControl(context));
         if (enabled()) archive().link("Debug export requested; current connection state.\n" + DebugDisplay.captureLink(context));
         String[] displays = enabled() ? DebugDisplay.capture(context) : null;

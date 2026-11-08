@@ -3,11 +3,23 @@ package dev.beampro.port;
 import android.graphics.Rect;
 import android.os.Build;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.view.WindowManager;
 
 /** Distinguish the phone IME from navigation bars and display cutouts. */
 public final class KeyboardCompat {
     private KeyboardCompat() {}
+
+    /** Keep the stock IME focus target without letting its invisible window eat phone touches. */
+    public static void addImeMask(WindowManager windows, View view, ViewGroup.LayoutParams layout) {
+        WindowManager.LayoutParams params = (WindowManager.LayoutParams) layout;
+        // A zero-sized focusable overlay is still touch-modal unless explicitly
+        // excluded from touch dispatch. Leave focus and IME flags intact.
+        params.flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+        windows.addView(view, params);
+    }
 
     public static boolean isVisible(View view) {
         WindowInsets insets = view.getRootWindowInsets();

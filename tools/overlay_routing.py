@@ -14,7 +14,7 @@ from app_color import LIBRARY
 from xreal_telemetry import file_offset
 
 # Launcher library after patch_color_native, patch_startup_tutorial and patch_stereo_native.
-BASELINE_SHA256 = '95cc1867d098ce26946f05b11db87cfeb9db52f8c56a7bd48f05dee02178a4a2'
+BASELINE_SHA256 = '752157dcb9aa8229a1b6807270f6f9569c8ad6515091adbe196d7bbe8dc9e142'
 FIELD = 0x71  # AppInfo.useMultiLayer
 # Store address -> (method, AppInfo register).
 SITES = {

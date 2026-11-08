@@ -295,9 +295,9 @@ update. The candidate is
 `artifacts/unbound-launcher-samsung-dex-2913/the-unbound-launcher.apk`, SHA-256
 `87a0073804823d092d8cf57893de7e279a0fe9651761f14fc0b36642216bc2ac`.
 Validation logs and the settings screenshot are under `artifacts/samsung-dex-2913/`.
-The 2D 60 Hz diagnostic option in that candidate has since been removed. Current
-builds ignore that saved choice and use the original model defaults; the Air 2's
-working SBS option remains available. Collect a fresh export while connected if
+The 2D 60 Hz diagnostic option in that candidate was later removed and is now
+restored in development sources with the same saved preference and selector
+behavior. The Air 2's working SBS option remains available. Collect a fresh export while connected if
 either case fails. DeX may still start underneath the renderer.
 
 ## Ethernet readiness through the paired helper — build 2912

@@ -1,6 +1,7 @@
 package dev.beampro.settings;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 
 public final class DisplayDiagnosticsTest {
@@ -53,19 +54,39 @@ public final class DisplayDiagnosticsTest {
             if(Arrays.asList(command).contains("kernel"))return "exit=0; timedOut=false\n[drm] DP link training failed\nunrelated private kernel message\n";
             return "exit=0; timedOut=false\nDisplayPort Alt Mode and EDID fixture\n";
         });
-        check(commands.size()==7,"all seven fixed link sources collected");
+        check(commands.size()==9,"all nine fixed link sources collected");
         check(Arrays.equals(commands.get(0),new String[]{"/system/bin/dumpsys","-t","3","usb"}),"USB port and Alt Mode service dump");
-        check(Arrays.equals(commands.get(1),new String[]{"/system/bin/dumpsys","-t","2","window","displays"}),"display windows only");
-        check(Arrays.asList(commands.get(2)).contains("*:S")&&!Arrays.asList(commands.get(2)).contains("all"),"system log read is restricted to fixed display and USB tags");
-        check(commands.get(5)[0].equals("/system/bin/sh")&&commands.get(5)[2].contains("/sys/class/drm/card*-DP-*")
-                &&commands.get(5)[2].contains("/system/bin/timeout -s KILL 1")&&commands.get(5)[2].contains("-N512"),"fixed sysfs paths, per-read deadlines and bounded EDID");
-        check(Arrays.equals(commands.get(6),new String[]{"/system/bin/head","-c","4096","/data/local/tmp/unbound-launcher/display-policy.properties"}),"only the helper display-policy journal is read");
+        check(commands.get(1)[2].contains("sed -n")&&commands.get(1)[2].contains("port_manager"),"USB port state is selected before output limiting, independently of long descriptors");
+        check(Arrays.equals(commands.get(2),new String[]{"/system/bin/dumpsys","-t","2","window","displays"}),"display windows only");
+        check(Arrays.asList(commands.get(3)).contains("*:S")&&!Arrays.asList(commands.get(3)).contains("all"),"system log read is restricted to fixed display and USB tags");
+        check(Arrays.asList(commands.get(3)).contains("-T")&&!Arrays.asList(commands.get(3)).contains("-t")
+                &&report.contains("preceding 120 seconds"),"time-based system log capture preserves the switch before a noisy 45-second wait");
+        check(commands.get(4)[2].contains("/system/bin/grep -i -E")&&commands.get(4)[2].contains("/system/bin/timeout -s KILL 2")
+                &&commands.get(4)[2].contains("edid")&&commands.get(4)[2].contains("pixel.?clock"),"unknown vendor tags are keyword-filtered before the byte cap with a bounded logcat process");
+        check(commands.get(7)[0].equals("/system/bin/sh")&&commands.get(7)[2].contains("/sys/class/drm/card*-DP-*")
+                &&commands.get(7)[2].contains("/system/bin/timeout -s KILL 1")&&commands.get(7)[2].contains("-N512")
+                &&!commands.get(7)[2].contains("[ -e"),"fixed bounded sysfs reads retain denials instead of silently skipping restricted attributes");
+        check(Arrays.equals(commands.get(8),new String[]{"/system/bin/head","-c","4096","/data/local/tmp/unbound-launcher/display-policy.properties"}),"only the helper display-policy journal is read");
         check(report.contains("DP link training failed")&&report.contains("Operation not permitted")&&!report.contains("unrelated private"),"retain link evidence and denials while filtering unrelated kernel messages");
+        java.nio.file.Path usbFixture=Files.createTempFile("unbound-usb-ports-", ".txt");
+        try {
+            Files.write(usbFixture,(new String(new char[160_000]).replace('\0','x')
+                    +"\n  port_manager={\n    displayport_alt_mode=connected\n  }\n  alsa_manager={\n  }\n").getBytes(StandardCharsets.UTF_8));
+            String selected=commands.get(1)[2].replace("/system/bin/dumpsys -t 3 usb", "cat '"+usbFixture+"'")
+                    .replace("/system/bin/sed", "/usr/bin/sed");
+            String ports=NetworkDiagnostics.runLimited(32_000,3000,"/bin/sh","-c",selected);
+            check(ports.contains("displayport_alt_mode=connected")&&!ports.contains("xxxxxxxx"),"real section filtering retains port state after oversized USB descriptors");
+            Files.write(usbFixture,(new String(new char[160_000]).replace('\0','x')
+                    +"\nUNKNOWN_VENDOR: EDID mode rejected: pixel clock exceeds bandwidth\n").getBytes(StandardCharsets.UTF_8));
+            java.lang.reflect.Field filter=DisplayDiagnostics.class.getDeclaredField("VENDOR_LOG_FILTER");filter.setAccessible(true);
+            String vendor=NetworkDiagnostics.runTailLimited(32_000,3000,"/usr/bin/grep","-i","-E",(String)filter.get(null),usbFixture.toString());
+            check(vendor.contains("UNKNOWN_VENDOR: EDID mode rejected")&&!vendor.contains("xxxxxxxx"),"unknown vendor timing rejection survives filtering before the byte cap");
+        } finally { Files.deleteIfExists(usbFixture); }
         int[] probes={0};
         report=DisplayDiagnostics.capture(DisplayDiagnostics.DISPLAY_LINK,(t,c)->{
             probes[0]++;if(probes[0]==1)throw new java.io.IOException("USB dump unavailable");return "exit=0; timedOut=false\n";
         });
-        check(probes[0]==7&&report.contains("USB dump unavailable")&&report.contains("Helper temporary display-policy"),"one unavailable source cannot suppress later link probes");
+        check(probes[0]==9&&report.contains("USB dump unavailable")&&report.contains("Helper temporary display-policy"),"one unavailable source cannot suppress later link probes");
         Thread.currentThread().interrupt();
         try {
             report=DisplayDiagnostics.capture(DisplayDiagnostics.DISPLAY_LINK,(t,c)->{throw new AssertionError("interrupted capture ran");});
@@ -74,6 +95,21 @@ public final class DisplayDiagnosticsTest {
         encoded=DisplayDiagnostics.encode(DisplayDiagnostics.DISPLAY_LINK,unicode);
         check(encoded.length<=DisplayDiagnostics.MAX_LINK_BYTES&&!new String(encoded,StandardCharsets.UTF_8).contains("\ufffd")
                 &&new String(encoded,StandardCharsets.UTF_8).contains("truncated"),"link snapshots use a smaller explicit UTF-8 byte budget");
+        commands.clear();
+        report=DisplayDiagnostics.capture(DisplayDiagnostics.DISPLAY_STARTUP,(timeout,command)->{
+            commands.add(command);check(timeout>0&&timeout<=4000,"startup probes are bounded");
+            if(command[command.length-1].equals("display"))return "exit=0; timedOut=false\nconnected VGA modes\n";
+            if(command[command.length-1].equals("SurfaceFlinger"))return "exit=0; timedOut=false\nHWC DP-1 hardware modes\n";
+            if(command[0].endsWith("dmesg"))return "exit=1; timedOut=false\ndmesg: Permission denied\n";
+            return "exit=0; timedOut=false\n[drm] EDID timing rejected\n";
+        });
+        check(commands.size()==8&&commands.get(0)[3].equals("display")&&commands.get(1)[3].equals("SurfaceFlinger"),"capture connected framework and hardware modes before slow link sources");
+        check(report.contains("connected VGA modes")&&report.contains("HWC DP-1")&&report.contains("EDID timing rejected")
+                &&report.contains("Permission denied"),"startup snapshot preserves mode loss, driver evidence and unavailable sources together");
+        check(report.contains("Probe start wall_ms=")&&report.contains("Probe end monotonic_ns=")&&report.contains("duration_ms="),"each probe identifies its real acquisition time");
+        encoded=DisplayDiagnostics.encode(DisplayDiagnostics.DISPLAY_STARTUP,unicode);
+        check(encoded.length<=DisplayDiagnostics.MAX_STARTUP_BYTES&&!new String(encoded,StandardCharsets.UTF_8).contains("\ufffd")
+                &&new String(encoded,StandardCharsets.UTF_8).contains("truncated"),"startup snapshots obey their independent UTF-8 byte budget");
         commands.clear();int[] counterReads={0};
         report=DisplayDiagnostics.capture(DisplayDiagnostics.GLASSES_CONTROL,(timeout,command)->{
             commands.add(command);check(timeout>0&&timeout<=800,"control probes each have a short bounded deadline");

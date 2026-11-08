@@ -34,6 +34,7 @@ public final class DisplayDiagnosticsChecks extends Instrumentation {
             require(dumps[0].equals(payload(0))&&dumps[1].equals(payload(1)),"large display and SurfaceFlinger payloads cross Binder by descriptor intact: "+dumps[0].substring(0,Math.min(250,dumps[0].length()))+" / "+dumps[1].substring(0,Math.min(250,dumps[1].length())));
             require(dumps[0].getBytes(StandardCharsets.UTF_8).length>500_000,"test exceeds the safe Binder string budget");
             require(DebugDisplay.captureLink(getTargetContext()).equals(payload(2)),"display-link report crosses the real Binder pipe");
+            require(DebugDisplay.captureStartup(getTargetContext()).equals(payload(5)),"connected startup modes cross the real Binder pipe");
             try(ParcelFileDescriptor ignored=new DisplayDumpPipe(android.os.Process.myUid()).open(android.os.Process.myUid()+1,0)) {
                 throw new AssertionError("accepted another UID");
             } catch(SecurityException expected){passed++;}
@@ -70,6 +71,31 @@ public final class DisplayDiagnosticsChecks extends Instrumentation {
                     String history=HelpPageChecks.read(zip.getInputStream(zip.getEntry("display-link.txt")));
                     require(history.contains("baseline before reproducing")&&history.contains("latest-coalesced-failure"),"a failure arriving during baseline capture is retained");
                     require(!history.contains("first-coalesced-failure"),"overlapping failures coalesce rather than building an unbounded queue");
+                }
+            } finally {debug.setEnabled(false);}
+            mode("success");debug.setEnabled(true);debug.setCollecting(true);
+            try {
+                DebugData.connectionEvent(getTargetContext(),"display-regression","sdk_start","Testing the real transition-to-capture wiring");
+                java.lang.reflect.Field worker=DebugData.class.getDeclaredField("startupEvents");worker.setAccessible(true);
+                java.util.concurrent.ExecutorService events=(java.util.concurrent.ExecutorService)worker.get(debug);
+                events.submit(()->{}).get(5,TimeUnit.SECONDS);
+                java.lang.reflect.Field state=DebugData.class.getDeclaredField("displayTransitions");state.setAccessible(true);
+                DisplayTransitions transitions=(DisplayTransitions)state.get(debug);
+                // Feed the reported physical transition through the production recorder and real helper client.
+                events.submit(()->{
+                    long now=SystemClock.uptimeMillis();
+                    transitions.sample(System.currentTimeMillis(),now,"display 7 1920x1080@120",true,true,false);
+                    transitions.sample(System.currentTimeMillis(),now+1,"display 8 640x480@60 supported=640x480",true,false,false);
+                }).get(5,TimeUnit.SECONDS);
+                java.lang.reflect.Field task=DebugData.class.getDeclaredField("displayCaptureTask");task.setAccessible(true);
+                ((java.util.concurrent.Future<?>)task.get(debug)).get(10,TimeUnit.SECONDS);
+                debug.setCollecting(false);
+                file=debug.files.submit(debug::export).get(30,TimeUnit.SECONDS);
+                try(ZipFile zip=new ZipFile(file)) {
+                    String retained=HelpPageChecks.read(zip.getInputStream(zip.getEntry("display-startup.txt")));
+                    require(retained.contains("First non-native physical output")&&retained.contains("640x480")&&retained.contains(payload(5)),"the real recorder captures and exports connected mode evidence even after collection stops");
+                    String timeline=HelpPageChecks.read(zip.getInputStream(zip.getEntry("glasses-startup.txt")));
+                    require(timeline.contains("display_change")&&timeline.contains("1920x1080")&&timeline.contains("640x480"),"the mode transition reaches the archive without logcat");
                 }
             } finally {debug.setEnabled(false);}
             mode("oversize");dumps=DebugDisplay.capture(getTargetContext());

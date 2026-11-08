@@ -4,31 +4,34 @@ Build 2905 adds **Settings → Experimental → Force 3D on unsupported glasses*
 It is off by default. The saved switch applies after reconnecting the glasses;
 turning it off and reconnecting restores the original model defaults.
 
-The later **Use 60 Hz in 2D** diagnostic option has been removed. Current builds
-ignore its saved preference in both the Java SDK and Unity selectors, restoring
-the original model defaults. Existing saved Force 3D preferences still apply.
+**Use 60 Hz in 2D** has been restored with its original behavior. It is off by
+default and mutually exclusive with Force 3D; reconnect after changing either.
+For an original mono mode it selects 1920 × 1080 at 60 Hz in both the Java SDK
+and Unity selectors. Existing stereo modes keep their original settings. Saved
+preferences from before removal work again, including the mono 60 Hz choice.
 
 The original model selectors execute completely before the optional filters.
-Only a mono result changes, to native SBS at 60 Hz. Existing stereo results,
+Only a mono result changes, to native SBS or mono at 60 Hz. Existing stereo results,
 including their refresh rate, and unknown/error results remain unchanged.
 
 The SDK's two mode namespaces must be distinguished:
 
-| Selector | Original mono values | Experimental SBS value |
-| --- | --- | --- |
-| Legacy SDK `EGlassMode` | 1, 5, 10, 11 (60/72/90/120 Hz) | 3 |
-| Ethernet SDK EDID | 1–4 | 5 |
-| Unity home `EGlassMode` | 1, 5, 10, 11 | 3 |
+| Selector | Original mono values | Experimental SBS value | Mono 60 Hz value |
+| --- | --- | --- | --- |
+| Legacy SDK `EGlassMode` | 1, 5, 10, 11 (60/72/90/120 Hz) | 3 | 1 |
+| Ethernet SDK EDID | 1–4 | 5 | 1 |
+| Unity home `EGlassMode` | 1, 5, 10, 11 | 3 | 1 |
 
 `ExperimentalStereo.java` stores a single atomic opt-in byte in the app's private
-files. Missing, disabled or malformed values keep the default. Its DEX hook
+files: default (0), SBS (1), or mono 60 Hz (2). Missing, disabled or malformed
+values keep the default. Its DEX hook
 filters the shared return of `XREALManager.getFinalDisplayConfig()` so both the
 normal SDK startup and connection recovery see the same target. Recovery now
 recognizes legacy stereo modes as well as Ethernet EDID stereo modes, and waits
 for physical 3840 × 1080 output before completing a recovered stereo connection.
 
 Unity separately selects its home rendering mode. The native filter replaces
-only the final RET of `GlassUtil.GetHomeGlassModeFromSettings` and uses 232 bytes
+only the final RET of `GlassUtil.GetHomeGlassModeFromSettings` and uses 248 bytes
 after an already-disabled analytics RET. It runs after the original selector,
 reads the same opt-in byte, and changes only mono results. It preserves the
 stack, return address and every register it uses except the result. Existing
@@ -90,10 +93,32 @@ Unity eye-count uncertainty is resolved; the cause of the bad view and a
 correction remain unconfirmed. The same investigation records the new evidence
 and the next connected-capture requirements.
 
+## Restored 2D 60 Hz — development build 2966
+
+The original Java preference policy, settings controls and 248-byte ARM64
+filter were recovered from the source immediately before removal. Both choices
+retain their original one-byte encoding, mutual exclusion and reconnect behavior.
+The downstream native baseline hashes were refreshed, with the complete patch
+chain restoring the exact pinned input library.
+
+Validation on 2026-11-08 passes 38 host regression tests, including 170 executions
+of the ARM64 selector across default, SBS, mono 60 Hz, malformed and unreadable
+preferences. The checks cover both Java mode namespaces, saved preferences,
+existing stereo and unknown modes, patch scope, native register/stack preservation,
+and the dependent app-surface, recording, window-layout, connection and package
+identity patches. The production settings and Android instrumentation fixture
+compile successfully. No emulator or physical glasses were connected for this
+restoration; Android UI execution and a fresh glasses test remain pending.
+
+The signed build passes `verify_embedded_adb.py`, including native/DEX restoration,
+packaged settings checks and source audits. Its signing certificate matches build
+2965. The APK is `artifacts/unbound-launcher-2d-60hz-2966/the-unbound-launcher.apk`;
+validation receipts and logs are in `artifacts/restored-2d-60hz/`.
+
 ## Samsung feedback and optional mono 60 Hz — test candidate 2913
 
 This section records the historical diagnostic candidate. Its optional 2D 60 Hz
-setting is no longer available in current builds.
+setting has been restored in current development sources with the same behavior.
 
 The Air 2 wearer on Samsung SM-S928W / Android 17 confirms working stereo and
 fullscreen output. Their `unbound-debug-20261027-034043-e09ea1f9.zip` independently

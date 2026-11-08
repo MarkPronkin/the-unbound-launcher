@@ -260,7 +260,9 @@ def main():
         additions["assets/settings/brand-mark.png"] = (ROOT / "branding/symbol.png").read_bytes()
     unsigned = build / "unsigned.apk"
     if args.test_only:
-        run(tools / "aapt2", "link", "-I", platform, "--manifest", ROOT / "embedded-adb/test/AndroidManifest.xml", "-o", build / "test-base.apk")
+        run(tools / "aapt2", "compile", "--dir", ROOT / "embedded-adb/test/res", "-o", build / "test-resources.zip")
+        run(tools / "aapt2", "link", "-I", platform, "--manifest", ROOT / "embedded-adb/test/AndroidManifest.xml",
+            build / "test-resources.zip", "-o", build / "test-base.apk")
         baseline = build / "test-base.apk"
     else: baseline = BASE
     startup_dex = None
@@ -448,6 +450,15 @@ def main():
                                             'native_getters_not_invoked': True,
                                             'zip_limit_bytes': 15000000,
                                             'first_control_failure_and_export_snapshots': True}
+    report['startup_display_diagnostics'] = {'opt_in_collection': True, 'independent_of_logcat': True,
+                                             'display_observation_window_ms': 90000, 'poll_interval_ms': 250,
+                                             'capture_on_first_non_native_output_and_failure': True,
+                                             'file': 'display-startup.txt', 'snapshot_bytes': 1010000,
+                                             'first_and_latest_snapshots_retained': True,
+                                             'independent_helper_capture_slot': True,
+                                             'system_log_window_seconds': 120,
+                                             'connected_modes_survive_unplug_and_export': True,
+                                             'hardware_validation': 'pending'}
     report['renderer_geometry_diagnostics'] = {'file': 'renderer-geometry.txt', 'direct_unity_readback': True,
                                               'logcat_independent': True, 'collection_opt_in': True,
                                               'sample_interval_ms': 2000, 'native_renderer_binary_unchanged': True,
@@ -520,7 +531,8 @@ def main():
                                        "dex_keep_process_alive_metadata": not args.test_only,
                                        "manual_display_choice_respected_after_initial_configuration": True,
                                        "choice_scope": "same physical display for the helper lifetime",
-                                       "optional_mono_60_hz": False, "retired_mono_60_choices_ignored": True,
+                                       "optional_mono_60_hz": True, "mono_60_enabled_by_default": False,
+                                       "mono_and_stereo_overrides_mutually_exclusive": True,
                                        "physical_validation": "pending"}
     report["display_startup"] = {"window_scoped_stereo_mode_request": True,
                                  "actual_sdk_presentation_window_hooked": True,

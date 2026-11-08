@@ -49,8 +49,8 @@ python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-adb-recovery/the
 1. Install this single APK and accept the first-launch disclaimer. Review
    **App permissions** first. Display-over-apps access is required; the other
    permissions are optional. Tap **Continue to ADB** to open **Connect this phone**.
-2. Connect to Wi-Fi and enable **Developer
-   options → Wireless debugging** in Android Settings. Approve the network.
+2. Connect to Wi-Fi and enable **Developer options → USB debugging** and
+   **Wireless debugging** in Android Settings. Approve the network.
 3. Tap **Start pairing** and allow notifications for code entry. In Android
    Settings, choose **Wireless debugging → Pair device with pairing code**.
 4. Leave that dialog open, pull down notifications, and use **Enter pairing
@@ -94,11 +94,30 @@ but Android Settings can deliberately hide overlays; notification code entry is
 the primary flow. Both the notification and panel stop after five minutes or
 when closed. Pairing codes are not saved, backed up, or written to logs.
 
-The helper is detached from its ADB connection. Once Ready is confirmed, Wireless
-debugging may be switched off without intentionally stopping the helper. A reboot,
+The helper is detached from its ADB connection. Once Ready is confirmed, Wi-Fi
+and Wireless debugging may be switched off. **Keep USB debugging enabled** so
+Android retains `adbd` and its helper process group. Development build 2963
+verifies this setting under shell UID before extracting or launching the helper;
+it does not change Developer options automatically. A reboot,
 app update, force-stop, or provider death can stop it. No permanent shell access
 after reboot is promised. Revocation is available under Android's **Wireless
 debugging → Paired devices**. Remove the Unbound entry to revoke its ADB identity.
+
+The **Use without Wi-Fi** section reads the live helper and USB-debugging state.
+A live Binder remains Ready on cellular, Ethernet, a VPN or no network. Startup
+tries manual and remembered local ports before mDNS; remembered ports from a
+previous known boot are ignored. Without Wi-Fi and a usable listener, it reports
+the need to reconnect rather than waiting for discovery. Unknown network state
+still permits discovery, and Wi-Fi need not be the default or have internet.
+See [mobile data validation](../reports/mobile-data-adb.md).
+
+Development build 2965 also binds pairing and connection socket sources to
+loopback, refreshes discovery when VPNs or routes change, and retries transient
+startup failures within a bounded recovery window. Android 13+ discovery targets
+physical Wi-Fi even when a VPN is the default network. An already live helper
+remains Ready throughout network changes. VPN policies which block local access
+still require an exception in the VPN's settings. See
+[VPN recovery and validation](../reports/vpn-adb.md).
 
 ## Implementation
 
@@ -192,6 +211,16 @@ SDK's protected-app routing hints through the copy path as well. This reaches
 YouTube on the Pixel, whose live 2933 log still selected an overlay. Supported
 GPUs retain that overlay. Android secure-window and virtual-display flags are
 unchanged; unknown capability retains the original route.
+
+Development build 2964 also checks that a local Widevine session can open
+and close before enabling the optional protected app-overlay route.
+Unavailable DRM, failed cleanup or a 1.5-second probe deadline keeps
+ordinary app windows on the copy path, targeting the Moto Edge 2024
+report's auxiliary codec crashes. The flag starts in copy mode, and a
+late probe cannot enable overlays during the session. The probe makes no
+provisioning or license requests. Native secure-window/display policy is
+unchanged; protected playback and the Moto hardware retest remain pending.
+See the [Moto investigation](../reports/moto-edge-2024-one-pro-v023.md).
 
 Build 2950 applies the same flag to immersive mode. Entering immersive always
 asks `ChangeSurface` for a multi-layer overlay, even for windows that opened on

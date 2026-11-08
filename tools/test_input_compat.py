@@ -72,6 +72,8 @@ class InputCompatTests(unittest.TestCase):
                     work = Path(temp) / name
                     patched = patch_input_compat(original, work / 'patch', JAVA)
                     self.assertNotEqual(original, patched)
+                    if name == 'classes.dex':
+                        self.assertIn(b'addImeMask', patched)
                     self.assertEqual(patch_input_compat(patched, work / 'restore', JAVA, restore=True, baseline=original), original)
                     with self.assertRaises(subprocess.CalledProcessError):
                         patch_input_compat(patched, work / 'double', JAVA, baseline=original)

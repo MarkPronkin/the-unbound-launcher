@@ -6,6 +6,16 @@ from test_display_startup import ROOT, JAVA
 
 
 class DisplayDiagnosticsTests(unittest.TestCase):
+    def test_attempt_transition_capture_is_immediate_bounded_and_resets_on_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', tmp,
+                            str(ROOT / 'settings-ui/src/dev/beampro/settings/DisplayTransitions.java'),
+                            str(ROOT / 'tools/DisplayTransitionsTest.java')], check=True)
+            result = subprocess.check_output([str(JAVA / 'bin/java'), '-cp', tmp,
+                                              'dev.beampro.settings.DisplayTransitionsTest'], text=True)
+            self.assertIn('PASS display transition assertions', result)
+            print(result.strip())
+
     def test_fixed_commands_partial_failures_timeouts_and_output_budgets(self):
         with tempfile.TemporaryDirectory() as tmp:
             sources = [ROOT / 'settings-ui/src/dev/beampro/settings' / name for name in

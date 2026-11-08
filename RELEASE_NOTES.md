@@ -1,9 +1,63 @@
-# Unbound Launcher 0.2.4 alpha
+# Unbound Launcher 0.2.5 alpha
 
-Android build **2962**. Includes all committed and local changes since
-**0.2.3 alpha (build 2957)**, including development builds 2958–2961.
+Android build **2967**, released **2026-11-08**. This release replaces the
+withdrawn **0.2.4 alpha (build 2962)** and includes **all changes since the last
+available release, 0.2.3 alpha (build 2957)**, including development builds
+2958–2966. The complete 0.2.4 changelog is carried forward below; its fixes are
+included in this APK.
 
-## Changes since 0.2.3 alpha
+## New in 0.2.5 alpha
+
+- **On-device ADB recovers across VPN and network changes.** Pairing and ADB
+  sockets explicitly use loopback, discovery follows physical Wi-Fi even when
+  a VPN is the default network, and bounded retries handle changed routes,
+  late discovery results and interrupted startup. Stale discovery callbacks
+  are discarded. A running helper is reused without restarting it. VPN policies
+  that block local access still require a settings change; real phone/VPN
+  validation is pending. [Implementation and checks](reports/vpn-adb.md).
+- **Clearer setup and recovery for use on mobile data.** Setup now requires
+  USB debugging alongside Wireless debugging, checks that USB debugging is
+  enabled before launching the helper, and shows live **Use without Wi-Fi**
+  guidance. Once the helper is Ready, it can continue through local Binder
+  calls after Wi-Fi disconnects. Known local ports are tried before discovery,
+  and offline failures explain recovery. A reboot or stopped helper still
+  requires Wi-Fi to start again. Physical cellular and vendor-specific helper
+  retention checks remain pending. [Details](reports/mobile-data-adb.md).
+- **The phone controller's invisible keyboard mask allows touches through.**
+  Both creation and reattachment preserve the mask's keyboard role while
+  allowing taps and drags to reach the controller. Android emulator checks
+  reproduce the old interception and verify the correction. This targets the
+  Honor Magic 6 Pro controller report; its cause and the fix still need an
+  affected-device retest. [Investigation](reports/honor-magic6-touch-v023.md).
+- **App windows use the copy-rendering fallback when DRM readiness fails.**
+  Optional protected overlays now require both GPU support and a successful
+  local Widevine session check. Failure, interruption or timeout keeps the copy
+  route, and late probe completion cannot change a running session. This targets
+  the protected-rendering crashes captured on Moto Edge 2024; it does not enable
+  protected video or claim to fix every app failure or lag report. Hardware
+  validation remains pending. [Investigation](reports/moto-edge-2024-one-pro-v023.md).
+- **Restored Settings → Experimental → Use 60 Hz in 2D.** The original option
+  requests 1920 × 1080 mono at 60 Hz for models whose normal startup is 2D.
+  Existing stereo defaults are preserved. It is off by default, mutually
+  exclusive with Force 3D, and requires reconnecting. Earlier saved preferences
+  work again in both the Java SDK and Unity selectors. [Policy and checks](reports/experimental-stereo.md).
+- **Debug exports retain connected startup display evidence.** Display changes
+  are recorded for 90 seconds after SDK startup independently of logcat.
+  `display-startup.txt` keeps the first non-native-output snapshot and the latest
+  startup snapshot, so unplugging before export does not erase the connected
+  mode lists. Captures include bounded display/compositor dumps, USB port state,
+  preceding system/vendor link logs and available connector/EDID data.
+  Permission-denied sources remain visible. This improves investigation of
+  VGA-only output; it does not restore missing hardware display modes.
+- **Expanded compatibility evidence.** New Honor, Moto and Nubia reports separate
+  confirmed startup/rendering behavior from suspected causes and pending fixes.
+  Nubia NX809J / One Pro repeatedly falls back to 640 × 480 after successful SDK
+  startup; that missing-native-mode failure remains unresolved.
+  [Nubia investigation](reports/nubia-nx809j-one-pro-v023.md).
+
+## Included from withdrawn 0.2.4 alpha
+
+All of the following changes from 0.2.4 are included in 0.2.5:
 
 - **Glasses network selection now covers the renderer process.** The main SDK
   callback and Unity renderer share scoped Ethernet network leases. The renderer
@@ -51,6 +105,7 @@ Android build **2962**. Includes all committed and local changes since
   two-eye Unity rendering while the reported stereo problem remains unresolved.
   The website highlights Eye recording and wearer-confirmed R1 operation.
 
+
 Earlier features remain, including recording without the fixed launcher time
 limit, adaptive-brightness filtering, immersive-window and background-playback
 fixes, optional All files access, screen-off gamepad handling, mirroring startup
@@ -58,45 +113,48 @@ preferences, app updates and experimental 3D.
 
 ## Installing or upgrading
 
-Install **`the-unbound-launcher-0.2.4-alpha.apk`**. It keeps package
-**`dev.markpronkin.unbound`** and the same signing certificate as public 0.2.3.
-Build 2962 updates public releases from 0.1.1 through 0.2.3 alpha and local
-development builds through 2961 in place, preserving app data, pairing and
-settings.
+Install **`the-unbound-launcher-0.2.5-alpha.apk`**. It keeps package
+**`dev.markpronkin.unbound`** and the existing signing certificate registered
+with the owner's Android developer account. Build **2967** updates public
+releases from 0.1.1 through 0.2.3 alpha, the withdrawn 0.2.4 alpha, and local
+development builds through 2966 in place, preserving app data, pairing and
+settings. The signer is checked against public 0.2.3 and the recorded developer
+registration fingerprint. [Package registration](reports/package-identity.md).
 
-After installation, restart the updated helper under
-**Settings → On-device ADB → Connect and start**, then reconnect the glasses.
-**Settings → About → Check for updates** can find 0.2.4 once published.
-For a network retest, enable debug collection before connecting, leave Wi-Fi
-on, and export a fresh debug ZIP if startup fails.
+After installation, enable **USB debugging** and **Wireless debugging**, then
+restart the updated helper under **Settings → On-device ADB → Connect and start**
+on Wi-Fi. Reconnect the glasses. **Settings → About → Check for updates** can
+find 0.2.5 once published. Once the helper is Ready, keep USB debugging enabled
+when leaving Wi-Fi to use mobile data. If the helper stops, return to Wi-Fi and
+start it again. For a startup retest, enable debug collection before connecting
+and leave the glasses connected through export if startup fails.
 
 A clean install is required from 0.1.0 alpha or any build using
 `com.xreal.evapro.nebula`. Android does not transfer data between package names.
 Requirements remain an arm64 Android 11+ phone with USB-C DisplayPort Alt Mode,
 compatible glasses, Wi-Fi for Wireless debugging setup, and about 1 GB for the
-APK. Setup requires Developer options and Wireless debugging; restart the helper
-after reboot. If Android asks how to use the glasses display, choose **Mirror**.
-The firmware gate checks the model's pinned stable release before AR startup.
+APK. Setup requires Developer options; restart the helper after reboot. If
+Android asks how to use the glasses display, choose **Mirror**. The firmware
+gate checks the model's pinned stable release before AR startup.
 
 ## Validation and known limitations
 
-All **244 host regression tests pass**, with no failures or skips. The separate
+All **250 host regression tests pass**, with no failures or skips. The separate
 signed-APK audit verifies package/version, class uniqueness, scoped DEX/native
-patch restoration, bundled current sources and Unity shader loading. The APK
-passes APK Signature Scheme v3 verification and 16 KB ZIP alignment, and its
-signing certificate matches public 0.2.3 alpha. The local release package's
-`validation.json` records the verification receipts. The signed APK also passes
-**54 Android runtime assertions**: 21 for brightness handling, 19 for network
-selection/native socket binding and 14 for the original SDK startup callback.
-A current-source Android
-fixture also passes **70 Presentation/lifecycle assertions**, including startup
-notification transitions, timeout cleanup and continued rendering. The current
-helper geometry fixture passes **8 Android assertions** on normal virtual
-displays; the fixed-offset device case remains covered by host tests.
+patch restoration, current bundled sources and Unity shader loading, including
+the restored 2D 60 Hz policy. The APK passes APK Signature Scheme v3 verification
+and 16 KB ZIP alignment, with application debugging disabled. Its certificate
+matches public 0.2.3, withdrawn 0.2.4 and the recorded Android developer
+registration. The local release package's `validation.json` records these checks
+and source correspondence. No new Android runtime or physical-glasses test was
+performed for this version-only release rebuild.
 
-The exact 0.2.4 alpha APK has not been tested with physical glasses. Wearer
-confirmations refer to the implementations and earlier builds described above.
+The exact 0.2.5 alpha APK has not been tested with physical glasses. The linked
+reports describe earlier development-build Android/emulator checks and wearer
+confirmations; those are not new physical-device tests of this release.
 
+- VPN transitions, mobile-data helper retention, the Honor touch correction,
+  Moto app-window fallback and restored 2D 60 Hz need affected-device retests.
 - Renderer network selection still needs affected-phone reconnect/resume and
   later native reconnection checks. Samsung startup fixes remain pending
   hardware validation.
@@ -106,8 +164,9 @@ confirmations refer to the implementations and earlier builds described above.
 - Adaptive-brightness filtering and screen-off gamepad behavior still need
   wearer validation. Volume recovery requires readable hardware input nodes
   and the updated helper.
-- Pixel 10 Pro / One Pro's VGA-only stereo link, Samsung / 1S control-channel
-  timeouts, and OPPO CPH2791 / Air 2 Pro's experimental 3D remain unresolved.
+- Pixel 10 Pro and Nubia NX809J / One Pro's VGA-only stereo links, Samsung / 1S
+  control-channel timeouts, and OPPO CPH2791 / Air 2 Pro's experimental 3D remain
+  unresolved.
 - Earlier reconnect-related audio distortion and a temporary freeze, remaining
   app-color differences and hardware-dependent input/Bluetooth issues are not
   claimed fixed.

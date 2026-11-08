@@ -3,6 +3,8 @@ package dev.beampro.settings;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Date;
+import java.text.SimpleDateFormat;
+import java.util.Locale;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.UnaryOperator;
@@ -13,12 +15,17 @@ import java.util.regex.Pattern;
 public final class DisplayDiagnostics {
     public static final int TRANSACTION = 0x00FFFFF3;
     public static final String TOKEN = "dev.beampro.bridge.DISPLAY_DIAGNOSTICS";
-    public static final int DISPLAY = 0, SURFACE_FLINGER = 1, DISPLAY_LINK = 2, GLASSES_CONTROL = 3, GLASSES_CONTROL_TRACE = 4;
+    public static final int DISPLAY = 0, SURFACE_FLINGER = 1, DISPLAY_LINK = 2, GLASSES_CONTROL = 3, GLASSES_CONTROL_TRACE = 4,
+            DISPLAY_STARTUP = 5;
     public static final int MAX_BYTES = 1_010_000;
     public static final int MAX_LINK_BYTES = 200_000;
     public static final int MAX_CONTROL_BYTES = 32_000;
+    public static final int MAX_STARTUP_BYTES = 1_010_000;
     private static final long CONTROL_BUDGET_MS = 4000;
     private static final int OUTPUT_BYTES = 1_000_000;
+    // Filter the port section before the byte limit: USB descriptors can otherwise consume the entire budget.
+    private static final String USB_PORTS = "/system/bin/dumpsys -t 3 usb | /system/bin/sed -n '/port_manager[ ={]/,/alsa_manager[ ={]/p'";
+    private static final String VENDOR_LOG_FILTER = "displayport|edid|drm|dpu|hpd|hdcp|ucsi|type.?c|alt.?mode|link.?train|dp[_ -](aux|link|ctrl)|3840.?1080|pixel.?clock|lane.?count|link.?rate|bandwidth|mode.*(invalid|reject|prun)|timing.*(invalid|reject)";
     interface Runner { String run(long timeout, String... command) throws Exception; }
     private static final Pattern LINK_LINE = Pattern.compile(
             "display|displayport|edid|\\bdrm\\b|\\bdpu\\b|\\bhpd\\b|\\bhdcp\\b|\\bucsi\\b|type.?c|alt.?mode|link.?train|dp[_ -](aux|link|ctrl)",
@@ -53,16 +60,15 @@ public final class DisplayDiagnostics {
             "  [ -d \"$node\" ] || continue",
             "  count=$((count+1)); [ \"$count\" -le 12 ] || { echo '[connector count limited]'; break; }",
             "  printf '\\nConnector: %s\\n' \"$node\"",
+            "  /system/bin/ls -ld \"$node\" \"$node/\" 2>&1",
             "  for attr in status enabled modes dpms link_status data_role power_role port_type power_operation_mode orientation svid mode active vdo displayport/configuration displayport/pin_assignment displayport/hpd; do",
-            "    [ -e \"$node/$attr\" ] || continue",
+            // A failed existence check hides permission denials on some phones. Attempt each fixed read instead.
             "    printf '%s: ' \"$attr\"",
             "    /system/bin/timeout -s KILL 1 /system/bin/head -c 2048 \"$node/$attr\" 2>&1",
             "    printf '\\n'",
             "  done",
-            "  if [ -e \"$node/edid\" ]; then",
             "    echo 'EDID hex (first 512 bytes):'",
             "    /system/bin/timeout -s KILL 1 /system/bin/od -An -tx1 -N512 \"$node/edid\" 2>&1",
-            "  fi",
             "done",
             "[ \"$count\" -gt 0 ] || echo 'No readable DRM/Type-C connector directories exposed to shell.'");
 
@@ -73,6 +79,7 @@ public final class DisplayDiagnostics {
             case DISPLAY_LINK: return "USB/DisplayPort link";
             case GLASSES_CONTROL: return "Glasses control channel";
             case GLASSES_CONTROL_TRACE: return "Glasses control trace";
+            case DISPLAY_STARTUP: return "Connected display startup";
             default: throw new IllegalArgumentException("Unknown display diagnostic");
         }
     }
@@ -80,11 +87,13 @@ public final class DisplayDiagnostics {
     public static String capture(int kind) {
         if (kind == GLASSES_CONTROL_TRACE)
             return ControlTrace.capture(ControlTrace.FILES, ControlTrace.SYSTEM, ControlTrace.DURATION_MS, ControlTrace.INTERVAL_MS);
-        return capture(kind, (timeout, command) -> kind == DISPLAY_LINK
-                && (command[0].endsWith("logcat") || command[0].endsWith("dmesg"))
-                ? NetworkDiagnostics.runTailLimited(32_000, timeout, command)
+        return capture(kind, (timeout, command) -> (kind == DISPLAY_LINK || kind == DISPLAY_STARTUP)
+                && (command[0].endsWith("logcat") || command[0].endsWith("dmesg") || vendorLogs(command))
+                ? NetworkDiagnostics.runTailLimited(kind == DISPLAY_STARTUP && Arrays.asList(command).contains("system") ? 64_000 : 32_000, timeout, command)
                 : NetworkDiagnostics.runLimited(kind == GLASSES_CONTROL
                         ? command[command.length - 1].equals(SOCKET_TABLES) ? ControlTrace.TABLE_PROBE_BYTES : 4096
+                        : kind == DISPLAY_STARTUP ? command[command.length-1].equals("display") ? 320_000
+                                : command[command.length-1].equals("SurfaceFlinger") ? 480_000 : 16_000
                         : kind == DISPLAY_LINK ? 32_000 : kind == DISPLAY ? 480_000 : OUTPUT_BYTES, timeout, command));
     }
 
@@ -93,18 +102,33 @@ public final class DisplayDiagnostics {
         if (kind == GLASSES_CONTROL_TRACE) throw new IllegalArgumentException("Control traces read kernel tables directly");
         StringBuilder out = new StringBuilder("Captured: " + new Date() + "\nIdentity: ADB shell helper\n");
         if (kind == GLASSES_CONTROL) return captureControl(out,runner);
+        if (kind == DISPLAY_STARTUP) {
+            out.append("Retained at startup, independently of the final export. Each probe has its own capture time.\n");
+            // Capture the live mode lists first, before a later timeout, cleanup or unplug removes the display.
+            probe(out, runner, "Connected DisplayManager modes and policy", false, 4000,
+                    "/system/bin/dumpsys", "-t", "3", "display");
+            probe(out, runner, "Connected SurfaceFlinger hardware/composer modes", false, 4000,
+                    "/system/bin/dumpsys", "-t", "3", "SurfaceFlinger");
+            probe(out, runner, "USB port state (separate from USB descriptors)", false, 4000,
+                    "/system/bin/sh", "-c", USB_PORTS);
+            systemLogs(out, runner, 64_000);
+            probe(out, runner, "Kernel display/link logs, when Android exposes the kernel buffer", true, 2000,
+                    "/system/bin/logcat", "-d", "-b", "kernel", "-v", "threadtime", "-t", "2000");
+            probe(out, runner, "Kernel display/link messages, when dmesg is permitted", true, 2000,
+                    "/system/bin/dmesg");
+            probe(out, runner, "DRM/Type-C connector attributes and EDID (fixed sysfs paths)", false, 3000,
+                    "/system/bin/sh", "-c", CONNECTORS);
+            return out.toString();
+        }
         if (kind == DISPLAY_LINK) {
             out.append("Fixed read-only probes; unavailable or permission-denied sources remain in this report.\n");
             probe(out, runner, "USB ports and DisplayPort Alt Mode", false, 4000,
                     "/system/bin/dumpsys", "-t", "3", "usb");
+            probe(out, runner, "USB port state (separate from USB descriptors)", false, 4000,
+                    "/system/bin/sh", "-c", USB_PORTS);
             probe(out, runner, "External display windows", false, 3000,
                     "/system/bin/dumpsys", "-t", "2", "window", "displays");
-            probe(out, runner, "Recent Android display/USB/composer logs (fixed tags only)", false, 3000,
-                    "/system/bin/logcat", "-d", "-b", "main", "-b", "system", "-v", "threadtime", "-t", "2500",
-                    "*:S", "DisplayManagerService:V", "LocalDisplayAdapter:V", "DisplayDeviceRepository:V",
-                    "LogicalDisplayMapper:V", "ExternalDisplayPolicy:V", "DisplayModeDirector:V", "SurfaceFlinger:V",
-                    "UsbPortManager:V", "UsbDeviceManager:V", "UsbHostManager:V", "UsbService:V",
-                    "hwc-display:V", "hwc-displayport:V", "hwc-drm:V", "HWC2:V", "ComposerHal:V");
+            systemLogs(out, runner, 32_000);
             probe(out, runner, "Kernel display/link logs, when Android exposes the kernel buffer", true, 2000,
                     "/system/bin/logcat", "-d", "-b", "kernel", "-v", "threadtime", "-t", "2000");
             probe(out, runner, "Kernel display/link messages, when dmesg is permitted", true, 2000,
@@ -122,6 +146,27 @@ public final class DisplayDiagnostics {
         if (kind == DISPLAY) probe(out, runner, "Connected Presentation focus and inset control", false, 10_000,
                 "/system/bin/dumpsys", "-t", "5", "window", "displays");
         return out.toString();
+    }
+
+    private static void systemLogs(StringBuilder out, Runner runner, int bytes) {
+        // A count-limited tail is applied before tag filtering on affected phones and loses the switch.
+        String since = new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(new Date(System.currentTimeMillis()-120_000));
+        probe(out, runner, "Android display/USB/composer logs (fixed tags, preceding 120 seconds, " + bytes + " byte tail)", false, 3000,
+                "/system/bin/logcat", "-d", "-b", "main", "-b", "system", "-v", "threadtime", "-T", since,
+                "*:S", "DisplayManagerService:V", "LocalDisplayAdapter:V", "DisplayDeviceRepository:V",
+                "LogicalDisplayMapper:V", "ExternalDisplayPolicy:V", "DisplayModeDirector:V", "SurfaceFlinger:V",
+                "UsbPortManager:V", "UsbDeviceManager:V", "UsbHostManager:V", "UsbService:V",
+                "hwc-display:V", "hwc-displayport:V", "hwc-drm:V", "HWC2:V", "ComposerHal:V",
+                "SDM:V", "HWC:V", "HWComposer:V", "DRM:V", "drm_hwcomposer:V");
+        // Unknown vendor tags were absent from the fixed-tag capture on the reported Nubia.
+        // Filter before the output budget so unrelated system traffic cannot evict link evidence.
+        probe(out, runner, "Vendor display/link messages (preceding 120 seconds, keywords filtered before byte limit)", false, 3000,
+                "/system/bin/sh", "-c", "/system/bin/timeout -s KILL 2 /system/bin/logcat -d -b main -b system -v threadtime -T '"
+                        + since + "' '*:V' | /system/bin/grep -i -E '" + VENDOR_LOG_FILTER + "'");
+    }
+
+    private static boolean vendorLogs(String[] command) {
+        return command.length == 3 && command[0].endsWith("/sh") && command[2].contains("'*:V'");
     }
 
     private static String captureControl(StringBuilder out, Runner runner) {
@@ -210,11 +255,15 @@ public final class DisplayDiagnostics {
         out.append("\n--- ").append(title).append(" ---\n");
         if (!command[0].endsWith("/sh")) out.append(String.join(" ", command)).append('\n');
         if (Thread.currentThread().isInterrupted()) { out.append("Interrupted; probe skipped\n"); return; }
+        long start = System.nanoTime();
+        out.append("Probe start wall_ms=").append(System.currentTimeMillis()).append("; monotonic_ns=").append(start).append('\n');
         try {
             String result = runner.run(timeout, command);
             out.append(filter ? linkLines(result) : result);
         } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); out.append("Interrupted\n"); }
         catch (Exception failure) { out.append("Unavailable: ").append(failure).append('\n'); }
+        out.append("Probe end monotonic_ns=").append(System.nanoTime()).append("; duration_ms=")
+                .append((System.nanoTime()-start)/1_000_000L).append('\n');
     }
 
     static String linkLines(String report) {
@@ -241,7 +290,7 @@ public final class DisplayDiagnostics {
     public static byte[] encode(int kind, String report) {
         service(kind);
         return encode(report, kind == GLASSES_CONTROL ? MAX_CONTROL_BYTES : kind == GLASSES_CONTROL_TRACE ? ControlTrace.MAX_BYTES
-                : kind == DISPLAY_LINK ? MAX_LINK_BYTES : MAX_BYTES);
+                : kind == DISPLAY_LINK ? MAX_LINK_BYTES : kind == DISPLAY_STARTUP ? MAX_STARTUP_BYTES : MAX_BYTES);
     }
 
     private static byte[] encode(String report, int limit) {

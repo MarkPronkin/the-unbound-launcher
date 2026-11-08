@@ -4,7 +4,7 @@ import hashlib
 from xreal_telemetry import file_offset
 
 # After the recording-duration patch, before package identity relocation.
-BASELINE_SHA256 = "4c79c73de496efe2e4113e591f8747e996d101deaabe77b3987eb93869e5d790"
+BASELINE_SHA256 = "43a68dbcd3ce341b9bbd5a1ff0caa7c8166155adedaa23671b5ad835259612ec"
 # Both commands gather existing multilayer windows, then consult
 # Application2DManager.APPLICATIONN_LIMIT_MULTILAYER_APP_COUNT. Always take the
 # existing unrestricted launch branch instead of RemindCloseMultilayerAppWindow

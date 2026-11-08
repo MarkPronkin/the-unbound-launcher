@@ -197,8 +197,7 @@ public class AdbConnection implements Closeable {
         this.mMaxData = AdbProtocol.getMaxData(api);
         this.mKeyPair = Objects.requireNonNull(keyPair);
         try {
-            this.mSocket = new Socket();
-            this.mSocket.connect(new java.net.InetSocketAddress(host, port), 8000);
+            this.mSocket = AdbSocket.connect(host, port);
             this.mSocket.setSoTimeout(15000);
         } catch (Throwable th) {
             //noinspection UnnecessaryInitCause
