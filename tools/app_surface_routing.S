@@ -1,5 +1,5 @@
-// AppInfo.isProtected is an SDK routing hint. On GPUs without the required
-// sRGB override, use the copy surface for the port's non-secure virtual display.
+// AppInfo.isProtected is an SDK routing hint. Without the required sRGB
+// override or DRM readiness, use copies of the port's non-secure display.
 // Android FLAG_SECURE and virtual-display flags are untouched.
 .text
 .equ PORT_BASE, 0x12ca1e8

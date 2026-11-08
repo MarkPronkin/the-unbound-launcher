@@ -55,11 +55,57 @@ public final class AdbDeviceChecks extends Instrumentation {
                 result.putBoolean("real_shell_helper_ready", true);
                 result.putBoolean("android_pairing_remembered", AdbBootstrap.paired(context));
             }
+            if ("true".equals(args.getString("mobile"))) mobile(context, result);
             result.putBoolean("passed", true); finish(-1, result);
         } catch (Throwable error) {
             android.util.Log.e("UnboundAdbChecks", "Device check failed", error);
             while (error.getCause() != null) error = error.getCause();
             result.putString("error", error.toString()); finish(0, result);
+        }
+    }
+    private void mobile(Context context, Bundle result) throws Exception {
+        long readyDeadline = SystemClock.elapsedRealtime() + 15000;
+        while (!AdbBootstrap.ready(context) && SystemClock.elapsedRealtime() < readyDeadline) SystemClock.sleep(100);
+        check(AdbBootstrap.ready(context), "Start the real helper before the mobile check");
+        check(Boolean.TRUE.equals(AdbNetworkState.wifiConnected(context)), "Mobile check begins on Wi-Fi");
+        check(AdbNetworkState.usbDebugging(context) == 1, "USB debugging is enabled for daemon retention");
+        boolean tls = !"false".equals(args.getString("requireTls"));
+        if (tls) check("1".equals(command("settings get global adb_wifi_enabled").trim()), "TLS lifecycle check begins with Wireless debugging enabled");
+        android.net.Uri uri = android.net.Uri.parse("content://" + AdbBootstrap.AUTHORITY);
+        android.os.IBinder original = context.getContentResolver().call(uri, "get", null, null).getBinder("binder");
+        boolean paired = AdbBootstrap.paired(context);
+        try {
+            command("svc wifi disable");
+            long until = SystemClock.elapsedRealtime() + 10000;
+            while (!Boolean.FALSE.equals(AdbNetworkState.wifiConnected(context)) && SystemClock.elapsedRealtime() < until)
+                SystemClock.sleep(100);
+            check(Boolean.FALSE.equals(AdbNetworkState.wifiConnected(context)), "Wi-Fi is disconnected");
+            until = SystemClock.elapsedRealtime() + 5000;
+            while (!"0".equals(command("settings get global adb_wifi_enabled").trim()) && SystemClock.elapsedRealtime() < until)
+                SystemClock.sleep(100);
+            check("0".equals(command("settings get global adb_wifi_enabled").trim()), "Android stopped Wireless debugging");
+            SystemClock.sleep(1500);
+            check("running".equals(command("getprop init.svc.adbd").trim()), "USB debugging keeps adbd running without Wi-Fi");
+            check(original.isBinderAlive() && original.pingBinder() && AdbBootstrap.ready(context), "Same helper survives Wi-Fi shutdown");
+            check(original.equals(context.getContentResolver().call(uri, "get", null, null).getBinder("binder")), "No replacement helper needed");
+            AdbBootstrap.connect(context, 0, null);
+            until = SystemClock.elapsedRealtime() + 3000;
+            while (AdbBootstrap.busy() && SystemClock.elapsedRealtime() < until) SystemClock.sleep(50);
+            check(!AdbBootstrap.busy() && AdbBootstrap.ready(context), "Offline reconnect reuses the live Binder");
+            check(paired == AdbBootstrap.paired(context), "Wi-Fi loss preserves pairing state");
+            check(AdbBootstrap.status(context).startsWith("Ready"), "Offline status remains Ready");
+            result.putBoolean("helper_survives_wifi_shutdown", true);
+            result.putBoolean("helper_survives_wifi_and_tls_shutdown", tls);
+            result.putBoolean("mobile_data_hardware_tested", false);
+        } finally { command("svc wifi enable"); }
+    }
+    private String command(String value) throws Exception {
+        try (android.os.ParcelFileDescriptor descriptor = getUiAutomation().executeShellCommand(value);
+             java.io.InputStream input = new android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor)) {
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[1024]; int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            return new String(output.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
         }
     }
     private static void check(boolean value, String message) { if (!value) throw new AssertionError(message); }

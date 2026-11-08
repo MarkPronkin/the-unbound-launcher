@@ -1,6 +1,7 @@
 package dev.beampro.port;
 
 import android.content.Context;
+import android.media.MediaDrm;
 import android.opengl.EGL14;
 import android.opengl.EGLConfig;
 import android.opengl.EGLContext;
@@ -11,31 +12,47 @@ import android.util.AtomicFile;
 import android.util.Log;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Choose the app-surface route before Unity opens an app, without using its GL context. */
 public final class AppSurfacePolicy {
     static final String FLAG="unbound-app-surface-fallback";
+    private static final UUID WIDEVINE=new UUID(-1301668207276963122L,-6645017420763422227L);
+    private static final long PROBE_TIMEOUT_MS=1500;
     private static boolean installed;
     private AppSurfacePolicy() {}
+
+    interface Capability { boolean useCopy(); }
 
     public static synchronized void install(Context context) {
         if(installed)return;
         installed=true;
-        final File flag=new File(context.getFilesDir(),FLAG);
-        // Unknown/failed capability checks retain the stock overlay. Clear any
-        // previous result before the bounded probe, including after app restore.
-        write(flag,false);
+        select(new File(context.getFilesDir(),FLAG),AppSurfacePolicy::probe,PROBE_TIMEOUT_MS);
+    }
+
+    static void select(File flag,Capability capability,long timeoutMs) {
+        // Use ordinary app copies until both optional overlay prerequisites are
+        // known. A slow/failed probe must not start the SDK's protected codec.
+        write(flag,true);
+        AtomicReference<Boolean> result=new AtomicReference<>();
         Thread probe=new Thread(()->{
-            try { write(flag,probe()); }
+            try { result.set(capability.useCopy()); }
             catch(RuntimeException failure){Log.w("UnboundColor","App surface capability unavailable",failure);}
-        },"UnboundColorProbe");
+        },"UnboundAppSurfaceProbe");
         probe.setDaemon(true);probe.start();
-        try { probe.join(1500); }
-        catch(InterruptedException interrupted){Thread.currentThread().interrupt();}
+        try { probe.join(timeoutMs); }
+        catch(InterruptedException interrupted){Thread.currentThread().interrupt();return;}
+        Boolean copy=result.get();
+        // Only the caller publishes. A timed-out worker can release its resources
+        // later, but cannot change routes underneath a running AR session.
+        if(copy!=null)write(flag,copy);
+        Log.i("UnboundColor","app_surface="+(copy==null||copy?"copy":"overlay")
+            +" capability_complete="+(copy!=null));
     }
 
     static boolean useCopy(String extensions) {
-        return extensions!=null&&!AppColorCompat.hasExtension(extensions,"GL_EXT_texture_format_sRGB_override");
+        return extensions==null||!AppColorCompat.hasExtension(extensions,"GL_EXT_texture_format_sRGB_override");
     }
 
     static void write(File file,boolean copy) {
@@ -49,6 +66,34 @@ public final class AppSurfacePolicy {
     }
 
     static boolean probe() {
+        return colorNeedsCopy()||!protectedSessionReady();
+    }
+
+    static boolean protectedSessionReady() {
+        MediaDrm drm=null;byte[] session=null;boolean ready=false;
+        try {
+            drm=new MediaDrm(WIDEVINE);
+            session=drm.openSession();
+            ready=session!=null&&session.length>0;
+        } catch(Exception failure) {
+            // This is only a readiness check. Never provision, request keys or
+            // change DRM security levels just to display ordinary app UI.
+            Log.i("UnboundColor","protected_app_session=unavailable reason="+failure.getClass().getSimpleName());
+        } finally {
+            if(drm!=null) {
+                try { if(session!=null)drm.closeSession(session); }
+                catch(RuntimeException failure){ready=false;Log.w("UnboundColor","Cannot close app surface test session");}
+                finally {
+                    try { drm.release(); }
+                    catch(RuntimeException failure){ready=false;Log.w("UnboundColor","Cannot release app surface DRM probe");}
+                }
+            }
+        }
+        Log.i("UnboundColor","protected_app_session_ready="+ready);
+        return ready;
+    }
+
+    static boolean colorNeedsCopy() {
         EGLDisplay display=EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
         if(display==EGL14.EGL_NO_DISPLAY)throw new IllegalStateException("No EGL display");
         int[] versions=new int[2];
@@ -70,7 +115,7 @@ public final class AppSurfacePolicy {
                 throw new IllegalStateException("Cannot bind capability surface");
             String extensions=GLES20.glGetString(GLES20.GL_EXTENSIONS);
             boolean copy=useCopy(extensions);
-            Log.i("UnboundColor","app_surface="+(copy?"copy":"overlay")
+            Log.i("UnboundColor","app_surface_color="+(copy?"copy":"overlay")
                 +" renderer="+GLES20.glGetString(GLES20.GL_RENDERER)+" extensions_read="+(extensions!=null));
             return copy;
         } finally {

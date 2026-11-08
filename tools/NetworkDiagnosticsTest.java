@@ -22,10 +22,14 @@ public final class NetworkDiagnosticsTest {
             if (commands.size()==1) throw new java.io.IOException("missing ip utility");
             return "exit=1; timedOut=false\nstderr: unreachable\n";
         });
-        check(commands.size()==4 && commands.get(0).endsWith("ip -br address"), "Collect interface addresses");
+        check(commands.size()==8 && commands.get(0).endsWith("ip -br address"), "Collect interface addresses");
         check(commands.get(1).endsWith("ip route show table all"), "Collect routes across Android tables");
         check(commands.get(2).endsWith("dumpsys -t 2 ethernet"), "Bound the Ethernet service dump");
-        check(commands.get(3).endsWith("ping -I eth0 -c 3 -W 1 169.254.2.1"), "Probe the same interface and address as the SDK");
+        check(commands.get(3).endsWith("settings get global adb_enabled"), "Record USB debugging retention state");
+        check(commands.get(4).endsWith("settings get global adb_wifi_enabled"), "Record Wireless debugging state");
+        check(commands.get(5).endsWith("getprop init.svc.adbd"), "Record daemon lifecycle state");
+        check(commands.get(6).endsWith("getprop service.adb.tls.port"), "Record whether the TLS listener is available");
+        check(commands.get(7).endsWith("ping -I eth0 -c 3 -W 1 169.254.2.1"), "Probe the same interface and address as the SDK");
         check(report.contains("missing ip utility") && report.contains("stderr: unreachable"), "A missing utility preserves later probe results");
         commands.clear();
         report = NetworkDiagnostics.capture(false, (timeout, command) -> { commands.add(command[0]); return "app result"; });

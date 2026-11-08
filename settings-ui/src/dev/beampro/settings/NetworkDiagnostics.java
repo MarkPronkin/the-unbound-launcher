@@ -20,6 +20,10 @@ public final class NetworkDiagnostics {
             probe(out, runner, 2000, "/system/bin/ip", "-br", "address");
             probe(out, runner, 2000, "/system/bin/ip", "route", "show", "table", "all");
             probe(out, runner, 3000, "/system/bin/dumpsys", "-t", "2", "ethernet");
+            probe(out, runner, 1000, "/system/bin/settings", "get", "global", "adb_enabled");
+            probe(out, runner, 1000, "/system/bin/settings", "get", "global", "adb_wifi_enabled");
+            probe(out, runner, 1000, "/system/bin/getprop", "init.svc.adbd");
+            probe(out, runner, 1000, "/system/bin/getprop", "service.adb.tls.port");
         }
         // Preserve the SDK's interface and destination, with a usable timeout and stderr.
         probe(out, runner, 4000, "/system/bin/ping", "-I", "eth0", "-c", "3", "-W", "1", "169.254.2.1");

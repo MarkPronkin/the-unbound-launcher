@@ -5,8 +5,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import dev.beampro.settings.preview.SettingsPreviewActivity;
-import java.io.File;
-import java.io.FileOutputStream;
 
 /** Exercise the production preference and switch against Android's real files. */
 public final class ExperimentalStereoChecks extends Instrumentation {
@@ -19,6 +17,7 @@ public final class ExperimentalStereoChecks extends Instrumentation {
         Bundle result = new Bundle();
         try {
             ExperimentalStereo.save(getTargetContext(), false);
+            ExperimentalStereo.saveMono60(getTargetContext(), false);
             open();
             runOnMainSync(() -> {
                 require(!toggle().isChecked(), "Off by default");
@@ -49,29 +48,31 @@ public final class ExperimentalStereoChecks extends Instrumentation {
             waitForIdleSync(); open();
             runOnMainSync(() -> {
                 require(!toggle().isChecked(), "Disabled state survives recreation");
-                activity.finish();
-            });
-            waitForIdleSync();
-            try (FileOutputStream flag = new FileOutputStream(new File(getTargetContext().getFilesDir(), "unbound-experimental-stereo"))) {
-                flag.write(2); // A preference saved before the 2D 60 Hz option was removed.
-            }
-            open();
-            runOnMainSync(() -> {
-                require(!toggle().isChecked() && !ExperimentalStereo.enabled(activity), "Retired 2D override leaves stereo disabled");
+                monoToggle().performClick();
+                require(monoToggle().isChecked() && ExperimentalStereo.mono60Enabled(activity), "Mono 60 Hz saves");
+                require(!toggle().isChecked(), "Mono 60 Hz excludes stereo override");
                 Manager manager = new Manager(); manager.mContext = activity;
                 for (boolean ethernet : new boolean[]{false, true}) {
                     manager.mNRServiceControl.isEthernetSeries = ethernet;
                     for (int mode = -1; mode < 16; mode++) {
-                        require(ExperimentalStereo.selectConfig(mode, manager) == mode,
-                                "Retired 2D override restores defaults: " + ethernet + "/" + mode);
+                        boolean mono = ethernet ? mode >= 1 && mode <= 4 : mode == 1 || mode == 5 || mode == 10 || mode == 11;
+                        require(ExperimentalStereo.selectConfig(mode, manager) == (mono ? 1 : mode),
+                                "60 Hz preserves existing stereo and unknown modes: " + ethernet + "/" + mode);
                     }
                 }
+                activity.finish();
+            });
+            waitForIdleSync(); open();
+            runOnMainSync(() -> {
+                require(monoToggle().isChecked() && !toggle().isChecked(), "Mono choice survives recreation");
                 toggle().performClick();
-                require(toggle().isChecked() && ExperimentalStereo.enabled(activity), "Stereo replaces the retired preference");
+                require(toggle().isChecked() && !monoToggle().isChecked(), "Stereo visibly replaces mono override");
+                monoToggle().performClick();
+                require(monoToggle().isChecked() && !toggle().isChecked(), "Mono visibly replaces stereo override");
                 activity.setConnectedModel(7);
-                require(toggle().isChecked(), "Connection refresh preserves stereo after retiring 2D override");
-                toggle().performClick();
-                require(!ExperimentalStereo.enabled(activity), "Turning stereo off restores defaults");
+                require(monoToggle().isChecked() && !toggle().isChecked(), "Connection refresh preserves mono override");
+                monoToggle().performClick();
+                require(!ExperimentalStereo.mono60Enabled(activity) && !ExperimentalStereo.enabled(activity), "Turning mono off restores defaults");
                 activity.finish();
             });
             result.putString("stream", "PASS experimental stereo Android/UI checks: " + passed + "\n");
@@ -85,11 +86,8 @@ public final class ExperimentalStereoChecks extends Instrumentation {
         activity = (SettingsPreviewActivity) startActivitySync(new Intent(getTargetContext(), SettingsPreviewActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         waitForIdleSync();
-        runOnMainSync(() -> {
-            require(activity.findViewById(0x00bea001).findViewWithTag("force-2d-60") == null, "2D 60 Hz switch removed");
-            require(activity.findViewById(0x00bea001).findViewWithTag("experimental-mono-60") == null, "2D 60 Hz row removed");
-        });
     }
     SettingsUi.SignatureSwitch toggle() { return activity.findViewById(0x00bea001).findViewWithTag("force-3d-sbs"); }
+    SettingsUi.SignatureSwitch monoToggle() { return activity.findViewById(0x00bea001).findViewWithTag("force-2d-60"); }
     void require(boolean value, String reason) { if (!value) throw new AssertionError(reason); passed++; }
 }

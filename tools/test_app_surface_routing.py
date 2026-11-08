@@ -40,7 +40,7 @@ class AppSurfaceRoutingTests(unittest.TestCase):
         self.assertEqual(self.patched[cursor:],self.original[cursor:])
         self.assertEqual(self.patched[0x12ca1e4:0x12ca1e8],bytes.fromhex('c0035fd6'))
         self.assertLess(self.spec['cave']+self.spec['code_bytes'],self.spec['cave_limit'])
-        self.assertTrue(verify_surface_routing(self.patched)['hardware_override_gpus_preserve_overlay'])
+        self.assertTrue(verify_surface_routing(self.patched)['overlay_requires_gpu_and_drm_readiness'])
         with self.assertRaisesRegex(ValueError,'Unexpected native library'):patch_surface_routing(self.patched)
         damaged=bytearray(self.patched);damaged[-1]^=1
         with self.assertRaisesRegex(ValueError,'Unrelated native changes'):patch_surface_routing(damaged,restore=True)
@@ -134,6 +134,28 @@ class AppSurfaceRoutingTests(unittest.TestCase):
                 File f;public AtomicFile(File v){f=v;}public FileOutputStream startWrite()throws Exception{return new FileOutputStream(f);}
                 public void finishWrite(FileOutputStream s)throws Exception{s.close();}public void failWrite(FileOutputStream s){try{s.close();}catch(Exception e){}}}''',
             'android/opengl/GLES20.java':GL_STUB,
+            'android/media/MediaDrm.java':'''package android.media;import java.util.UUID;
+              public class MediaDrm {
+                public static int creates,opens,closes,releases;public static String fail="";
+                public static void reset(String f){fail=f;creates=opens=closes=releases=0;}
+                public MediaDrm(UUID id)throws Exception{
+                  if(!id.equals(new UUID(-1301668207276963122L,-6645017420763422227L)))throw new AssertionError("Wrong scheme");
+                  creates++;if(fail.equals("constructor"))throw new UnsupportedSchemeException();}
+                public byte[] openSession()throws Exception{opens++;
+                  if(fail.equals("not-provisioned"))throw new NotProvisionedException();
+                  if(fail.equals("busy"))throw new ResourceBusyException();
+                  if(fail.equals("plugin"))throw new MediaDrmStateException();
+                  return fail.equals("null")?null:fail.equals("empty")?new byte[0]:new byte[]{7};}
+                public void closeSession(byte[] id){closes++;if(fail.equals("close"))throw new MediaDrmStateException();}
+                public void release(){releases++;if(fail.equals("release"))throw new MediaDrmStateException();}
+                public Object getProvisionRequest(){throw new AssertionError("Must not provision");}
+                public Object getKeyRequest(){throw new AssertionError("Must not request keys");}
+                public void setPropertyString(String k,String v){throw new AssertionError("Must not change security level");}
+                static class UnsupportedSchemeException extends Exception{}
+                static class NotProvisionedException extends Exception{}
+                static class ResourceBusyException extends Exception{}
+                static class MediaDrmStateException extends IllegalStateException{}
+              }''',
             'android/opengl/EGLConfig.java':'package android.opengl;public class EGLConfig{}',
             'android/opengl/EGLContext.java':'package android.opengl;public class EGLContext{}',
             'android/opengl/EGLDisplay.java':'package android.opengl;public class EGLDisplay{}',

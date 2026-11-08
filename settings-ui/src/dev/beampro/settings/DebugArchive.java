@@ -32,6 +32,8 @@ final class DebugArchive {
     // The first trace since collection began is kept beside the latest two, like the pinned first failure.
     static final int MAX_TRACE_SNAPSHOTS = 3;
     static final int STARTUP_LOG_RESERVE = 380_000;
+    static final int MAX_DISPLAY_STARTUP_SNAPSHOTS = 2;
+    static final int DISPLAY_STARTUP_RESERVE = MAX_DISPLAY_STARTUP_SNAPSHOTS * (DisplayDiagnostics.MAX_STARTUP_BYTES + 128) + 4096;
 
     DebugArchive(File directory) throws IOException {
         logs = new File(directory, "logs"); exports = new File(directory, "exports");
@@ -97,7 +99,7 @@ final class DebugArchive {
 
     synchronized void startupBegin(boolean reset) throws IOException {
         startup.begin(reset);
-        if (reset) for (String prefix : new String[]{"glasses-control", "glasses-control-trace"})
+        if (reset) for (String prefix : new String[]{"glasses-control", "glasses-control-trace", "display-startup"})
             for (File file : snapshots(prefix))
                 if (!file.delete()) throw new IOException("Could not reset glasses control diagnostics.");
     }
@@ -112,6 +114,11 @@ final class DebugArchive {
 
     synchronized void startupTrace(String text) throws IOException {
         snapshot("glasses-control-trace", StartupTrace.encode(text, ControlTrace.MAX_BYTES), MAX_TRACE_SNAPSHOTS, true);
+    }
+
+    synchronized void startupDisplay(String text) throws IOException {
+        // Pin the first degraded-output dump; later failures and disconnected exports cannot replace it.
+        snapshot("display-startup", DisplayDiagnostics.encode(DisplayDiagnostics.DISPLAY_STARTUP, text), MAX_DISPLAY_STARTUP_SNAPSHOTS, true);
     }
 
     private void snapshot(String prefix, byte[] bytes, int retain) throws IOException { snapshot(prefix, bytes, retain, false); }
@@ -166,6 +173,7 @@ final class DebugArchive {
                 boolean startupData = startup.hasData() || snapshots("glasses-control").length > 0
                         || snapshots("glasses-control-trace").length > 0;
                 long skip = Math.max(0, bytes() - (long) CHUNK_BYTES * MAX_CHUNKS + (startupData ? STARTUP_LOG_RESERVE : 0)
+                        + (snapshots("display-startup").length == 0 ? 0 : DISPLAY_STARTUP_RESERVE)
                         + (renderer == null ? 0 : RendererTrace.MAX_BYTES + 1024) + (windows == null ? 0 : 49_024));
                 for (File chunk : chunks()) try (FileInputStream input = new FileInputStream(chunk)) {
                     if (skip >= chunk.length()) { skip -= chunk.length(); continue; }
@@ -192,6 +200,7 @@ final class DebugArchive {
                 writeSnapshots(zip, "glasses-control-trace.txt", snapshots("glasses-control-trace"), ControlTrace.MAX_BYTES, "Glasses control trace");
                 writeSnapshots(zip, "network-diagnostics.txt", networks(), MAX_NETWORK_BYTES, "Network snapshot");
                 writeSnapshots(zip, "display-link.txt", snapshots("display-link"), DisplayDiagnostics.MAX_LINK_BYTES, "Display/link snapshot");
+                writeSnapshots(zip, "display-startup.txt", snapshots("display-startup"), DisplayDiagnostics.MAX_STARTUP_BYTES, "Retained connected startup display snapshot");
                 if (display != null) {
                     zip.putNextEntry(new ZipEntry("display.txt"));
                     zip.write(DisplayDiagnostics.encode(display)); zip.closeEntry();

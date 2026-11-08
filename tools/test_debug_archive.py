@@ -144,6 +144,26 @@ public class DebugArchiveChecks {
    String windows=new String(zip.getInputStream(zip.getEntry("immersive-windows.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
    check(windows.contains("first connected window")&&windows.contains("latest inset state"),"connected-window state is exported independently of logcat");
   }
+  for(int i=0;i<6;i++)archive.startupDisplay("startup-display-"+i+"\n"+display+surface);
+  archive=new DebugArchive(root);
+  file=archive.export(display.substring(0,64_000),display,surface,geometry,display.substring(0,48_000));
+  check(file.length()<=15_000_000,"maximum retained startup displays and all existing diagnostics fit the hard ZIP cap");
+  try(ZipFile zip=new ZipFile(file)){
+   String retained=new String(zip.getInputStream(zip.getEntry("display-startup.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(retained.contains("startup-display-0")&&retained.contains("startup-display-5")&&!retained.contains("startup-display-4"),"first connected failure is pinned beside latest capture across restarts");
+   check(retained.indexOf("startup-display-0")<retained.indexOf("startup-display-5")&&retained.contains("truncated"),"bounded startup captures preserve order and explicit truncation");
+   check(retained.getBytes(java.nio.charset.StandardCharsets.UTF_8).length<=2*(DisplayDiagnostics.MAX_STARTUP_BYTES+128),"retained dump history has a fixed total budget");
+  }
+  file=archive.export("export after unplugging","internal phone display only","no external hardware display");
+  try(ZipFile zip=new ZipFile(file)){
+   String retained=new String(zip.getInputStream(zip.getEntry("display-startup.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(retained.contains("startup-display-0")&&retained.contains("startup-display-5"),"disconnected export never replaces connected startup mode evidence");
+  }
+  check(archive.bytes()==12_000_000,"startup dump reservation reduces exported app logs without shrinking the collection ring");
+  archive.startupBegin(true);
+  try(ZipFile zip=new ZipFile(archive.export("new collection"))){
+   check(zip.getEntry("display-startup.txt")==null,"an explicit new collection resets previous connected startup captures");
+  }
   file=archive.export("oversized dump",display+display,"Helper unavailable: restart updated helper");
   try(ZipFile zip=new ZipFile(file)){
    byte[] dump=zip.getInputStream(zip.getEntry("display.txt")).readAllBytes();

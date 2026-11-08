@@ -5,7 +5,8 @@ https://github.com/MuntashirAkon/libadb-android/tree/3.1.1
 Used under Apache License 2.0 (upstream also offers GPL 3).
 Local changes: bounded TCP/read timeouts, null-safe pairing cleanup, and drain
 queued bytes correctly when a short shell command closes its stream; bound
-stream-open waits and avoid losing fast loopback acknowledgments.
+stream-open waits and avoid losing fast loopback acknowledgments; bind same-phone
+pairing and connection sockets to the loopback source and close failed TCP sockets.
 Full source and upstream licenses: pairing-sources.zip, embedded-adb/vendor/libadb.
 
 SPAKE2 Android 2.2.1, Copyright 2021 Muntashir Al-Islam.

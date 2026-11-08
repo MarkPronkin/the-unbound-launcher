@@ -1,4 +1,4 @@
-"""Correct phone IME detection and the remaining protected pointer flag accesses."""
+"""Correct phone IME detection, mask touch routing and protected pointer flag accesses."""
 from pathlib import Path
 import subprocess
 

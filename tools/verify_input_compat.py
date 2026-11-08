@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import zipfile
 
@@ -40,14 +41,24 @@ def main():
     manifest = build / 'AndroidManifest.xml'
     manifest.write_text('<manifest xmlns:android="http://schemas.android.com/apk/res/android" '
         f'package="{PACKAGE}"><uses-sdk android:minSdkVersion="30" android:targetSdkVersion="33"/>'
+        '<uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>'
         '<application android:label="Phone input checks" android:theme="@android:style/Theme.Material.Light.NoActionBar">'
         '<activity android:name=".InputCompatDeviceChecks$HostActivity" android:exported="false"/>'
+        '<service android:name=".InputCompatDeviceChecks$Keyboard" android:exported="true" '
+        'android:permission="android.permission.BIND_INPUT_METHOD">'
+        '<intent-filter><action android:name="android.view.InputMethod"/></intent-filter>'
+        '<meta-data android:name="android.view.im" android:resource="@xml/input_method"/></service>'
         '<service android:name="com.xreal.evapro.JobService" android:exported="false" android:process=":service"/>'
         '<provider android:name="dev.beampro.adb.LocalBridgeProvider" '
         f'android:authorities="{PACKAGE}.flags" android:exported="false" android:process=":flags"/>'
         '</application><instrumentation android:name=".InputCompatDeviceChecks" '
         f'android:targetPackage="{PACKAGE}"/></manifest>')
-    run(android_tools / 'aapt2', 'link', '-I', platform, '--manifest', manifest, '-o', build / 'base.apk')
+    resource = build / 'res/xml/input_method.xml'
+    resource.parent.mkdir(parents=True, exist_ok=True)
+    resource.write_text('<input-method xmlns:android="http://schemas.android.com/apk/res/android"/>')
+    run(android_tools / 'aapt2', 'compile', '--dir', build / 'res', '-o', build / 'resources.zip')
+    run(android_tools / 'aapt2', 'link', '-I', platform, '--manifest', manifest,
+        '-R', build / 'resources.zip', '-o', build / 'base.apk')
     settings = build / 'SettingsCompat.java'
     # Redirect only the fixture's provider authority, preserving production adapter logic.
     settings.write_text((ROOT / 'port-client/src/dev/beampro/port/SettingsCompat.java').read_text()
@@ -71,24 +82,34 @@ def main():
     fixture = build / 'checks.apk'
     run(android_tools / 'apksigner', 'sign', '--ks', ROOT / 'artifacts/probe/local-debug.p12',
         '--ks-key-alias', 'port-probe', '--ks-pass', 'pass:android', '--out', fixture, build / 'aligned.apk')
+    previous_ime = run(*adb, 'shell', 'settings', 'get', 'secure', 'default_input_method')
     try:
         print(run(*adb, 'install', '--no-incremental', '-r', fixture), flush=True)
+        run(*adb, 'shell', 'appops', 'set', PACKAGE, 'SYSTEM_ALERT_WINDOW', 'allow')
+        keyboard = shlex.quote(PACKAGE + '/.InputCompatDeviceChecks$Keyboard')
+        run(*adb, 'shell', 'ime', 'enable', keyboard)
+        run(*adb, 'shell', 'ime', 'set', keyboard)
         result = run(*adb, 'shell', 'am', 'instrument', '-w', '-e', 'expect_bug', str(args.expect_bug).lower(),
                      PACKAGE + '/.InputCompatDeviceChecks')
         (output / 'runtime-checks.log').write_text(result + '\n')
         match = re.search(r'PASS phone input checks: (\d+);', result)
-        passed = bool(match) and 'FAIL' not in result
+        passed = bool(match) and 'FAIL' not in result and 'Process crashed' not in result
         with args.apk.open('rb') as stream: digest = hashlib.file_digest(stream, 'sha256').hexdigest()
         report = {'passed': passed, 'checks': int(match[1]) if match else 0, 'expect_bug': args.expect_bug,
                   'apk_sha256': digest, 'serial': args.serial,
                   'method': 'Unmodified APK input listener, InputHelper and JobService DEX; production adapters and separate-process provider',
-                  'real_ime_test': not args.expect_bug, 'write_secure_settings_granted': False,
+                  'real_ime_test': not args.expect_bug, 'ime_mask_touch_routing_test': not args.expect_bug,
+                  'write_secure_settings_granted': False,
                   'physical_glasses_test': False}
         (output / 'verification.json').write_text(json.dumps(report, indent=2) + '\n')
         print(result, flush=True)
         if not passed: raise AssertionError('Phone input regression failed; see ' + str(output))
     finally:
-        print(run(*adb, 'uninstall', PACKAGE), flush=True)
+        try:
+            if previous_ime and previous_ime != 'null':
+                run(*adb, 'shell', 'ime', 'set', shlex.quote(previous_ime))
+        finally:
+            print(run(*adb, 'uninstall', PACKAGE), flush=True)
 
 
 if __name__ == '__main__': main()

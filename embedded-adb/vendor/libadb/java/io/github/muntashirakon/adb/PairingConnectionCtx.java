@@ -128,9 +128,8 @@ public final class PairingConnectionCtx implements Closeable {
             socket = sslServerSocket.accept();
             // TODO: Write automated test scripts after removing Conscrypt dependency.
         } else { // role == Role.Client
-            socket = new Socket();
+            socket = AdbSocket.connect(mHost, mPort);
             mSocket = socket;
-            socket.connect(new java.net.InetSocketAddress(mHost, mPort), 8000);
         }
         mSocket = socket;
         socket.setSoTimeout(10000);

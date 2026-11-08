@@ -20,12 +20,12 @@ import dev.beampro.settings.SetupNavigation;
 public final class AdbPairingActivity extends Activity {
     static final String SETUP = "dev.beampro.adb.SETUP";
     private boolean onboarding, expanded;
-    private TextView status, discovered, footerHint, pairNumber, startNumber;
+    private TextView status, discovered, footerHint, pairNumber, startNumber, mobileStatus;
     private Status state;
     private Row advancedToggle;
     private View advancedArrow;
     private EditText code, pairingPort, connectionPort;
-    private Button pair, connect, notification, next;
+    private Button pair, connect, notification, next, mobileOptions;
     private LinearLayout advanced;
     private AdbDiscovery discovery;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -65,7 +65,7 @@ public final class AdbPairingActivity extends Activity {
         add(live, status, 10, 0);
         add(page.intro, live, 24, 8);
 
-        LinearLayout wifi = step(body, "1", "Enable Wireless debugging", "Connect to Wi-Fi, then turn on Wireless debugging in Android's Developer options. Approve your network when asked.");
+        LinearLayout wifi = step(body, "1", "Enable debugging", "Connect to Wi-Fi, then enable USB debugging and Wireless debugging in Android's Developer options. Approve your network when asked. Leave USB debugging enabled for mobile use.");
         Button developer = button(this, "Open Developer options", SECONDARY);
         developer.setOnClickListener(v -> openDeveloperOptions(this));
         add(wifi, developer, 16, 0);
@@ -89,6 +89,15 @@ public final class AdbPairingActivity extends Activity {
             int p = port(connectionPort); if (p >= 0) { AdbBootstrap.connect(this, p, discovery); updateState(); }
         });
         add(start, connect, 16, 0);
+
+        body.addView(heading(this, "Use without Wi-Fi"));
+        mobileStatus = text(this, "", SUPPORTING, TEXT_SECONDARY);
+        mobileStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        mobileStatus.setTag("adb-mobile-status");
+        add(body, mobileStatus, 0, 12);
+        mobileOptions = button(this, "Open USB debugging settings", SECONDARY);
+        mobileOptions.setOnClickListener(v -> openDeveloperOptions(this));
+        add(body, mobileOptions, 0, 8);
 
         LinearLayout other = group(this);
         advancedToggle = new Row(this, null, "Other ways to pair", "Split screen, manual ports or a floating panel");
@@ -129,7 +138,7 @@ public final class AdbPairingActivity extends Activity {
         showAdvanced();
 
         body.addView(heading(this, "Your phone. Your connection."));
-        add(body, text(this, "Pairing grants Android shell access to Unbound's built-in backend, on this phone only. Revoke it in Wireless debugging → Paired devices.\n\nAfter a reboot, turn Wireless debugging back on and reconnect. Once Ready appears, you can switch it off until the next restart.", SUPPORTING, TEXT_SECONDARY), 0, 8);
+        add(body, text(this, "Pairing grants Android shell access to Unbound's built-in backend, on this phone only. Revoke it in Wireless debugging → Paired devices.\n\nOnce Ready appears, Wi-Fi and Wireless debugging can be switched off. Keep USB debugging enabled. After a phone restart or if AR app windows stop, connect to Wi-Fi, enable Wireless debugging and reconnect. The glasses' Ethernet connection does not replace Wi-Fi for this setup.", SUPPORTING, TEXT_SECONDARY), 0, 8);
         LinearLayout notices = group(this);
         notices.addView(new Row(this, "document", "Open-source notices", "LibADB, SPAKE2, Bouncy Castle and Conscrypt").chevron()
                 .onClick(v -> Signature.show(dialog(this)
@@ -149,6 +158,10 @@ public final class AdbPairingActivity extends Activity {
         if (status == null) return;
         boolean supported = Build.VERSION.SDK_INT >= 30;
         boolean ready = AdbBootstrap.ready(this), paired = AdbBootstrap.paired(this), busy = AdbBootstrap.busy();
+        // Discovery is a startup aid, not a prerequisite for an already running helper.
+        boolean discover = supported && !ready && !Boolean.FALSE.equals(AdbNetworkState.wifiConnected(this));
+        if (discover && discovery == null) discovery = new AdbDiscovery(getApplicationContext());
+        else if (!discover && discovery != null) { discovery.close(); discovery = null; }
         state.set(ready ? "READY FOR AR SPACE" : busy ? "CONNECTING" : paired ? "PHONE PAIRED" : "WAITING FOR SETUP",
                 ready ? POSITIVE : busy || paired ? TEXT : TEXT_TERTIARY, TEXT);
         setText(status, supported ? AdbBootstrap.status(this) : "Wireless pairing requires Android 11 or newer.");
@@ -156,6 +169,8 @@ public final class AdbPairingActivity extends Activity {
         connect.setEnabled(supported && !busy && !ready);
         setText(notification, paired ? "Pair again" : "Start pairing");
         setText(connect, ready ? "Connected" : "Connect and start");
+        setText(mobileStatus, AdbNetworkState.mobileStatus(this, ready));
+        mobileOptions.setVisibility(AdbNetworkState.usbDebugging(this) == 1 ? View.GONE : View.VISIBLE);
         badge(pairNumber, "2", paired); badge(startNumber, "3", ready);
         next.setEnabled(!onboarding || ready);
         setText(footerHint, onboarding ? ready ? "Connected. Continue to finish setting up Unbound." : "Connect this phone to continue." : "Reconnect here whenever AR app windows need it.");
@@ -200,7 +215,6 @@ public final class AdbPairingActivity extends Activity {
     }
     @Override protected void onStart() {
         super.onStart(); if (status == null) return;
-        if (Build.VERSION.SDK_INT >= 30) discovery = new AdbDiscovery(getApplicationContext());
         handler.post(refresh);
     }
     @Override protected void onStop() {

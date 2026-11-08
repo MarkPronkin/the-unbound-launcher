@@ -3,6 +3,7 @@ from pathlib import Path
 import hashlib
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -13,7 +14,14 @@ from build_embedded_adb import BASE
 from experimental_stereo import ROOT, native_spec, patch_stereo_dex, patch_stereo_native
 from startup_tutorial import patch_startup_tutorial
 from test_display_startup import JAVA
+from trackpad_taps import branch
 from xreal_telemetry import file_offset
+
+sys.path.insert(0, str(ROOT / 'artifacts/tools/python'))
+from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_INTR
+from unicorn.arm64_const import (UC_ARM64_REG_X0, UC_ARM64_REG_X1, UC_ARM64_REG_X2,
+                               UC_ARM64_REG_X8, UC_ARM64_REG_X29, UC_ARM64_REG_X30,
+                               UC_ARM64_REG_SP, UC_ARM64_REG_PC)
 
 
 def text_section(path):
@@ -66,13 +74,26 @@ class ExperimentalStereoTests(unittest.TestCase):
                       boolean mono=ethernet?mode>=1&&mode<=4:mode==1||mode==5||mode==10||mode==11;
                       check(ExperimentalStereo.selectConfig(mode,manager)==(mono?(ethernet?5:3):mode));
                     }
+                    ExperimentalStereo.saveMono60(context,true);
+                    check(ExperimentalStereo.mono60Enabled(context)&&!ExperimentalStereo.enabled(context));
+                    for(int mode=-1;mode<16;mode++) {
+                      boolean mono=ethernet?mode>=1&&mode<=4:mode==1||mode==5||mode==10||mode==11;
+                      check(ExperimentalStereo.selectConfig(mode,manager)==(mono?1:mode));
+                    }
+                    ExperimentalStereo.save(context,false);check(ExperimentalStereo.mono60Enabled(context));
+                    ExperimentalStereo.save(context,true);check(!ExperimentalStereo.mono60Enabled(context));
+                    ExperimentalStereo.saveMono60(context,false);check(ExperimentalStereo.enabled(context));
                     ExperimentalStereo.save(context,false);check(!ExperimentalStereo.enabled(context));
                     for(int mode=-1;mode<16;mode++)check(ExperimentalStereo.selectConfig(mode,manager)==mode);
                   }
                   check(ExperimentalStereo.selectConfig(10,new Object())==10);
                   Path flag=context.dir.toPath().resolve("unbound-experimental-stereo");
-                  for(byte[] bad:new byte[][]{new byte[0],{2},{3},{-1},{1,1},{2,2}}) {
+                  Files.write(flag,new byte[]{2});
+                  check(ExperimentalStereo.mono60Enabled(context)&&!ExperimentalStereo.enabled(context));
+                  ExperimentalStereo.saveMono60(context,false);check(!ExperimentalStereo.mono60Enabled(context));
+                  for(byte[] bad:new byte[][]{new byte[0],{3},{-1},{1,1},{2,2}}) {
                     Files.write(flag,bad);check(!ExperimentalStereo.enabled(context));
+                    check(!ExperimentalStereo.mono60Enabled(context));
                     for(boolean ethernet:new boolean[]{false,true}) {
                       manager.mNRServiceControl.isEthernetSeries=ethernet;
                       for(int mode=-1;mode<16;mode++)check(ExperimentalStereo.selectConfig(mode,manager)==mode);
@@ -83,12 +104,69 @@ class ExperimentalStereoTests(unittest.TestCase):
                   context.pkg="dev.markpronkin.unbound";
                   try {ExperimentalStereo.save(context,true);throw new AssertionError("unsupported profile");}
                   catch(IllegalStateException expected){}
+                  try {ExperimentalStereo.saveMono60(context,true);throw new AssertionError("unsupported profile");}
+                  catch(IllegalStateException expected){}
                   System.out.println("PASS mode namespaces, unknown modes, opt-in persistence and invalid flags");
                 }}''')
             sources += [runner, ROOT / 'settings-ui/src/dev/beampro/settings/ExperimentalStereo.java']
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', str(work), *map(str, sources)], check=True)
             result = subprocess.check_output([str(JAVA / 'bin/java'), '-cp', str(work), 'StereoChecks', str(work)], text=True)
             self.assertIn('PASS', result)
+
+    def test_native_choices_and_file_failures_preserve_registers_and_stack(self):
+        spec = native_spec()
+        for flag in (None, b'', b'\0', b'\1', b'\2', b'\3', b'\xff', b'\1\1', b'\2\2', 'read-error'):
+            for mode in range(-1, 16):
+                with self.subTest(flag=flag, mode=mode):
+                    cpu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
+                    for address in (spec['wrapper'], spec['return']):
+                        cpu.mem_map(address & ~4095, 4096)
+                    cpu.mem_write(spec['wrapper'], bytes.fromhex(spec['replacement']))
+                    cpu.mem_write(spec['return'], branch(spec['return'], spec['wrapper']))
+                    cpu.mem_map(0x800000, 0x10000)
+                    cpu.reg_write(UC_ARM64_REG_SP, 0x808000)
+                    registers = [UC_ARM64_REG_X0 + index for index in range(29)] + [UC_ARM64_REG_X29, UC_ARM64_REG_X30]
+                    for index, register in enumerate(registers):
+                        cpu.reg_write(register, 0x100000000 + index * 0x10101)
+                    cpu.reg_write(UC_ARM64_REG_X0, mode & 0xffffffff)
+                    cpu.reg_write(UC_ARM64_REG_X30, 0x9000000)
+                    before = [cpu.reg_read(register) for register in registers]
+                    calls = []
+
+                    def syscall(machine, interrupt, data):
+                        op = machine.reg_read(UC_ARM64_REG_X8)
+                        calls.append(op)
+                        if op == 56:
+                            path = bytes(machine.mem_read(machine.reg_read(UC_ARM64_REG_X1), 100)).split(b'\0')[0]
+                            self.assertEqual(path, b'/data/user/0/com.xreal.evapro.nebula/files/unbound-experimental-stereo')
+                            result = -2 if flag is None else 17
+                        elif op == 63:
+                            self.assertEqual(machine.reg_read(UC_ARM64_REG_X0), 17)
+                            self.assertEqual(machine.reg_read(UC_ARM64_REG_X2), 2)
+                            if flag == 'read-error':
+                                result = -5
+                            else:
+                                value = flag[:2]
+                                result = len(value)
+                                if value:
+                                    machine.mem_write(machine.reg_read(UC_ARM64_REG_X1), value)
+                        elif op == 57:
+                            self.assertEqual(machine.reg_read(UC_ARM64_REG_X0), 17)
+                            result = 0
+                        else:
+                            raise AssertionError('Unexpected syscall ' + str(op))
+                        machine.reg_write(UC_ARM64_REG_X0, result & 0xffffffffffffffff)
+
+                    cpu.hook_add(UC_HOOK_INTR, syscall)
+                    cpu.emu_start(spec['return'], 0x9000000, count=100)
+                    expected = before[:]
+                    mono = mode in (1, 5, 10, 11)
+                    if mono and flag in (b'\1', b'\2'):
+                        expected[0] = 3 if flag == b'\1' else 1
+                    self.assertEqual([cpu.reg_read(register) for register in registers], expected)
+                    self.assertEqual(cpu.reg_read(UC_ARM64_REG_SP), 0x808000)
+                    self.assertEqual(cpu.reg_read(UC_ARM64_REG_PC), 0x9000000)
+                    self.assertEqual(calls, [] if not mono else [56] if flag is None else [56, 63, 57])
 
     def test_dex_exact_scope_round_trip_and_double_patch_rejected(self):
         with zipfile.ZipFile(BASE) as archive:

@@ -7,11 +7,14 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Insets;
 import android.graphics.Rect;
+import android.inputmethodservice.InputMethodService;
 import android.os.*;
 import android.provider.Settings;
 import android.view.*;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
+import android.widget.TextView;
+import dev.beampro.port.KeyboardCompat;
 import dev.beampro.port.SettingsCompat;
 import java.lang.reflect.*;
 import java.util.Objects;
@@ -25,14 +28,36 @@ public final class InputCompatDeviceChecks extends Instrumentation {
     private Object helper;
     private volatile int shown, hidden;
     private final Binder callbackBinder = new Binder();
+    /** A real IME window even on minimal Android test images without a bundled keyboard. */
+    public static final class Keyboard extends InputMethodService {
+        @Override public View onCreateInputView() {
+            TextView keyboard = new TextView(this);
+            keyboard.setText("Input compatibility test keyboard");
+            keyboard.setBackgroundColor(0xffcccccc);
+            keyboard.setLayoutParams(new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    Math.round(200 * getResources().getDisplayMetrics().density)));
+            return keyboard;
+        }
+        @Override public boolean onEvaluateFullscreenMode() { return false; }
+        @Override public boolean onEvaluateInputViewShown() { return true; }
+    }
     public static final class HostActivity extends Activity {
         EditText editor;
+        boolean captureTouches;
+        int downs, moves, ups;
         @Override public void onCreate(Bundle state) {
             super.onCreate(state);
             getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
                     | WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN);
             editor = new EditText(this);
             setContentView(editor);
+        }
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            if (!captureTouches) return super.dispatchTouchEvent(event);
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) downs++;
+            if (event.getActionMasked() == MotionEvent.ACTION_MOVE) moves++;
+            if (event.getActionMasked() == MotionEvent.ACTION_UP) ups++;
+            return true;
         }
     }
     private static final class GeometryView extends View {
@@ -146,6 +171,64 @@ public final class InputCompatDeviceChecks extends Instrumentation {
         while (!condition.value() && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(20);
         check(condition.value(), message);
     }
+    private void phoneGesture(boolean drag) {
+        int[] location = new int[2];
+        mainCheck(() -> activity.editor.getLocationOnScreen(location));
+        float x = location[0] + activity.editor.getWidth() / 2f;
+        float y = location[1] + activity.editor.getHeight() / 2f;
+        long start = SystemClock.uptimeMillis();
+        for (int action : drag ? new int[]{0, 2, 1} : new int[]{0, 1}) {
+            MotionEvent event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action,
+                    x + (action == 0 ? 0 : 40), y, 0);
+            event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+            try { check(getUiAutomation().injectInputEvent(event, true), "Phone touch injected: " + action); }
+            finally { event.recycle(); }
+        }
+        waitForIdleSync();
+    }
+    private void imeMask() throws Exception {
+        mainCheck(() -> activity.captureTouches = true);
+        // Reproduce the stock controller's exact zero-sized, focusable overlay.
+        View mask = new View(activity);
+        WindowManager.LayoutParams params = new WindowManager.LayoutParams(0, 0,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, 0, android.graphics.PixelFormat.TRANSLUCENT);
+        params.gravity = Gravity.TOP | Gravity.START;
+        mainCheck(() -> activity.getWindowManager().addView(mask, params));
+        try {
+            await(mask::hasWindowFocus, "Legacy IME mask receives focus");
+            phoneGesture(false);
+            mainCheck(() -> check(activity.downs == 0 && activity.ups == 0,
+                    "Legacy zero-sized modal overlay blocks the phone tap"));
+        } finally { mainCheck(() -> activity.getWindowManager().removeView(mask)); }
+        // Creation and resume both add the same mask. Repeat the corrected path
+        // to catch reattachment that silently restores the modal behavior.
+        for (int cycle = 0; cycle < 2; cycle++) {
+            params.flags = 0;
+            mainCheck(() -> KeyboardCompat.addImeMask(activity.getWindowManager(), mask, params));
+            try {
+                await(mask::hasWindowFocus, "Corrected mask preserves the stock IME focus target");
+                mainCheck(() -> {
+                    check((params.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE) != 0,
+                            "Invisible mask cannot receive touches");
+                    check((params.flags & WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL) != 0,
+                            "Invisible mask cannot consume outside touches");
+                    check((params.flags & (WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                            | WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM)) == 0,
+                            "IME focus flags stay unchanged");
+                    check(params.width == 0 && params.height == 0 && params.x == 0 && params.y == 0
+                            && params.type == WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                            "Original mask geometry and window type preserved");
+                    activity.downs = activity.moves = activity.ups = 0;
+                });
+                phoneGesture(false);
+                phoneGesture(true);
+                mainCheck(() -> check(activity.downs == 2 && activity.moves >= 1 && activity.ups == 2,
+                        "Tap and drag reach the phone beneath the corrected mask"));
+            } finally { mainCheck(() -> activity.getWindowManager().removeView(mask)); }
+            await(activity::hasWindowFocus, "Mask removal restores phone window focus");
+        }
+        mainCheck(() -> activity.captureTouches = false);
+    }
     private void pointerFlags() throws Exception {
         Context context = getTargetContext();
         check(context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") == PackageManager.PERMISSION_DENIED,
@@ -180,6 +263,7 @@ public final class InputCompatDeviceChecks extends Instrumentation {
             geometry();
             if (!expectBug) realIme();
             if (activity == null) activity = (HostActivity) startActivitySync(new Intent(getTargetContext(), HostActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            if (!expectBug) imeMask();
             pointerFlags();
             result.putBoolean("passed", true);
             result.putString("stream", "PASS phone input checks: " + checks + "; expect_bug=" + expectBug + "\n");
