@@ -16,6 +16,7 @@ abstract class MenuPage {
     abstract void render();
     protected void onStart() {}
     protected void onStop() {}
+    protected void onDestroy() {}
     final Window getWindow() { return activity.getWindow(); }
     final void setContentView(View content) { activity.setContentView(content); }
     final void dismiss() { activity.finish(); }

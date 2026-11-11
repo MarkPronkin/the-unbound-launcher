@@ -26,8 +26,9 @@ public final class FirmwareWarningView extends FrameLayout {
             RED=0xffff3b4b, PANEL=0xff1d1d1d;
     private final ScrollView scroll;
     private final LinearLayout actions;
-    private final TextView detected, recommended, detail;
+    private final TextView title, warning, risk, instructions, detected, recommended, detail;
     private final Button override;
+    private final boolean rog;
 
     public FirmwareWarningView(Activity activity, FirmwarePolicy.Result result, Runnable onExit, Runnable onContinue) {
         super(activity);
@@ -48,13 +49,13 @@ public final class FirmwareWarningView extends FrameLayout {
         body.addView(mark,icon);
         TextView eyebrow=text("INITIALIZATION PAUSED",10,RED);eyebrow.setLetterSpacing(.18f);
         body.addView(eyebrow,row(21));
-        TextView title=text("Unsupported\nfirmware.",38,TEXT);
+        title=text("",38,TEXT);
         title.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));title.setLetterSpacing(-.04f);
         title.setAccessibilityHeading(true);body.addView(title,row(12));
-        TextView warning=text("Unbound Launcher will not work with this firmware.",16,TEXT);
+        warning=text("",16,TEXT);
         warning.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));warning.setLineSpacing(0,1.4f);
         body.addView(warning,row(21));
-        TextView risk=text("Continuing may cause unpredictable behavior in your glasses.",14,MUTED);
+        risk=text("",14,MUTED);
         risk.setLineSpacing(0,1.4f);body.addView(risk,row(9));
         LinearLayout versions=new LinearLayout(activity);versions.setOrientation(LinearLayout.VERTICAL);
         versions.setPadding(dp(16),dp(16),dp(16),dp(16));versions.setBackground(surface(PANEL,14,0));
@@ -66,12 +67,10 @@ public final class FirmwareWarningView extends FrameLayout {
         recommended=version(versions,"Recommended",result.recommended,TEXT,12);
         body.addView(versions,row(21));
         detail=text(result.detail,12,MUTED);detail.setLineSpacing(0,1.3f);body.addView(detail,row(12));
-        detail.setVisibility(unreadable(result)?VISIBLE:GONE);
+        detail.setVisibility(result.status==FirmwarePolicy.Status.UNVERIFIED?VISIBLE:GONE);
         detected.setContentDescription(result.detail+" Detected: "+result.detected);
-        boolean rog=FirmwarePolicy.ROG_UPDATER.equals(result.updater);
-        TextView instructions=text(rog
-                ?"Install the recommended glasses firmware from ASUS’s ROG support website. The glasses and dock have separate versions."
-                :"Install the latest stable firmware from XREAL’s website. If you’re on a beta, return to the stable release.",14,MUTED);
+        rog=FirmwarePolicy.ROG_UPDATER.equals(result.updater);
+        instructions=text("",14,MUTED);
         instructions.setLineSpacing(0,1.4f);body.addView(instructions,row(19));
         String updaterLabel=rog?"ASUS ROG support":"xreal.com/ota";
         Button updater=button(updaterLabel+"  ↗",false);updater.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
@@ -87,6 +86,7 @@ public final class FirmwareWarningView extends FrameLayout {
         override=button("I know it won’t work; continue regardless",false);override.setTextSize(11);
         override.setPaintFlags(override.getPaintFlags()|android.graphics.Paint.UNDERLINE_TEXT_FLAG);
         override.setOnClickListener(v->onContinue.run());actions.addView(override,row(5));
+        update(result,false);
     }
 
     private TextView version(LinearLayout parent,String label,String value,int color,int top) {
@@ -97,11 +97,20 @@ public final class FirmwareWarningView extends FrameLayout {
     }
 
     public void update(FirmwarePolicy.Result result,boolean checking) {
+        boolean unverified=result.status==FirmwarePolicy.Status.UNVERIFIED;
+        title.setText(unverified?"Firmware check\npaused.":"Unsupported\nfirmware.");
+        warning.setText(unverified?"The glasses firmware could not be verified.":"Unbound Launcher will not work with this firmware.");
+        risk.setText(unverified?"This does not mean your firmware is outdated.":"Continuing may cause unpredictable behavior in your glasses.");
+        instructions.setText(unverified
+                ?(checking?"Keep the glasses connected while the read finishes. If it stays paused, exit, fully unplug the glasses, and reconnect them."
+                          :"Exit, fully unplug the glasses, and reconnect them to try the check again. Continuing without verification may cause unpredictable behavior in your glasses.")
+                :(rog?"Install the recommended glasses firmware from ASUS’s ROG support website. The glasses and dock have separate versions."
+                     :"Install the recommended stable firmware from XREAL’s website. If you’re on a beta, return to the stable release."));
         detected.setText(result.detected);recommended.setText(result.recommended);detail.setText(result.detail);
-        detail.setVisibility(unreadable(result)?VISIBLE:GONE);
+        detail.setVisibility(unverified?VISIBLE:GONE);
         detected.setContentDescription(result.detail+" Detected: "+result.detected);
         override.setEnabled(!checking);override.setAlpha(checking?.5f:1);
-        override.setText(checking?"Finishing firmware check…":"I know it won’t work; continue regardless");
+        override.setText(checking?"Finishing firmware check…":unverified?"Continue without verification":"I know it won’t work; continue regardless");
     }
 
     public void show(Activity activity) {
@@ -112,7 +121,7 @@ public final class FirmwareWarningView extends FrameLayout {
         window.setStatusBarColor(BG);window.setNavigationBarColor(BG);window.setNavigationBarContrastEnforced(false);
         if(Build.VERSION.SDK_INT>=30)window.setDecorFitsSystemWindows(true);
         window.getDecorView().setSystemUiVisibility(0);activity.setFinishOnTouchOutside(false);activity.setContentView(this);
-        announceForAccessibility("Initialization paused. Unsupported glasses firmware.");
+        announceForAccessibility("Initialization paused. "+title.getText());
     }
 
     @Override protected void onMeasure(int widthSpec,int heightSpec) {
@@ -124,7 +133,6 @@ public final class FirmwareWarningView extends FrameLayout {
         p.height=Math.max(1,usable-actions.getMeasuredHeight()-dp(4));
         super.onMeasure(widthSpec,heightSpec);
     }
-    private boolean unreadable(FirmwarePolicy.Result result){return result.detected.equals("Not readable")||result.detected.equals("Not verified");}
     private int dp(float value){return Math.round(value*getResources().getDisplayMetrics().density);}
     private TextView text(String value,float size,int color){
         TextView t=new TextView(getContext());t.setText(value);t.setTextSize(size);t.setTextColor(color);

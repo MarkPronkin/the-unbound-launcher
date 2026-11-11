@@ -112,6 +112,7 @@ public final class GlassesConnectionCompat {
     }
     /** Suppress duplicate USB auto-entry during SDK re-enumeration and an existing AR session. */
     public static boolean sessionActive() {
+        if(displayTestActive())return true;
         Session s=current;
         if(s!=null&&!s.disposed&&!s.failed)return true;
         try {
@@ -120,9 +121,27 @@ public final class GlassesConnectionCompat {
         } catch(Exception notInitialized) { return false; }
     }
 
+    private static boolean displayTestActive() {
+        try { return Boolean.TRUE.equals(Class.forName("dev.beampro.settings.DisplayTests").getMethod("active").invoke(null)); }
+        catch(ClassNotFoundException fixtureWithoutTests){return false;}
+        catch(Exception error){Log.w(TAG,"Cannot read display-test ownership",error);return true;}
+    }
+    /** Do not let a diagnostic experiment overlap native startup, a pending cleanup or AR output. */
+    public static boolean displayTestsAvailable() {
+        Session s=current;
+        if(s!=null&&!s.disposed&&(!s.failed||s.isBusy()))return false;
+        synchronized(running){for(WeakReference<Session> reference:running.values()){
+            Session pending=reference.get();if(pending!=null&&pending.isBusy())return false;
+        }}
+        try {Object manager=manager();return !(Boolean.TRUE.equals(get(manager,"hasGoLauncher"))
+                &&Boolean.TRUE.equals(get(get(manager,"mNRServiceControl"),"isStartSdk")));}
+        catch(Exception error){return false;}
+    }
+
     /** Replaces only the public no-argument entry; retain the SDK's USB/model registration. */
     public static void begin(Object presenter) {
         try {
+            if(displayTestActive()) { ((Activity)get(presenter,"mActivity")).finish(); return; }
             if (session(presenter) != null && !current.failed) return;
             if (current != null && current.isBusy()) { current.fail("Glasses are still responding. Unplug and reconnect them before trying again."); return; }
             if (current != null) current.dispose(current.presenter != presenter);
@@ -222,6 +241,7 @@ public final class GlassesConnectionCompat {
 
     /** Hook only the three asynchronous SDK launches, leaving direct user launches intact. */
     public static void launch(Object manager) {
+        if(displayTestActive()){Log.i(TAG,"AR entry is paused for display tests");return;}
         if (Boolean.TRUE.equals(blocked.get(manager))) { Log.i(TAG, "Discarded a cancelled startup launch"); return; }
         try {
             if ((Boolean) call(manager, "isHasGoLauncher")) return;
@@ -333,6 +353,7 @@ public final class GlassesConnectionCompat {
         volatile boolean firmwareChecking, firmwarePaused, firmwareAccepted, sdkInvoked;
         long firmwareDeadline;
         int firmwareType;
+        volatile int firmwareComponent;
         UsbDevice firmwareUsb;
         FirmwareWarningView firmwareWarning;
         FirmwarePolicy.Result firmwareResult;
@@ -449,10 +470,20 @@ public final class GlassesConnectionCompat {
                     Object reader=get(manager,"mOtaManager");
                     result=FirmwarePolicy.check(firmwareType,component -> {
                         if (!active() || !firmwareUsb.equals(liveUsb())) throw new IllegalStateException("Glasses detached during firmware read");
-                        String version=(String)call(reader,"readFWVersion",new Class<?>[]{int.class},component);
+                        firmwareComponent=component;
+                        long started=SystemClock.uptimeMillis();
+                        debug("firmware_component_read","model="+firmwareType+"; component="+FirmwarePolicy.label(component));
+                        String version;
+                        try { version=(String)call(reader,"readFWVersion",new Class<?>[]{int.class},component); }
+                        catch(Exception error) {
+                            debug("firmware_component_error","model="+firmwareType+"; component="+FirmwarePolicy.label(component)
+                                    +"; readMs="+(SystemClock.uptimeMillis()-started));
+                            Log.w(TAG,"Cannot read "+FirmwarePolicy.label(component)+" firmware",error);
+                            throw error;
+                        }
                         if (!active() || !firmwareUsb.equals(liveUsb())) throw new IllegalStateException("Glasses detached during firmware read");
                         debug("firmware_component","model="+firmwareType+"; component="+FirmwarePolicy.label(component)
-                                +"; detected="+FirmwarePolicy.clean(version));
+                                +"; detected="+FirmwarePolicy.clean(version)+"; readMs="+(SystemClock.uptimeMillis()-started));
                         return version;
                     });
                 } catch(Exception|LinkageError error) {
@@ -465,7 +496,7 @@ public final class GlassesConnectionCompat {
                     if (!active()) return;
                     if (!firmwareUsb.equals(liveUsb())) { close(); return; }
                     firmwareResult=checked;
-                    debug("firmware_result","supported="+checked.supported+"; detected="+checked.detected
+                    debug("firmware_result","supported="+checked.supported+"; status="+checked.status+"; detected="+checked.detected
                             +"; recommended="+checked.recommended+"; "+checked.detail);
                     if (checked.supported) resumeAfterFirmware(false);
                     else pauseForFirmware(checked);
@@ -485,7 +516,7 @@ public final class GlassesConnectionCompat {
                 firmwareWarning.update(result,firmwareChecking);
             } catch(RuntimeException error) {
                 Log.e(TAG,"Cannot display firmware warning",error);
-                fail("Unsupported or unreadable glasses firmware. Install the latest stable release at xreal.com/ota before connecting.");
+                fail(result.detail+" Exit, fully unplug the glasses, and reconnect them before trying again.");
             }
         }
         void resumeAfterFirmware(boolean override) {
@@ -511,7 +542,8 @@ public final class GlassesConnectionCompat {
                     if (firmwareUsb!=null && !firmwareUsb.equals(liveUsb())) { close(); return; }
                     if (firmwareChecking && !firmwarePaused && now>=firmwareDeadline)
                         pauseForFirmware(FirmwarePolicy.unavailable(firmwareType,
-                                "The firmware check is taking too long. Initialization is stopped. Wait for the read to finish or exit."));
+                                "The "+(firmwareComponent==0?"firmware check":FirmwarePolicy.label(firmwareComponent)+" firmware read")
+                                +" is taking too long. Compatibility has not been verified. Wait for the read to finish or exit and reconnect the glasses."));
                     MAIN.postDelayed(this,250);return;
                 }
                 if (now >= deadline && (handoff == null || !handoff.isReady())) {

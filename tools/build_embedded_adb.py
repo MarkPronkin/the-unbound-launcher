@@ -41,9 +41,11 @@ from recording_duration import patch_recording_duration, verify_recording_durati
 from high_performance_apps import patch_high_performance_apps, verify_high_performance_apps
 from anchor_windows import patch_anchor_windows, verify_anchor_windows
 from recording_logo import patch_recording_logo, verify_recording_logo
+from immersive_stereo import SHADERS as IMMERSIVE_SHADERS, patch_immersive_shader, patch_immersive_stereo, verify_immersive_shaders, verify_immersive_stereo
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
+from photo_sound import patch_photo_sound
 from updater_manifest import patch_updater_manifest
 from debug_manifest import patch_debug_manifest
 from storage_manifest import patch_storage_manifest
@@ -98,6 +100,7 @@ def write_pairing_sources(destination, root=ROOT):
     paths.extend(root / "tools" / name for name in ("ping_cancellation.py", "PatchPingCancellationDex.java"))
     paths.extend(root / "tools" / name for name in ("controller_mode.py", "PatchControllerModeDex.java"))
     paths.extend(root / "tools" / name for name in ("home_button.py", "PatchHomeButtonDex.java"))
+    paths.extend(root / "tools" / name for name in ("photo_sound.py", "PatchPhotoSoundDex.java"))
     paths.extend(root / "tools" / name for name in ("brightness_lock.py", "PatchBrightnessLockDex.java"))
     paths.extend(root / "tools" / name for name in ("input_compat.py", "PatchInputCompatDex.java"))
     paths.extend(root / "tools" / name for name in ("glasses_startup.py", "PatchGlassesStartupDex.java"))
@@ -112,6 +115,7 @@ def write_pairing_sources(destination, root=ROOT):
     paths.append(root / "tools/high_performance_apps.py")
     paths.append(root / "tools/anchor_windows.py")
     paths.append(root / "tools/recording_logo.py")
+    paths.extend(root / "tools" / name for name in ("immersive_stereo.py", "immersive_stereo.S", "immersive_stereo_native.json"))
     paths.extend(root / "tools" / name for name in ("app_surface_routing.py", "app_surface_routing.S", "app_surface_routing_native.json"))
     paths.append(root / "tools/unity_shader_loader.py")
     paths.extend(root / "tools" / name for name in ("presentation_only.py", "PatchPresentationDex.java"))
@@ -278,6 +282,7 @@ def main():
             startup_dex = patch_stereo_dex(startup_dex, build / "experimental-stereo", java, env)
             startup_dex = patch_home_button(startup_dex, build / "home-button", java, env)
             startup_dex = patch_input_compat(startup_dex, build / "keyboard-input", java, env)
+            startup_dex = patch_photo_sound(startup_dex, build / "photo-sound", java, env)
             presentation_dex = patch_display_startup(source.read("classes3.dex"), build / "stereo-presentation", java, env)
             icon_dex = patch_icon_resolution(source.read("classes2.dex"), build / "icon-resolution", java, env)
             icon_dex = patch_color_dex(icon_dex, build / "app-colors", java, env)
@@ -303,12 +308,14 @@ def main():
             if info.filename == "classes4.dex": value = client_dex.read_bytes()
             if info.filename == APP_SHADER and not args.test_only: value = automatic_app_shader(source)
             if info.filename in OES_SHADERS and not args.test_only: value = direct_oes_shader(value)
+            if info.filename in IMMERSIVE_SHADERS and not args.test_only: value = patch_immersive_shader(value)
             if info.filename == LIBRARY and not args.test_only:
                 value = patch_surface_routing(patch_overlay_routing(patch_stereo_native(patch_startup_tutorial(patch_color_native(value)))))
                 value = patch_recording_duration(value)
                 value = patch_high_performance_apps(value)
                 value = patch_anchor_windows(value)
                 value = patch_recording_logo(value)
+                value = patch_immersive_stereo(value)
             if info.filename == MODE_LIBRARY and not args.test_only:
                 value = patch_egl_colorspace(patch_display_mode(value))
             if info.filename == TEXTURE_LIBRARY and texture_library is not None:
@@ -345,11 +352,12 @@ def main():
                 if name.upper().startswith("META-INF/"): continue
                 if source.read(name) != target.read(name): changed.append(name)
             added = sorted(set(target.namelist()) - set(source.namelist()))
-            expected={"classes.dex", "classes2.dex", "classes3.dex", "classes4.dex", "classes5.dex", "AndroidManifest.xml", "resources.arsc", METADATA, APP_SHADER, *OES_SHADERS, LIBRARY, MODE_LIBRARY, TEXTURE_LIBRARY}
+            expected={"classes.dex", "classes2.dex", "classes3.dex", "classes4.dex", "classes5.dex", "AndroidManifest.xml", "resources.arsc", METADATA, APP_SHADER, *OES_SHADERS, *IMMERSIVE_SHADERS, LIBRARY, MODE_LIBRARY, TEXTURE_LIBRARY}
             if set(changed) != expected: raise ValueError(f"Unexpected changes: {changed}")
             color_report=verify_app_shader(target,source)
             color_report.update(verify_direct_oes_shaders(target,source))
             color_report.update(verify_native_shader_loading(target))
+            immersive_shader_report = verify_immersive_shaders(target, source)
             if not color_report['automatic_decode_selection'] or not color_report['direct_oes_software_uniform']:
                 raise ValueError('App color selection was not packaged')
             if manifest_version(target.read("AndroidManifest.xml")) != VERSION: raise ValueError("Version mismatch")
@@ -360,7 +368,12 @@ def main():
               "dependency_hashes": DEPS, "changed_payloads": changed, "added_payloads": added,
               "signature_and_alignment_verified": True, "physical_device_validation": "pending"}
     if not args.test_only:report['app_colors']=color_report
+    if not args.test_only:report['immersive_stereo_shaders']=immersive_shader_report
     if not args.test_only:report['debuggable']=False
+    if not args.test_only:
+        report['experimental_options'] = {'disable_eye_shutter_sound': {'default': False, 'scope': 'raw/kaca capture cue'},
+                                           'skip_screen_off_confirmation': {'default': False, 'volume_recovery_preserved': True},
+                                           'applies_without_restart': True}
     if not args.test_only:
         report['notifications'] = {'system_only_intent_inspection_removed': True,
                                    'tap_action': 'renderer native-app fallback using PendingIntent creator',
@@ -459,6 +472,12 @@ def main():
                                              'system_log_window_seconds': 120,
                                              'connected_modes_survive_unplug_and_export': True,
                                              'hardware_validation': 'pending'}
+    report['guided_display_tests'] = {'entry': 'Help > Display tests', 'control_sdk_only': True,
+                                      'modes': {'mono': 1, 'ethernet_sbs': 5, 'legacy_sbs': 3},
+                                      'baseline_captured_before_sbs': True, 'automatic_2d_recovery': True,
+                                      'ar_auto_entry_paused_while_page_open': True, 'physical_timing_and_wearer_feedback_separate': True,
+                                      'test_history_bytes': 64000, 'snapshot_count': 3, 'snapshot_bytes': 1010000,
+                                      'test_results_without_logcat_opt_in': True, 'hardware_validation': 'pending'}
     report['renderer_geometry_diagnostics'] = {'file': 'renderer-geometry.txt', 'direct_unity_readback': True,
                                               'logcat_independent': True, 'collection_opt_in': True,
                                               'sample_interval_ms': 2000, 'native_renderer_binary_unchanged': True,
@@ -500,6 +519,8 @@ def main():
             report['overlay_color'] = {'compositor_color_patches_enabled': False,
                                        'stock_compositor_color_pipeline_verified': True}
             routed = patch_binary_identity(LIBRARY, built.read(LIBRARY), restore=True)
+            report['immersive_stereo'] = verify_immersive_stereo(routed)
+            routed = patch_immersive_stereo(routed, restore=True)
             report['recording_logo'] = verify_recording_logo(routed)
             routed = patch_recording_logo(routed, restore=True)
             report['anchor_windows'] = verify_anchor_windows(routed)

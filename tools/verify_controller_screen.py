@@ -39,7 +39,7 @@ def main():
     adb = [sdk / "platform-tools/adb", "-s", args.serial]
     sources = sorted((ROOT / "tools/controller-preview/src").rglob("*.java"))
     sources.extend(ROOT / "port-client/src/dev/beampro/port" / name for name in
-                   ("PhoneScreenControl.java", "PhoneScreenCompat.java", "PhonePointerCompat.java"))
+                   ("PhoneScreenControl.java", "PhoneScreenCompat.java", "PhonePointerCompat.java", "ExperimentalOptionsCompat.java"))
     classes = build / "classes"
     if classes.exists(): shutil.rmtree(classes)
     classes.mkdir()

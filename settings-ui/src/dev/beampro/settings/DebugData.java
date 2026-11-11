@@ -132,6 +132,8 @@ final class DebugData {
 
     boolean enabled() { return preferences.getBoolean("enabled", false); }
     boolean collecting() { return preferences.getBoolean("collecting", false); }
+    boolean hasDisplayTests() { return new DisplayTestJournal(new File(context.getFilesDir(),"debug")).hasData(); }
+    void pauseDisplayObservations() { displayTransitions.stop(); main.removeCallbacks(displayPoll); }
     synchronized long bytes() {
         try { return archive().bytes(); }
         catch (IOException failure) { error = failure.getMessage(); return 0; }
@@ -256,6 +258,7 @@ final class DebugData {
         report.append("Debug mode: ").append(enabled()).append("; collecting: ").append(collecting()).append('\n');
         report.append("app.log covers this app's UID only. Oldest data rotates at 12 MB. ZIP is limited to 15 MB.\n");
         report.append("No pairing codes, app preferences or screenshots are added by this report.\n");
+        report.append("Guided display-test results and their three labelled snapshots are included when tests were requested, even if app log collection is off. Tests record requested SDK display modes, observed output and wearer feedback separately.\n");
         report.append("Network diagnostics include interface IP addresses, routes, Ethernet status and glasses ping output.\n");
         report.append("Display and SurfaceFlinger dumps may include display identifiers and app/window names.\n");
         report.append("Display-link diagnostics include USB port state, selected system display logs, available kernel/link messages and connector EDID. Android may deny some sources.\n");
@@ -556,6 +559,7 @@ final class DebugData {
     }
 
     File export() throws IOException {
+        DisplayTests.flush();
         try { startupEvents.submit(() -> {}).get(2000, TimeUnit.MILLISECONDS); }
         catch (Exception pending) { Log.w("UnboundDebug", "Some startup events are still pending at export", pending); }
         // An export right after a failure would otherwise miss the trace that is still sampling it.

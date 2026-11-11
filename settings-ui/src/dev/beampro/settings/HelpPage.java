@@ -58,6 +58,11 @@ final class HelpPage extends MenuPage {
         });
         help.setTag("get-help"); support.addView(help); add(page.intro, support, 20, 0);
 
+        LinearLayout tests=group(activity);
+        Row test=new Row(activity,"glasses","Display tests","Check 2D and SBS output, show a test pattern and save the results").chevron()
+                .onClick(v->MenuActivity.open(activity,MenuActivity.DISPLAY_TESTS));
+        test.setTag("display-tests-open");tests.addView(test);add(page.intro,tests,12,0);
+
         page.body.addView(heading(activity, "Debugging"));
         LinearLayout options = group(activity);
         options.addView(toggle("Debug mode", "Enable extra app diagnostics to help investigate a problem.",
@@ -77,7 +82,7 @@ final class HelpPage extends MenuPage {
                 SUPPORTING, TEXT_SECONDARY), 12, 0);
 
         Button create = button(activity, busy ? "Preparing debug file…" : export == null ? "Create debug file" : "Create new debug file", PRIMARY);
-        create.setTag("debug-create"); create.setEnabled(!busy && bytes > 0);
+        create.setTag("debug-create"); create.setEnabled(!busy && (bytes > 0 || data.hasDisplayTests()));
         create.setOnClickListener(v -> prepare()); add(page.body, create, 20, 0);
         if (export != null) {
             TextView file = text(activity, export.getName() + "\n" + String.format(Locale.US, "%.2f MB", export.length() / 1_000_000d),

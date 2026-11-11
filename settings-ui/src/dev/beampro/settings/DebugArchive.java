@@ -24,6 +24,7 @@ final class DebugArchive {
     static final int CHUNK_BYTES = 1_000_000, MAX_CHUNKS = 12;
     private final File logs, exports;
     private final StartupTrace startup;
+    private final DisplayTestJournal displayTests;
     private File current;
     private long sequence;
     static final int MAX_NETWORK_BYTES = 64_000, MAX_NETWORK_SNAPSHOTS = 3;
@@ -46,6 +47,7 @@ final class DebugArchive {
         if (existing.length > 0) sequence = Long.parseLong(existing[existing.length - 1].getName().substring(4, 16));
         trim();
         startup = new StartupTrace(logs);
+        displayTests = new DisplayTestJournal(directory);
     }
 
     private File[] chunks() {
@@ -174,6 +176,7 @@ final class DebugArchive {
                         || snapshots("glasses-control-trace").length > 0;
                 long skip = Math.max(0, bytes() - (long) CHUNK_BYTES * MAX_CHUNKS + (startupData ? STARTUP_LOG_RESERVE : 0)
                         + (snapshots("display-startup").length == 0 ? 0 : DISPLAY_STARTUP_RESERVE)
+                        + (displayTests.hasData() ? DisplayTestJournal.EXPORT_RESERVE : 0)
                         + (renderer == null ? 0 : RendererTrace.MAX_BYTES + 1024) + (windows == null ? 0 : 49_024));
                 for (File chunk : chunks()) try (FileInputStream input = new FileInputStream(chunk)) {
                     if (skip >= chunk.length()) { skip -= chunk.length(); continue; }
@@ -201,6 +204,14 @@ final class DebugArchive {
                 writeSnapshots(zip, "network-diagnostics.txt", networks(), MAX_NETWORK_BYTES, "Network snapshot");
                 writeSnapshots(zip, "display-link.txt", snapshots("display-link"), DisplayDiagnostics.MAX_LINK_BYTES, "Display/link snapshot");
                 writeSnapshots(zip, "display-startup.txt", snapshots("display-startup"), DisplayDiagnostics.MAX_STARTUP_BYTES, "Retained connected startup display snapshot");
+                if(displayTests.hasData()){
+                    zip.putNextEntry(new ZipEntry("display-tests.txt"));zip.write(displayTests.report());zip.closeEntry();
+                    java.util.ArrayList<File> captures=new java.util.ArrayList<>();
+                    for(String stage:new String[]{"before","stereo","restored"}){
+                        File capture=displayTests.captureFile(stage);if(capture.isFile())captures.add(capture);
+                    }
+                    writeSnapshots(zip,"display-test-captures.txt",captures.toArray(new File[0]),DisplayDiagnostics.MAX_STARTUP_BYTES,"Guided display test snapshot");
+                }
                 if (display != null) {
                     zip.putNextEntry(new ZipEntry("display.txt"));
                     zip.write(DisplayDiagnostics.encode(display)); zip.closeEntry();

@@ -15,9 +15,13 @@ public final class ConnectionPreviewActivity extends Activity {
     private void start() {
         if (animation != null) animation.dispose();
         if (getIntent().getBooleanExtra("firmware",false)) {
-            firmware=new FirmwareWarningView(this,new FirmwarePolicy.Result(false,"XREAL One Pro","2.0.0 · beta","1.9.1 · stable",
-                    "Software firmware does not match the recommended stable release."),
+            boolean pending=getIntent().getBooleanExtra("firmware_unverified",false);
+            FirmwarePolicy.Result result=pending?FirmwarePolicy.unavailable(6,"The Software firmware read is taking too long. Compatibility has not been verified. Wait for the read to finish or exit and reconnect the glasses.")
+                    :new FirmwarePolicy.Result(FirmwarePolicy.Status.MISMATCH,"XREAL One Pro","2.0.0 · beta","1.9.1 · stable",
+                    "Software firmware does not match the recommended stable release.");
+            firmware=new FirmwareWarningView(this,result,
                     ()->{exits++;finish();},()->{overrides++;getIntent().putExtra("firmware",false);start();});
+            firmware.update(result,pending);
             firmware.show(this);return;
         }
         animation = new ConnectionAnimation(this, () -> { retries++; start(); }, this::finish);

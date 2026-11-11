@@ -11,6 +11,8 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 
 STUBS = dict(DISPLAY_STUBS)
 STUBS.update({
+    'dev/beampro/settings/DisplayTests.java': '''package dev.beampro.settings;public class DisplayTests {
+      public static boolean testing;public static boolean active(){return testing;}}''',
     # Keep these connection-state tests isolated; test_glasses_network exercises the real network adapter and guard.
     'dev/beampro/port/GlassesNetworkCompat.java': '''package dev.beampro.port;public class GlassesNetworkCompat {
       static void deliver(java.lang.reflect.Method result,Object callback,boolean success)throws Exception {result.invoke(callback,success);}}''',

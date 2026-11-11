@@ -8,7 +8,7 @@ import android.os.Bundle;
 /** Full-screen menus follow the same native navigation as authority management. */
 public final class MenuActivity extends Activity {
     public static final String PAGE = "dev.beampro.settings.MENU_PAGE";
-    public static final String ABOUT = "about", HELP = "help", SLEEP = "sleep";
+    public static final String ABOUT = "about", HELP = "help", SLEEP = "sleep", DISPLAY_TESTS = "display-tests";
     MenuPage page;
 
     /** The existing theme used by the app-menu editor before build 2937. */
@@ -37,6 +37,9 @@ public final class MenuActivity extends Activity {
         } else if (SLEEP.equals(name)) {
             setTitle("Automatic sleep");
             page = new SleepTimerPage(this);
+        } else if (DISPLAY_TESTS.equals(name)) {
+            setTitle("Display tests");
+            page = new DisplayTestsPage(this);
         } else {
             finish(); return;
         }
@@ -47,6 +50,7 @@ public final class MenuActivity extends Activity {
 
     @Override protected void onStart() { super.onStart(); if (page != null) page.onStart(); }
     @Override protected void onStop() { if (page != null) page.onStop(); super.onStop(); }
+    @Override protected void onDestroy() { if (page != null) page.onDestroy(); super.onDestroy(); }
     @Override public void onConfigurationChanged(Configuration config) {
         super.onConfigurationChanged(config);
         if (page != null) page.render();

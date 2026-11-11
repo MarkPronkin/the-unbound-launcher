@@ -217,6 +217,10 @@ public final class PhoneScreenCompat {
 
         void explain() {
             if (blocked || starting || closed || !resumed || (explanation != null && explanation.isShowing())) return;
+            if (ExperimentalOptionsCompat.skipScreenOffConfirmation(activity)) {
+                start();
+                return;
+            }
             hideTouchTarget();
             explanation = new AlertDialog.Builder(activity, android.R.style.Theme_Material_Dialog_Alert).setTitle("Turn off phone screen?")
                     .setMessage("AR Space will keep running in your glasses. The pointer and phone touches will be disabled.\n\n"

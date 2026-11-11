@@ -34,7 +34,11 @@ public final class VerifyConnectionStartupDex {
             if(cls.getType().startsWith("Ldev/beampro/port/EthernetReadinessCompat"))continue;
             for(Method m:cls.getMethods())if(m.getImplementation()!=null)for(var instruction:m.getImplementation().getInstructions())
                 if(instruction instanceof ReferenceInstruction ref&&ref.getReference() instanceof MethodReference call) {
-                    if(call.getDefiningClass().equals("Ldev/beampro/port/GlassesConnectionCompat;"))calls.merge(call.getName(),1,Integer::sum);
+                    if(call.getDefiningClass().equals("Ldev/beampro/port/GlassesConnectionCompat;")){
+                        if(call.getName().equals("displayTestsAvailable")&&(!cls.getType().equals("Ldev/beampro/port/DisplayTestCompat;")||!m.getName().equals("reserve")))
+                            throw new IllegalStateException("Unexpected display-test ownership caller");
+                        calls.merge(call.getName(),1,Integer::sum);
+                    }
                     if(call.getDefiningClass().equals("Ldev/beampro/port/PingCallbackCompat;"))pingCalls.merge(call.getName(),1,Integer::sum);
                     if(call.getDefiningClass().equals("Ldev/beampro/port/EthernetReadinessCompat;")&&call.getName().equals("ping")) {
                         if(!cls.getType().equals("Lcom/xreal/glasses/servicesdk/helper/PingGSeriesHelper$2;")||!m.getName().equals("run"))
@@ -45,7 +49,7 @@ public final class VerifyConnectionStartupDex {
         }
         Map<String,Integer> expected=Map.ofEntries(Map.entry("install",1),Map.entry("begin",1),Map.entry("prepare",1),
             Map.entry("startSdk",1),Map.entry("confirm",1),Map.entry("cancel",1),Map.entry("newIntent",1),
-            Map.entry("usbDisplayRemoved",1),Map.entry("launch",3),Map.entry("acceptSdkCallback",1),Map.entry("status",1));
+            Map.entry("usbDisplayRemoved",1),Map.entry("launch",3),Map.entry("acceptSdkCallback",1),Map.entry("status",1),Map.entry("displayTestsAvailable",1));
         if(!calls.equals(expected))throw new IllegalStateException("Incomplete production connection recovery: "+calls);
         if(!pingCalls.equals(Map.of("wrap",1,"released",1)))throw new IllegalStateException("Incomplete SDK ping cancellation guard: "+pingCalls);
         if(ethernetCalls!=1)throw new IllegalStateException("Missing SDK Ethernet readiness delegation");

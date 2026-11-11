@@ -44,6 +44,16 @@ Exit works immediately, and a late response cannot resume a cancelled session.
 Waiting at the warning does not expire the normal startup deadline. Duplicate
 USB callbacks, normal retry controls and asynchronous AR launches cannot dismiss it.
 
+Read failures and timeouts are classified as unverified, separately from a
+confirmed version mismatch. They display **Firmware check paused**, explain that
+the firmware may already be current, and offer reconnect guidance. The override
+after an unsuccessful completed read is **Continue without verification**.
+The entire warning updates if a late response proves a mismatch. Diagnostics
+record each component before its read and include completed read durations.
+The [S26 Ultra report](samsung-s26-ultra-one-pro-v025.md) confirms why a timeout
+must not be presented as old or unsupported firmware: one attempt verifies all
+recommended components while other attempts stall reading them.
+
 The override is stored only in the connection session. A new connection checks
 again. The SDK's deliberate MTP/USB reconfiguration remains part of the same
 connection and preserves the decision for that model's USB boot/app identity
