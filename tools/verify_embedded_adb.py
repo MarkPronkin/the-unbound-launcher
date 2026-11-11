@@ -45,9 +45,11 @@ from recording_duration import patch_recording_duration, verify_recording_durati
 from high_performance_apps import patch_high_performance_apps, verify_high_performance_apps
 from anchor_windows import patch_anchor_windows, verify_anchor_windows
 from recording_logo import patch_recording_logo, verify_recording_logo
+from immersive_stereo import SHADERS as IMMERSIVE_SHADERS, patch_immersive_stereo, verify_immersive_shaders, verify_immersive_stereo
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
+from photo_sound import patch_photo_sound
 from updater_manifest import INSTALLER, PROVIDER
 from debug_manifest import PROVIDER as DEBUG_PROVIDER
 from package_identity import PACKAGE, LEGACY_PACKAGE, METADATA, BINARY_ENCODINGS, patch_binary_identity, repackage_dex
@@ -159,7 +161,7 @@ def verify(apk):
                          "dev/beampro/settings/DebugArchive", "dev/beampro/settings/DebugFileProvider"]:
             assert "L" + required + ";" in definitions
         assert VERSION["version_name"].encode() in z.read(definitions["Ldev/beampro/settings/AppVersion;"])
-        assert not any(test in c for c in definitions for test in ("AdbDeviceChecks", "AdbSetupChecks", "SetupEntryActivity", "SetupApplication", "PairingCryptoChecks", "PairingNotificationChecks", "DisplayDiagnosticsChecks", "DisplayDiagnosticsDeviceChecks"))
+        assert not any(test in c for c in definitions for test in ("AdbDeviceChecks", "AdbSetupChecks", "SetupEntryActivity", "SetupApplication", "PairingCryptoChecks", "PairingNotificationChecks", "DisplayDiagnosticsChecks", "DisplayDiagnosticsDeviceChecks", "DisplayTestsChecks"))
         assert b"dev.beampro.portprobe.bridge" not in z.read("classes4.dex")
         assert "Ldev/beampro/port/DisplayStartupCompat;" in definitions
         assert "Ldev/beampro/port/PresentationOnlyCompat;" in definitions
@@ -182,6 +184,7 @@ def verify(apk):
         assert "Ldev/beampro/port/ConnectionHandoff;" in definitions
         assert "Ldev/beampro/port/PingCallbackCompat;" in definitions
         assert "Ldev/beampro/port/EthernetReadinessCompat;" in definitions
+        assert "Ldev/beampro/port/GlassesIcmpProbe;" in definitions
         assert "Ldev/beampro/port/GlassesNetworkCompat;" in definitions
         assert "Ldev/beampro/port/GlassesStartupCompat;" in definitions
         assert "Ldev/beampro/port/RogR1Compat;" in definitions
@@ -200,9 +203,19 @@ def verify(apk):
         assert "Ldev/beampro/adb/AutoGlassesReceiver;" in definitions
         assert "Ldev/beampro/settings/TermsConsent;" in definitions
         assert "Ldev/beampro/settings/ExperimentalStereo;" in definitions
+        assert "Ldev/beampro/settings/ExperimentalOptions;" in definitions
+        assert "Ldev/beampro/port/ExperimentalOptionsCompat;" in definitions
+        assert "Ldev/beampro/settings/ExperimentalOptionsChecks;" not in definitions
+        for cls in ("DisplayTests", "DisplayTestsPage", "DisplayTestRun", "DisplayTestJournal", "DisplayTestPattern", "DisplayTestScreens"):
+            assert "Ldev/beampro/settings/" + cls + ";" in definitions
+        assert "Ldev/beampro/port/DisplayTestCompat;" in definitions
+        display_test_control = z.read(definitions["Ldev/beampro/port/DisplayTestCompat;"])
+        assert b"startBackgroundSdk" in display_test_control and b"set2D3D" in display_test_control
         assert b"force-3d-sbs" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
         assert b"force-2d-60" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
         assert b"Use 60 Hz in 2D" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
+        assert b"Disable XREAL Eye shutter sound" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
+        assert b"Skip screen-off confirmation" in z.read(definitions["Ldev/beampro/settings/SettingsUi$State;"])
         for cls in ('AppUpdater', 'UpdateClient', 'ReleaseVersion', 'UpdateInstallActivity', 'UpdateFileProvider'):
             assert 'Ldev/beampro/settings/' + cls + ';' in definitions
         assert 'Ldev/beampro/settings/AppUpdateChecks;' not in definitions
@@ -232,6 +245,8 @@ def verify(apk):
             ota_base=patch_skip_ota(connection_base,Path(work)/"ota-base",java)
             stereo_base=patch_stereo_dex(ota_base,Path(work)/"stereo-base",java)
             home_base=patch_home_button(stereo_base,Path(work)/"home-base",java)
+            input_base=patch_input_compat(home_base,Path(work)/"input-base",java)
+            legacy_main=patch_photo_sound(legacy_main,Path(work)/"photo-sound",java,restore=True,baseline=input_base)
             legacy_main=patch_input_compat(legacy_main,Path(work)/"keyboard-input",java,restore=True,baseline=home_base)
             home=patch_home_button(legacy_main,Path(work)/"home-button",java,restore=True,baseline=stereo_base)
             stereo=patch_stereo_dex(home,Path(work)/"stereo",java,restore=True,baseline=ota_base)
@@ -270,6 +285,8 @@ def verify(apk):
             restored = patch_icon_resolution(restored,Path(work)/"icons",java,restore=True,baseline=base.read("classes2.dex"))
             assert restored == base.read("classes2.dex"), "Headset icon hook scope differs from the baseline"
             routed = patch_binary_identity(LIBRARY, z.read(LIBRARY), restore=True)
+            immersive_report = verify_immersive_stereo(routed)
+            routed = patch_immersive_stereo(routed, restore=True)
             recording_logo_report = verify_recording_logo(routed)
             routed = patch_recording_logo(routed, restore=True)
             anchor_report = verify_anchor_windows(routed)
@@ -329,6 +346,7 @@ def verify(apk):
             startup_archive = z.read(definitions["Ldev/beampro/settings/DebugArchive;"])
             assert b"glasses-startup.txt" in startup_archive and b"glasses-control.txt" in startup_archive
             assert b"display-startup.txt" in startup_archive
+            assert b"display-tests.txt" in startup_archive and b"display-test-captures.txt" in startup_archive
             assert b"captureStartup" in diagnostics and b"display_change" in diagnostics
             assert b"Connected display startup" in server and b"preceding 120 seconds" in server
             assert b"captureControl" in diagnostics and b"connectionEvent" in diagnostics
@@ -378,6 +396,8 @@ def verify(apk):
                          "port-client/src/dev/beampro/port/ConnectionAnimation.java",
                          "port-client/src/dev/beampro/port/GlassesConnectionCompat.java",
                          "port-client/src/dev/beampro/port/GlassesNetworkCompat.java",
+                         "port-client/src/dev/beampro/port/EthernetReadinessCompat.java",
+                         "port-client/src/dev/beampro/port/GlassesIcmpProbe.java",
                          "port-client/src/dev/beampro/port/PingCallbackCompat.java",
                          "port-client/src/dev/beampro/port/FirmwarePolicy.java",
                          "port-client/src/dev/beampro/port/FirmwareWarningView.java",
@@ -389,8 +409,19 @@ def verify(apk):
                          "settings-ui/src/dev/beampro/settings/DebugData.java",
                          "settings-ui/src/dev/beampro/settings/DebugArchive.java",
                          "settings-ui/src/dev/beampro/settings/DebugDisplay.java",
+                         "settings-ui/src/dev/beampro/settings/ExperimentalOptions.java",
+                         "port-client/src/dev/beampro/port/ExperimentalOptionsCompat.java",
                          "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java",
                          "settings-ui/src/dev/beampro/settings/DisplayTransitions.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayTests.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayTestsPage.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayTestRun.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayTestJournal.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayTestPattern.java",
+                         "settings-ui/src/dev/beampro/settings/DisplayTestScreens.java",
+                         "settings-ui/src/dev/beampro/settings/MenuActivity.java",
+                         "settings-ui/src/dev/beampro/settings/MenuPage.java",
+                         "port-client/src/dev/beampro/port/DisplayTestCompat.java",
                          "settings-ui/src/dev/beampro/settings/StartupTrace.java",
                          "settings-ui/src/dev/beampro/settings/HelpPage.java",
                          "bridge/src/dev/beampro/bridge/DisplayDumpPipe.java",
@@ -418,6 +449,8 @@ def verify(apk):
                          "glasses_startup.py", "PatchGlassesStartupDex.java", "ethernet_ping.py", "PatchEthernetPingDex.java",
                          "notifications.py", "PatchNotificationsDex.java",
                          "display_mode_compat.py", "overlay_routing.py", "recording_duration.py", "recording_logo.py", "high_performance_apps.py", "anchor_windows.py", "app_surface_routing.py",
+                         "photo_sound.py", "PatchPhotoSoundDex.java",
+                         "immersive_stereo.py", "immersive_stereo.S", "immersive_stereo_native.json",
                          "app_surface_routing.S", "app_surface_routing_native.json", "unity_shader_loader.py", "hardware_buffer_texture.py", "phone_pointer.py", "renderer_diagnostics.py",
                          "controller_mode.py", "PatchControllerModeDex.java", "home_button.py", "PatchHomeButtonDex.java",
                          "input_compat.py", "PatchInputCompatDex.java", "brightness_lock.py", "PatchBrightnessLockDex.java"):
@@ -430,8 +463,9 @@ def verify(apk):
         color_report=verify_app_shader(z,base)
         color_report.update(verify_direct_oes_shaders(z,base))
         color_report.update(verify_native_shader_loading(z))
+        immersive_shader_report = verify_immersive_shaders(z, base)
         assert color_report['automatic_decode_selection'] and color_report['direct_oes_software_uniform']
-        expected={"classes.dex", "classes2.dex", "classes3.dex", "classes4.dex", "classes5.dex", "AndroidManifest.xml", "resources.arsc", METADATA, APP_SHADER,*OES_SHADERS,LIBRARY,MODE_LIBRARY,TEXTURE_LIBRARY}
+        expected={"classes.dex", "classes2.dex", "classes3.dex", "classes4.dex", "classes5.dex", "AndroidManifest.xml", "resources.arsc", METADATA, APP_SHADER,*OES_SHADERS,*IMMERSIVE_SHADERS,LIBRARY,MODE_LIBRARY,TEXTURE_LIBRARY}
         assert set(changed) == expected, changed
         texture = z.read(TEXTURE_LIBRARY)
         assert texture != base.read(TEXTURE_LIBRARY) and SAMPLING_MARK in texture
@@ -467,6 +501,8 @@ def verify(apk):
             "app_surface_routing": surface_report,
             "recording_duration": recording_report,
             "recording_logo": recording_logo_report,
+            "immersive_stereo": immersive_report,
+            "immersive_stereo_shaders": immersive_shader_report,
             "high_performance_apps": high_performance_report,
             "anchor_windows": anchor_report,
             "automatic_first_use_tutorial_disabled_with_exact_native_scope": True,

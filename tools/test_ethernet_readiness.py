@@ -21,6 +21,11 @@ class EthernetReadinessTests(unittest.TestCase):
             # Network selection itself is exercised with the real ping guard in test_glasses_network.
             'dev/beampro/port/GlassesNetworkCompat.java': '''package dev.beampro.port;public class GlassesNetworkCompat {
                 static void deliver(java.lang.reflect.Method result,Object callback,boolean success)throws Exception {result.invoke(callback,success);}}''',
+            'dev/beampro/port/GlassesIcmpProbe.java': '''package dev.beampro.port;final class GlassesIcmpProbe {
+                static int calls;static Runnable before;static boolean ready=true;
+                static EthernetReadinessCompat.Reply ping(android.content.Context context) {
+                    calls++;if(before!=null)before.run();
+                    return new EthernetReadinessCompat.Reply(ready?0:1,!ready,"network ICMP fixture");}}''',
             'android/os/Handler.java': '''package android.os;public class Handler {
                 final java.util.Queue<Runnable> jobs=new java.util.concurrent.ConcurrentLinkedQueue<>();
                 public boolean post(Runnable r){jobs.add(r);return true;}public void removeCallbacks(Runnable r){jobs.removeIf(j->j==r);}

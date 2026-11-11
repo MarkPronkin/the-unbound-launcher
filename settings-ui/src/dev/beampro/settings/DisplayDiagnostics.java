@@ -111,6 +111,10 @@ public final class DisplayDiagnostics {
                     "/system/bin/dumpsys", "-t", "3", "SurfaceFlinger");
             probe(out, runner, "USB port state (separate from USB descriptors)", false, 4000,
                     "/system/bin/sh", "-c", USB_PORTS);
+            probe(out, runner, "Desktop and mirroring settings (read-only)", false, 2000,
+                    "/system/bin/sh", "-c", "for key in force_desktop_mode_on_external_displays enable_freeform_support; do "
+                            +"printf '%s=' \"$key\"; /system/bin/timeout -s KILL 1 /system/bin/settings get global \"$key\"; done; "
+                            +"printf 'mirror_built_in_display='; /system/bin/timeout -s KILL 1 /system/bin/settings get secure mirror_built_in_display");
             systemLogs(out, runner, 64_000);
             probe(out, runner, "Kernel display/link logs, when Android exposes the kernel buffer", true, 2000,
                     "/system/bin/logcat", "-d", "-b", "kernel", "-v", "threadtime", "-t", "2000");

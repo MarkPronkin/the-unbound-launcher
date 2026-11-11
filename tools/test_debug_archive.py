@@ -160,9 +160,32 @@ public class DebugArchiveChecks {
    check(retained.contains("startup-display-0")&&retained.contains("startup-display-5"),"disconnected export never replaces connected startup mode evidence");
   }
   check(archive.bytes()==12_000_000,"startup dump reservation reduces exported app logs without shrinking the collection ring");
+  DisplayTestJournal tests=new DisplayTestJournal(root);tests.begin("manual-one","SBS test");
+  for(int i=0;i<100;i++)tests.note("manual-one","entry "+i+" "+new String(new char[1200]).replace('\0','\u20ac'));
+  tests.note("manual-one","COMMAND Ethernet EDID 5 returned true; DISPLAY 640x480; WEARER_FEEDBACK broken or missing");
+  tests.capture("manual-one","before","2D BASELINE\n"+display+surface);
+  tests.capture("manual-one","stereo","SBS VGA FALLBACK\n"+surface+display);
+  tests.capture("manual-one","restored","RECOVERED 2D\n"+display+surface);
+  file=archive.export(display.substring(0,64_000),display,surface,geometry,display.substring(0,48_000));
+  check(file.length()<=15_000_000,"all three full manual-test dumps plus every existing diagnostic fit the hard ZIP cap");
+  try(ZipFile zip=new ZipFile(file)){
+   String history=new String(zip.getInputStream(zip.getEntry("display-tests.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(history.contains("Ethernet EDID 5")&&history.contains("640x480")&&history.contains("WEARER_FEEDBACK"),"requested mode, physical result and wearer feedback remain distinct in the ZIP");
+   check(history.getBytes(java.nio.charset.StandardCharsets.UTF_8).length<=DisplayTestJournal.MAX_REPORT_BYTES&&!history.contains("\ufffd"),"test history rotates at a UTF-8 byte budget");
+   String captures=new String(zip.getInputStream(zip.getEntry("display-test-captures.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(captures.indexOf("2D BASELINE")<captures.indexOf("SBS VGA FALLBACK")&&captures.indexOf("SBS VGA FALLBACK")<captures.indexOf("RECOVERED 2D"),"before, stereo and recovery dumps are exported in test order");
+   check(captures.getBytes(java.nio.charset.StandardCharsets.UTF_8).length<=3*(DisplayDiagnostics.MAX_STARTUP_BYTES+128),"manual-test snapshots obey a separate total byte budget");
+  }
+  tests.begin("manual-two","new test");tests.capture("manual-one","stereo","STALE OLD RUN");
+  check(!tests.captureFile("stereo").exists(),"late captures cannot overwrite a newer run's evidence");
+  tests.capture("manual-two","before","CURRENT BASELINE");
+  tests=new DisplayTestJournal(root);
+  check(tests.hasData()&&new String(tests.report(),java.nio.charset.StandardCharsets.UTF_8).contains("WEARER_FEEDBACK"),"test results survive app restart and later tests");
+  try{tests.capture("manual-two","../unexpected","bad");throw new AssertionError("accepted stage path");}catch(IllegalArgumentException expectedError){}
   archive.startupBegin(true);
   try(ZipFile zip=new ZipFile(archive.export("new collection"))){
    check(zip.getEntry("display-startup.txt")==null,"an explicit new collection resets previous connected startup captures");
+   check(zip.getEntry("display-tests.txt")!=null,"restarting app log collection does not erase explicitly requested display test results");
   }
   file=archive.export("oversized dump",display+display,"Helper unavailable: restart updated helper");
   try(ZipFile zip=new ZipFile(file)){
@@ -188,7 +211,7 @@ public class DebugArchiveChecks {
             test.write_text(source)
             subprocess.run([str(JAVA / 'bin/javac'), '-d', tmp,
                 *[str(ROOT / 'settings-ui/src/dev/beampro/settings' / name) for name in
-                  ('DebugArchive.java', 'StartupTrace.java', 'DisplayDiagnostics.java', 'NetworkDiagnostics.java', 'ControlTrace.java', 'RendererTrace.java')], str(test)], check=True)
+                  ('DebugArchive.java', 'StartupTrace.java', 'DisplayDiagnostics.java', 'DisplayTestJournal.java', 'NetworkDiagnostics.java', 'ControlTrace.java', 'RendererTrace.java')], str(test)], check=True)
             result = subprocess.run([str(JAVA / 'bin/java'), '-cp', tmp,
                 'dev.beampro.settings.DebugArchiveChecks', str(work / 'data')], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

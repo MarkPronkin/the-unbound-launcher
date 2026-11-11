@@ -65,7 +65,37 @@ public final class EthernetReadinessTest {
         unblock.countDown();check(timeoutDrained.await(2,TimeUnit.SECONDS),"Timed-out request drains");Thread.sleep(100);
 
         s=new Setup();s.remote.output=new String(new char[2049]);check(!s.ping(),"Reject oversized helper responses");s.close();
+        s=new Setup();s.remote.output=null;check(!s.ping(),"Reject missing helper output");s.close();
         s=new Setup();check(s.ping(),"A new request succeeds after cancellation drains");s.close();
+        int beforeEcho=GlassesIcmpProbe.calls;
+        GlassesIcmpProbe.ready=false;
+        s=new Setup();s.remote.exit=2;s.remote.output="ping: SO_BINDTODEVICE: Operation not permitted\n";
+        check(s.ping()&&GlassesIcmpProbe.calls==beforeEcho,"Samsung shell binding EPERM allows startup without requiring ICMP");s.close();
+        s=new Setup();s.remote.exit=2;s.remote.output="Ethernet is enabled\nping: SO_BINDTODEVICE: Operation not permitted\n";
+        check(s.ping()&&GlassesIcmpProbe.calls==beforeEcho,"Recovery notes preserve recognition of the exact Samsung denial");s.close();
+        GlassesIcmpProbe.ready=true;
+        s=new Setup();s.remote.exit=2;s.remote.output="Ethernet is enabled\nping: SO_BINDTODEVICE: Permission denied\n";
+        check(s.ping()&&GlassesIcmpProbe.calls==beforeEcho+1,"Other interface binding denials retain the existing network echo fallback");s.close();
+        GlassesIcmpProbe.ready=false;
+        s=new Setup();s.remote.exit=2;s.remote.output="ping: SO_BINDTODEVICE: Permission denied";
+        check(!s.ping(),"Other binding denials still require a successful network echo");s.close();GlassesIcmpProbe.ready=true;
+        s=new Setup();s.remote.exit=2;s.remote.output="ping: SO_BINDTODEVICE: Permission denied";
+        final Setup echoDetached=s;GlassesIcmpProbe.before=()->echoDetached.context.usb.devices.clear();
+        check(!s.ping(),"A matching echo is discarded after USB detach");s.close();GlassesIcmpProbe.before=null;
+        beforeEcho=GlassesIcmpProbe.calls;
+        s=new Setup();s.remote.exit=2;s.remote.output="ping: SO_BINDTODEVICE: Operation not permitted";
+        final Setup deniedDetached=s;s.remote.before=()->deniedDetached.context.usb.devices.clear();
+        check(!s.ping(),"Samsung denial cannot bypass USB attachment validation");s.close();
+        s=new Setup();s.remote.exit=2;s.remote.output="ping: SO_BINDTODEVICE: Operation not permitted";
+        final Setup deniedCancelled=s;s.remote.before=()->PingCallbackCompat.released(deniedCancelled.helper);
+        check(!s.ping(),"Samsung denial cannot revive cancelled startup");s.close();
+        s=new Setup();s.remote.exit=1;s.remote.output="100% packet loss";check(!s.ping(),"Packet loss remains failure");s.close();
+        s=new Setup();s.remote.exit=2;s.remote.output="Network is unreachable";check(!s.ping(),"An absent route remains failure");s.close();
+        s=new Setup();s.remote.exit=2;s.remote.output="Operation not permitted";check(!s.ping(),"Unrelated denials remain failure");s.close();
+        s=new Setup();s.remote.exit=2;s.remote.timeout=true;s.remote.output="SO_BINDTODEVICE: Operation not permitted";
+        check(!s.ping(),"Timed-out shell work cannot start extra probing");s.close();
+        s=new Setup();check(s.ping(),"Working helper ping keeps its original path");s.close();
+        check(GlassesIcmpProbe.calls==beforeEcho,"Success, Samsung EPERM, cancellation and ordinary failures do not start network echo");
         for(int product:new int[]{0x1d9c,0x1d9d}) {
             s=new Setup();s.context.usb.devices.put("glasses",new UsbDevice("glasses",0x0b05,product,12));
             check(s.ping(),"R1 USB configurations use the existing Ethernet readiness probe");s.close();

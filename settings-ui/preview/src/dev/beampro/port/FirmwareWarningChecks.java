@@ -31,19 +31,28 @@ public final class FirmwareWarningChecks extends Instrumentation {
                 require(find(a.firmware,"Exit").getGlobalVisibleRect(visible)&&visible.height()>=32,"Exit is visible without scrolling");
                 FirmwarePolicy.Result pending=FirmwarePolicy.unavailable(6,"The firmware read is still finishing.");
                 a.firmware.update(pending,true);
+                require(find(a.firmware,"Firmware check\npaused.")!=null&&find(a.firmware,"Unsupported\nfirmware.")==null,"Timeout never claims incompatible firmware");
+                require(find(a.firmware,"This does not mean your firmware is outdated.")!=null,"Unverified firmware does not prompt a downgrade");
+                require(find(a.firmware,"Unbound Launcher will not work with this firmware.")==null,"No incompatibility claim without a version mismatch");
                 require(!find(a.firmware,"Finishing firmware check…").isEnabled(),"A pending native read cannot overlap SDK initialization");
+                FirmwarePolicy.Result mismatch=FirmwarePolicy.check(6,c->"older-release");
+                a.firmware.update(mismatch,false);
+                require(find(a.firmware,"Unsupported\nfirmware.")!=null&&find(a.firmware,"I know it won’t work; continue regardless").isEnabled(),
+                        "A late mismatching version changes the complete warning");
                 a.firmware.update(pending,false);
+                require(find(a.firmware,"Continue without verification").isEnabled(),"A completed failed read offers an accurate override");
                 scroll(a.firmware).fullScroll(View.FOCUS_DOWN);
             });
             waitForIdleSync();
             runOnMainSync(()->{
                 Rect rect=new Rect();
-                TextView proceed=find(a.firmware,"I know it won’t work; continue regardless");
+                TextView proceed=find(a.firmware,"Continue without verification");
                 require(proceed.getGlobalVisibleRect(rect)&&rect.height()>=32,"Override remains reachable by scrolling");
                 require(find(a.firmware,"Exit").getGlobalVisibleRect(rect)&&rect.height()>=32,"Exit remains reachable by scrolling");
                 proceed.performClick();require(a.overrides==1&&a.animation!=null,"Override invokes continuation once");
                 int[] exits={0},overrides={0};
                 FirmwareWarningView v=new FirmwareWarningView(a,pendingResult(),()->exits[0]++,()->overrides[0]++);
+                require(find(v,"Firmware check\npaused.")!=null,"An initially unreadable result uses the unverified warning");
                 v.show(a);find(v,"Exit").performClick();
                 require(exits[0]==1&&overrides[0]==0,"Exit never invokes the override");
                 a.finish();

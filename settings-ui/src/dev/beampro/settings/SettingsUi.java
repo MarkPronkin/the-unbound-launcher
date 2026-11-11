@@ -183,6 +183,7 @@ public final class SettingsUi {
         boolean syncingDetection;
         SignatureSwitch stereoToggle, mono60Toggle;
         boolean syncingStereo;
+        final List<Runnable> experimentalOptions = new ArrayList<>();
         Button launch;
         ImageView glasses;
         FrameLayout hero;
@@ -247,7 +248,7 @@ public final class SettingsUi {
             landscape = expanded && AdaptiveLayout.landscape(activity, width, height);
             shortLandscape = landscape && AdaptiveLayout.shortLandscape(activity, width, height);
             launchBody = null;
-            bindings.clear(); sections.clear();
+            bindings.clear(); sections.clear(); experimentalOptions.clear();
             page.removeAllViews();
             page.setBackgroundColor(BACKGROUND);
             page.setContentDescription(permissions ? "Permissions" : "Settings");
@@ -319,6 +320,11 @@ public final class SettingsUi {
                 appearance(app);
                 appDetection(experimental);
                 experimentalStereo(experimental);
+                experimentalOption(experimental, "camera", "Disable XREAL Eye shutter sound",
+                        "Take photos without the shutter sound. Other app sounds keep playing.", ExperimentalOptions.QUIET_PHOTOS);
+                experimentalOption(experimental, "sleep", "Skip screen-off confirmation",
+                        "Turn off the phone screen immediately. Press either volume button to restore it. Your phone remains unlocked.",
+                        ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION);
                 about(support);
                 help(support);
                 for (int i = 0; i < originalRows.getChildCount(); i++) {
@@ -554,6 +560,38 @@ public final class SettingsUi {
             section.card.addView(mono);
         }
 
+        void experimentalOption(Section section, String icon, String title, String description, String key) {
+            Row row = new Row(activity, icon, title, description);
+            row.setTag("experimental-" + key);
+            SignatureSwitch toggle = new SignatureSwitch(activity);
+            toggle.setTag(key);
+            toggle.setContentDescription(title + ". " + description);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(52), dp(48));
+            params.setMarginStart(dp(12)); row.addView(toggle, params);
+            boolean[] updating = {false};
+            Runnable syncOption = () -> {
+                updating[0] = true;
+                try { toggle.setChecked(ExperimentalOptions.enabled(activity, key)); }
+                finally { updating[0] = false; }
+            };
+            experimentalOptions.add(syncOption);
+            syncOption.run();
+            toggle.setOnCheckedChangeListener((button, enabled) -> {
+                if (updating[0]) return;
+                try { ExperimentalOptions.save(activity, key, enabled); }
+                catch (Exception failure) {
+                    Log.w(TAG, "Cannot save experimental option " + key, failure);
+                    syncOption.run();
+                    Toast.makeText(activity, "Could not save the setting.", Toast.LENGTH_LONG).show();
+                }
+            });
+            row.onClick(v -> toggle.toggle());
+            row.title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            section.card.addView(row);
+        }
+
         void syncDisplayOverrides() {
             syncingStereo = true;
             try {
@@ -578,6 +616,7 @@ public final class SettingsUi {
             try {
                 for (Binding binding : bindings) binding.sync();
                 for (Section section : sections) section.sync();
+                for (Runnable syncOption : experimentalOptions) syncOption.run();
                 if (!permissions) {
                     boolean connected = visible(originalInfo);
                     SleepTimer timer = SleepTimer.get(activity);

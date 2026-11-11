@@ -31,10 +31,17 @@ public final class GlassesConnectionCompatTest {
         Context.app=new Application();Context.displays=new DisplayManager();Context.manager=new ActivityManager();Context.usb=new UsbManager();
         Context.usb.devices.put("glasses",new UsbDevice(13080));XREALManager.instance=new XREALManager();
         dev.beampro.settings.DebugData.events.clear();dev.beampro.settings.DebugData.fail=false;
+        dev.beampro.settings.DisplayTests.testing=false;
         return new Presenter();
     }
     static void close(Presenter p){GlassesConnectionCompat.cancel(p.mActivity);Handler.advance(0);}
     public static void main(String[] args)throws Exception {
+        Presenter diagnostic=fixture();dev.beampro.settings.DisplayTests.testing=true;
+        check(GlassesConnectionCompat.sessionActive(),"An open display test suppresses automatic USB AR entry");
+        GlassesConnectionCompat.begin(diagnostic);Handler.advance(0);GlassesConnectionCompat.launch(XREALManager.instance);
+        check(diagnostic.mActivity.finishing&&XREALManager.instance.starts==0&&XREALManager.instance.launches==0,"Manual and already-queued SDK entry cannot race the display experiment");
+        dev.beampro.settings.DisplayTests.testing=false;
+        check(GlassesConnectionCompat.displayTestsAvailable(),"An idle connection can be reserved for a display experiment");
         Presenter mirror=fixture();XREALManager mirrorManager=XREALManager.instance;
         ai.nreal.nebula.util.helper.DbHelpUtil.mirroring=true;
         check(GlassesConnectionCompat.startInScreenMirroring(mirror.mActivity),"Read the original persisted mirroring choice");
@@ -69,12 +76,33 @@ public final class GlassesConnectionCompatTest {
         unreadableManager.mOtaManager.onRead=()->{
             Handler.advance(15000);
             check(FirmwareWarningView.last!=null&&FirmwareWarningView.last.checking,"A stalled read shows the warning without starting the SDK");
+            check(FirmwareWarningView.last.result.status==FirmwarePolicy.Status.UNVERIFIED
+                    &&FirmwareWarningView.last.result.detail.contains("Software"),"A stalled Software read is unverified and identifies its component");
             FirmwareWarningView.last.proceed.run();
             check(XREALManager.instance.starts==0,"Override cannot overlap an in-flight native firmware read");
         };
         unreadableManager.mOtaManager.software="2.0.0.20260901182643";
         GlassesConnectionCompat.begin(unreadable);Handler.advance(0);Handler.advance(15000);
         check(!FirmwareWarningView.last.checking&&unreadableManager.starts==0,"Read completion enables the explicit override after a timeout");close(unreadable);
+        Presenter slow=fixture();XREALManager slowManager=XREALManager.instance;
+        slowManager.mGlassesType=6;
+        slowManager.mOtaManager.onRead=()->Handler.advance(21000);
+        GlassesConnectionCompat.begin(slow);Handler.advance(0);Handler.advance(21000);
+        check(slowManager.starts==1&&slow.success==1,"A slow matching read resumes startup once after the timeout screen");
+        check(dev.beampro.settings.DebugData.events.stream().anyMatch(e->e[1].equals("firmware_component_read")&&e[2].contains("component=Software")),
+                "Record the in-flight firmware component before it can stall");
+        check(dev.beampro.settings.DebugData.events.stream().anyMatch(e->e[1].equals("firmware_component")&&e[2].contains("readMs=21000")),
+                "Record firmware read duration for slow USB responses");close(slow);
+        slow=fixture();slowManager=XREALManager.instance;
+        final XREALManager slowMcuManager=slowManager;
+        slowManager.mOtaManager.onRead=()->slowMcuManager.mOtaManager.onRead=()->{
+            Handler.advance(21000);
+            check(FirmwareWarningView.last.result.status==FirmwarePolicy.Status.UNVERIFIED
+                    &&FirmwareWarningView.last.result.detail.contains("MCU"),"A matching Software version does not verify a stalled MCU read");
+            check(slowMcuManager.starts==0,"Partial firmware verification cannot start the SDK");
+        };
+        GlassesConnectionCompat.begin(slow);Handler.advance(0);Handler.advance(21000);
+        check(slowManager.starts==1&&slow.success==1,"A late matching MCU response completes verification before startup");close(slow);
         unreadable=fixture();unreadableManager=XREALManager.instance;
         final Presenter cancelledRead=unreadable;
         unreadableManager.mOtaManager.onRead=()->GlassesConnectionCompat.cancel(cancelledRead.mActivity);

@@ -24,7 +24,17 @@ public final class EthernetReadinessCompat {
     static final class Reply {
         final int exit; final boolean timedOut; final String output;
         Reply(int exit, boolean timedOut, String output) { this.exit=exit; this.timedOut=timedOut; this.output=output; }
-        boolean ready() { return exit==0 && !timedOut; }
+        boolean ready() {
+            if (exit==0 && !timedOut) return true;
+            // Samsung One UI 8.0 (Android 16) denies shell ping's eth0 bind before
+            // any probe is sent. That failure says nothing about the glasses link;
+            // GlassesNetworkCompat still validates the control network before native startup.
+            return !timedOut && output!=null && output.contains("SO_BINDTODEVICE: Operation not permitted");
+        }
+        boolean interfaceBindingDenied() {
+            return exit!=0 && !timedOut && output.contains("SO_BINDTODEVICE")
+                    && (output.contains("Operation not permitted") || output.contains("Permission denied"));
+        }
     }
     private static final ThreadPoolExecutor remote = new ThreadPoolExecutor(1,1,0,TimeUnit.MILLISECONDS,
             new SynchronousQueue<Runnable>(), job -> {
@@ -48,7 +58,7 @@ public final class EthernetReadinessCompat {
                 try {
                     Reply reply=call.get(Math.min(100,remaining),TimeUnit.MILLISECONDS);
                     boolean ready=reply.ready() && probe.attached() && PingCallbackCompat.active(helper,ticket);
-                    Log.i(TAG,"Glasses readiness via shell helper: exit="+reply.exit+"; timedOut="+reply.timedOut
+                    Log.i(TAG,"Glasses readiness: exit="+reply.exit+"; timedOut="+reply.timedOut
                             +"; ready="+ready+"\n"+reply.output);
                     return ready;
                 } catch (TimeoutException stillRunning) { /* Check cancellation before waiting again. */ }
@@ -97,7 +107,12 @@ public final class EthernetReadinessCompat {
                 reply.readException();
                 int exit=reply.readInt();boolean timeout=reply.readInt()!=0;String output=reply.readString();
                 if(output==null || output.length()>2048) throw new IOException("Invalid glasses readiness reply");
-                return new Reply(exit,timeout,output);
+                Reply result=new Reply(exit,timeout,output);
+                if (!result.ready() && result.interfaceBindingDenied() && attached() && !Thread.currentThread().isInterrupted()) {
+                    Log.i(TAG,"Shell interface binding denied; checking ICMP on the Android glasses network");
+                    return GlassesIcmpProbe.ping(context);
+                }
+                return result;
             } finally {data.recycle();reply.recycle();}
         }
     }

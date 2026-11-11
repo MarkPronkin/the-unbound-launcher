@@ -11,14 +11,14 @@ public final class FirmwarePolicyTest {
                 require(c==p.components[reads[0]],"Read components in the declared order");
                 return p.versions[reads[0]++];
             });
-            require(r.supported&&reads[0]==p.versions.length,"All recommended components match for model "+type);
+            require(r.supported&&r.status==FirmwarePolicy.Status.SUPPORTED&&reads[0]==p.versions.length,"All recommended components match for model "+type);
             for(int mismatch=0;mismatch<p.components.length;mismatch++) {
                 final int failed=mismatch;
                 r=FirmwarePolicy.check(type,c->{
                     for(int i=0;i<p.components.length;i++)if(c==p.components[i])return i==failed?p.versions[i]+"-beta":p.versions[i];
                     throw new AssertionError("Unexpected component");
                 });
-                require(!r.supported,"Reject a beta suffix on every component of model "+type);
+                require(!r.supported&&r.status==FirmwarePolicy.Status.MISMATCH,"Reject a beta suffix on every component of model "+type);
             }
         }
         for(String bad:new String[]{"1.8.0.20260914175625","2.0.0.20260901182643","1.9.2.20260914175625",
@@ -29,8 +29,11 @@ public final class FirmwarePolicyTest {
         require(!FirmwarePolicy.matches("15.1.03.603_20260915","15.1.03.603_20260914"),"A different date is not silently ignored");
         require(!FirmwarePolicy.matches("15.1.03.603-beta","15.1.03.603_20260914"),"Do not erase prerelease suffixes");
         require(!FirmwarePolicy.check(7,c->{throw new java.io.IOException("unplugged");}).supported,"Read errors fail closed");
+        require(FirmwarePolicy.check(6,c->null).status==FirmwarePolicy.Status.UNVERIFIED,"Missing firmware is unverified, not incompatible");
+        require(FirmwarePolicy.check(6,c->" \u0000 ").status==FirmwarePolicy.Status.UNVERIFIED,"Empty padded firmware is unverified");
+        require(FirmwarePolicy.unavailable(6,"Read timed out").status==FirmwarePolicy.Status.UNVERIFIED,"Timeout is unverified, not incompatible");
         FirmwarePolicy.Result partial=FirmwarePolicy.check(7,c->{if(c==6)return "1.9.1.20260914175625";throw new java.io.IOException("MCU unavailable");});
-        require(partial.detected.equals("Not readable")&&partial.detail.contains("MCU"),"A later component read failure is not displayed as a matching software version");
+        require(partial.status==FirmwarePolicy.Status.UNVERIFIED&&partial.detected.equals("Not readable")&&partial.detail.contains("MCU"),"A later component read failure is not displayed as a matching software version");
         for(int type:new int[]{-1,0,1,8})require(!FirmwarePolicy.check(type,c->{throw new AssertionError("No blind commands for an unknown model");}).supported,"Unknown model has no automatic approval");
         FirmwarePolicy.Profile rog=FirmwarePolicy.profile(1003);
         require(rog.model.equals("ROG XREAL R1")&&rog.versions[0].equals("MCM103"),"R1 has its own ASUS glasses release, separate from the dock");

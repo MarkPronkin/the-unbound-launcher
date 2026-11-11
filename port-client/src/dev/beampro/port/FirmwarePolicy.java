@@ -11,14 +11,17 @@ public final class FirmwarePolicy {
 
     public interface Reader { String read(int component) throws Exception; }
 
+    public enum Status { SUPPORTED, MISMATCH, UNVERIFIED }
+
     public static final class Result {
         public final boolean supported;
+        public final Status status;
         public final String model, detected, recommended, detail, updater;
-        Result(boolean supported, String model, String detected, String recommended, String detail) {
-            this(supported,model,detected,recommended,detail,UPDATER);
+        Result(Status status, String model, String detected, String recommended, String detail) {
+            this(status,model,detected,recommended,detail,UPDATER);
         }
-        Result(boolean supported, String model, String detected, String recommended, String detail, String updater) {
-            this.supported=supported;this.model=model;this.detected=detected;
+        Result(Status status, String model, String detected, String recommended, String detail, String updater) {
+            this.status=status;this.supported=status==Status.SUPPORTED;this.model=model;this.detected=detected;
             this.recommended=recommended;this.detail=detail;this.updater=updater;
         }
     }
@@ -79,22 +82,22 @@ public final class FirmwarePolicy {
             String actual;
             try { actual=clean(reader.read(component)); }
             catch(Exception error) {
-                return new Result(false,p.model,"Not readable",p.versions[i]+" · stable",
+                return new Result(Status.UNVERIFIED,p.model,"Not readable",p.versions[i]+" · stable",
                         "Could not read the glasses’ "+label(component)+" firmware. Compatibility could not be verified.",p.updater);
             }
             if(i==0) primary=actual.isEmpty()?"Not readable":actual;
-            if(!matches(actual,p.versions[i])) return new Result(false,p.model,
+            if(!matches(actual,p.versions[i])) return new Result(actual.isEmpty()?Status.UNVERIFIED:Status.MISMATCH,p.model,
                     actual.isEmpty()?"Not readable":actual, p.versions[i]+" · stable",
                     label(component)+" firmware "+(actual.isEmpty()?"could not be read.":"does not match the recommended stable release.")
-                    +" Only the exact recommended release is supported.",p.updater);
+                    +(actual.isEmpty()?" Compatibility could not be verified.":" Only the exact recommended release is supported."),p.updater);
         }
-        return new Result(true,p.model,primary,p.versions[0]+" · stable","Firmware matches the recommended stable release.",p.updater);
+        return new Result(Status.SUPPORTED,p.model,primary,p.versions[0]+" · stable","Firmware matches the recommended stable release.",p.updater);
     }
 
     public static Result unavailable(int type, String detail) {
         Profile p=profile(type);
         String model=p==null?(type==1003?"ROG XREAL R1":"XREAL glasses"):p.model;
-        return new Result(false,model,"Not verified",p==null?"No verified release":p.versions[0]+" · stable",detail,p==null?UPDATER:p.updater);
+        return new Result(Status.UNVERIFIED,model,"Not verified",p==null?"No verified release":p.versions[0]+" · stable",detail,p==null?UPDATER:p.updater);
     }
 
     static String label(int component) {

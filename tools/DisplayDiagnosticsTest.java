@@ -103,7 +103,9 @@ public final class DisplayDiagnosticsTest {
             if(command[0].endsWith("dmesg"))return "exit=1; timedOut=false\ndmesg: Permission denied\n";
             return "exit=0; timedOut=false\n[drm] EDID timing rejected\n";
         });
-        check(commands.size()==8&&commands.get(0)[3].equals("display")&&commands.get(1)[3].equals("SurfaceFlinger"),"capture connected framework and hardware modes before slow link sources");
+        check(commands.size()==9&&commands.get(0)[3].equals("display")&&commands.get(1)[3].equals("SurfaceFlinger"),"capture connected framework and hardware modes before slow link sources");
+        check(commands.get(3)[2].contains("settings get global")&&commands.get(3)[2].contains("force_desktop_mode_on_external_displays")
+                &&!commands.get(3)[2].contains("settings put"),"desktop state is inspected without changing OEM display preferences");
         check(report.contains("connected VGA modes")&&report.contains("HWC DP-1")&&report.contains("EDID timing rejected")
                 &&report.contains("Permission denied"),"startup snapshot preserves mode loss, driver evidence and unavailable sources together");
         check(report.contains("Probe start wall_ms=")&&report.contains("Probe end monotonic_ns=")&&report.contains("duration_ms="),"each probe identifies its real acquisition time");

@@ -86,6 +86,7 @@ public final class ControllerScreenChecks extends Instrumentation {
                 runOnMainSync(() -> require(proxy() != null, "Cancel restores the integrated action"));
             }
             checkGamepadFocus();
+            checkSkipConfirmation();
             // Drawer and original lock UI must take precedence over the invisible compatibility target.
             runOnMainSync(() -> {
                 View drawer = activity.controller.findViewById(0x7f0900c6);
@@ -122,6 +123,42 @@ public final class ControllerScreenChecks extends Instrumentation {
             result.putString("stream", "Controller screen checks failed after " + passed + ": " + android.util.Log.getStackTraceString(error));
             finish(0, result);
         }
+    }
+
+    private void checkSkipConfirmation() throws Exception {
+        Class<?> type = Class.forName("dev.beampro.port.PhoneScreenCompat$Session");
+        java.lang.reflect.Constructor<?> constructor = type.getDeclaredConstructor(android.app.Activity.class);
+        constructor.setAccessible(true);
+        java.lang.reflect.Field resumed = type.getDeclaredField("resumed"); resumed.setAccessible(true);
+        java.lang.reflect.Field explanation = type.getDeclaredField("explanation"); explanation.setAccessible(true);
+        java.lang.reflect.Field starting = type.getDeclaredField("starting"); starting.setAccessible(true);
+        java.lang.reflect.Field blocked = type.getDeclaredField("blocked"); blocked.setAccessible(true);
+        android.util.AtomicFile option = new android.util.AtomicFile(new File(activity.getFilesDir(),
+                "unbound-experimental-options-skip_screen_off_confirmation"));
+        try {
+            for (boolean skip : new boolean[]{false, true, false}) {
+                runOnMainSync(() -> {
+                    Object session = null;
+                    try {
+                        FileOutputStream saved = option.startWrite();
+                        try { saved.write(skip ? 1 : 0); option.finishWrite(saved); }
+                        catch (Exception error) { option.failWrite(saved); throw error; }
+                        session = constructor.newInstance(activity);
+                        resumed.setBoolean(session, true);
+                        invoke(session, "explain");
+                        if (skip) {
+                            require(explanation.get(session) == null, "Enabled option bypasses the dialog");
+                            require(starting.getBoolean(session) && blocked.getBoolean(session), "Bypass starts the same screen-off request with its touch guard");
+                        } else {
+                            require(explanation.get(session) instanceof android.app.AlertDialog, "Default and disabled option retain the dialog");
+                            require(!starting.getBoolean(session) && !blocked.getBoolean(session), "Confirmation waits for approval before screen-off");
+                        }
+                    } catch (Exception error) { throw new IllegalStateException(error); }
+                    finally { if (session != null) invoke(session, "close"); }
+                });
+                settle();
+            }
+        } finally { option.delete(); }
     }
 
     private void checkGamepadFocus() throws Exception {
