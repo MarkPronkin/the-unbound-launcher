@@ -17,7 +17,8 @@ OUTPUT = ROOT / ".site-build"
 MAX_TOTAL = 5 * 1024 * 1024
 MAX_FILE = 1024 * 1024
 ENTRY_FILES = ("index.html", "styles.css", "app.js")
-ASSET_EXTENSIONS = {".webp", ".svg", ".png", ".ico"}
+# Images, the two self-hosted font files, and the license text that must travel with them.
+ASSET_EXTENSIONS = {".webp", ".svg", ".png", ".ico", ".woff2", ".txt"}
 
 
 def https_url(value: str, name: str) -> str:

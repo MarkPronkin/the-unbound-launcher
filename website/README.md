@@ -1,8 +1,9 @@
 # Unbound Launcher website
 
 A static, monochrome project site following the app's Signature OLED design.
-Plain HTML, CSS and JavaScript; no runtime dependencies, external fonts, trackers,
-CDN libraries, build framework or server. All interactions run in the browser.
+Plain HTML, CSS and JavaScript; no runtime dependencies, third-party requests,
+trackers, CDN libraries, build framework or server. Its two typefaces are
+self-hosted. All interactions run in the browser.
 The site contains feature explanations, real app screenshots, setup and requirements.
 Release notes and individual phone names are intentionally excluded. Feature,
 setup and upgrade copy reflects the published 0.2.6 alpha, while compatibility
@@ -45,18 +46,21 @@ Upload the roughly 1 GB APK as a **GitHub Release asset**, never into the Pages
 directory or Git history. After the asset exists, set the repository Actions
 variable `UNBOUND_DOWNLOAD_URL` to its full HTTPS download URL and run the
 workflow. The site's main action then becomes **Download 0.2.6 alpha**. Update
-the version in `index.html` and `app.js` alongside each public release. You can
-alternatively set `downloadUrl` in `site.json`.
+the version in `index.html` alongside each public release; `app.js` reads it
+from the version label in the hero. You can alternatively set `downloadUrl` in
+`site.json`.
 
 Until a real download URL is supplied, **Join the alpha** goes to the project's
-existing community. No guessed download, empty button or placeholder repository
+existing community and the page-top buttons read **Get Unbound** instead of
+**Download**. No guessed download, empty button or placeholder repository
 is exposed. Linking directly to a binary keeps release notes off the site.
 
 ## Size and GitHub limits
 
-The initial website is well under **1 MiB**, including every image. Its builder
+The website is well under **1 MiB**, including every image and font. Its builder
 enforces a **5 MiB total budget** and **1 MiB per file**. It copies only three
-explicit web entry points and the small image assets, then generates configuration.
+explicit web entry points, the small image assets, and the two font files with
+their license texts, then generates configuration.
 It rejects unexpected asset types and symlinks. App binaries, development logs,
 device data, archives, APK tooling and the repository root are never uploaded.
 
@@ -80,14 +84,17 @@ the website paths do not trigger unnecessary website builds.
 
 - The original Dot Portal mark and the exact Signature black, graphite, white,
   gray and green palette from `settings-ui/src/dev/beampro/settings/Signature.java`.
-- CSS spatial hero, a two/ten-window comparison, phone-screen-off illustration,
-  real screenshot switching, responsive navigation, and native FAQ disclosure.
+  Green is reserved for status.
+- Headlines, numerals and step numbers use Doto, a dot-matrix typeface that
+  echoes the mark. Everything else is Inter in sentence case.
+- A two/ten-window comparison, the three phone screens side by side, wide-screen
+  screenshot switching, and native FAQ disclosure.
 - All copy is visible without JavaScript. Optional interactions enhance it.
-- Keyboard focus, a skip link, accessible pressed states, reduced-motion support,
-  and a manual motion pause. Images below the hero load lazily.
+- Keyboard focus, a skip link, accessible pressed states, and reduced-motion
+  support. Nothing animates on its own. Images below the hero load lazily.
 - No video, WebGL dependency, analytics, network fetches, or automatic APK download.
 
-The spatial scenes are explicitly labeled concepts, not headset captures. Phone
+The window scene is explicitly labeled a concept, not a headset capture. Phone
 and wide-screen images are emulator captures from this project. Pictures of
 glasses are original XREAL artwork already shown in the app; original software
 and artwork rights remain with their owners. The site identifies the project as
@@ -108,6 +115,15 @@ for the mark. The original files stay untouched.
 | `setup.webp` | `artifacts/design-refresh/after/screens/13-adb-setup.png`, width 720 |
 | `menu-wide.webp` | `artifacts/landscape-layout/menu-16-10.png`, width 1440 |
 | `settings-wide.webp` | `artifacts/landscape-layout/settings-16-10.png`, width 1440 |
+
+The fonts are the Latin subsets served by Google Fonts, checked in so the page
+makes no third-party request. Both are licensed under the SIL Open Font License
+1.1; each license text is published next to its font file.
+
+| Site font | Source |
+| --- | --- |
+| `fonts/doto-latin.woff2` | Doto, weight 900 with the Rounded axis at 100 |
+| `fonts/inter-latin.woff2` | Inter, variable weight 400 to 600 |
 
 The design and feature copy come from the project README and development reports.
 No phone brand is used to imply universal compatibility. Revisit the generic
