@@ -117,10 +117,10 @@ public final class FoldableUiChecks extends Instrumentation {
                 options.scrollTo(0, dp(300));
                 require(device.getScrollY() == 0, "settings scroll independently of launch");
             }
-            CompoundButton toggle = SettingsUiChecks.findToggle(content, "System notifications");
-            int changes = activity.mSystemNotificationView.changes;
+            CompoundButton toggle = SettingsUiChecks.findToggle(content, "Start in screen mirroring");
+            int changes = activity.mCastScreenView.changes;
             toggle.performClick();
-            require(activity.mSystemNotificationView.changes == changes + 1, "native settings callbacks retained");
+            require(activity.mCastScreenView.changes == changes + 1, "native settings callbacks retained");
             View artwork = activity.findViewById(0x00bea003);
             View hero = (View) artwork.getParent();
             if (((android.widget.ImageView) artwork).getScaleType() != android.widget.ImageView.ScaleType.FIT_XY) {

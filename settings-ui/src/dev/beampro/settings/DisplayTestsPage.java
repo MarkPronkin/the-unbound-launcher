@@ -36,7 +36,7 @@ final class DisplayTestsPage extends MenuPage {
         if(tests.saving())add(page.body,text(activity,"Saving display snapshots…",SUPPORTING,TEXT_SECONDARY),8,0);
 
         page.body.addView(heading(activity,"Run a test"));
-        add(page.body,text(activity,"The 3D test first checks 2D, then tries 3840 × 1080 SBS at 60 Hz. A successful timing shows a grid and one centered circle per eye for 20 seconds. Each test requests a return to 2D when finished, stopped, or when you leave this page. If recovery fails, unplug and reconnect the glasses.",SUPPORTING,TEXT_SECONDARY),4,0);
+        add(page.body,text(activity,"The 3D test keeps your existing 1080p 2D timing, then tries 3840 × 1080 SBS at 60 Hz. A successful timing shows a grid and one centered circle per eye for 20 seconds. Each test saves the original 2D mode and tries to restore it when finished, stopped, or when you leave this page. If recovery fails, unplug and reconnect the glasses.",SUPPORTING,TEXT_SECONDARY),4,0);
         boolean available=!tests.busy()&&!tests.saving()&&!exporting;
         button(page.body,"Check connection","display-tests-check",available,()->{export=null;exportStatus=null;tests.check();});
         button(page.body,"Test 2D · 60 Hz","display-tests-2d",available,()->{export=null;exportStatus=null;tests.start(DisplayTestRun.Kind.TWO_D);});
@@ -49,7 +49,7 @@ final class DisplayTestsPage extends MenuPage {
             button(page.body,"Broken or missing","display-tests-broken",!exporting,()->{export=null;exportStatus=null;tests.feedback(false);});
         }
         page.body.addView(heading(activity,"Save the results"));
-        add(page.body,text(activity,"Test results, requested modes, observed resolutions and display/USB diagnostics stay on your phone and are included in the debug file. These tests do not take screenshots or record head movement. Some phones restrict driver information; those restrictions are recorded. Debug log collection is optional.",SUPPORTING,TEXT_SECONDARY),4,0);
+        add(page.body,text(activity,"Test results, original and requested modes, command readbacks, observed resolutions and display/USB diagnostics stay on your phone and are included in the debug file. These tests do not take screenshots or record head movement. Some phones restrict driver information; those restrictions are recorded. Debug log collection is optional.",SUPPORTING,TEXT_SECONDARY),4,0);
         if(exportStatus!=null)add(page.body,text(activity,exportStatus,SUPPORTING,TEXT_SECONDARY),8,0);
         button(page.body,exporting?"Preparing debug file…":"Create debug file","display-tests-export",available,()->{
             exporting=true;exportStatus="Preparing the test results and display diagnostics…";render();

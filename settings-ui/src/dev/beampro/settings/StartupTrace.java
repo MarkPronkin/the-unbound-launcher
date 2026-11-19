@@ -115,7 +115,7 @@ final class StartupTrace {
     synchronized boolean hasData(){return !recent.isEmpty()||!pinned.isEmpty();}
 
     synchronized byte[] report() {
-        StringBuilder output=new StringBuilder("Glasses startup evidence\nPassive app-UID logs and connection events; no native getters are invoked.\n");
+        StringBuilder output=new StringBuilder("Glasses startup evidence\nApp-UID logs and connection events. Mode-write observers include read-only native getters before commands while collection is enabled.\n");
         output.append("\nObserved summary since this collection began\n");
         output.append("Timeout request IDs/counts:");
         if(timeouts.isEmpty())output.append(" none observed");

@@ -39,7 +39,7 @@ public final class DisplayTests {
     private DisplayTestPattern pattern;
     private String id="",status="Ready. Connect the glasses, then choose a test.",feedback="",lastInventory="",viewState="";
     private boolean restoreOnReserve,feedbackAvailable,checking;
-    private int restoreRequest;
+    private int restoreRequest,restoreMode=1;
     private DisplayTestScreens screen;
 
     private DisplayTests(Context context){this.context=context;journal=new DisplayTestJournal(new File(context.getFilesDir(),"debug"));screen=DisplayTestScreens.read(context);}
@@ -74,14 +74,14 @@ public final class DisplayTests {
     void start(DisplayTestRun.Kind kind) {
         if(busy()||saving())return;
         begin(kind==DisplayTestRun.Kind.SBS?"3D SBS test":kind==DisplayTestRun.Kind.TWO_D?"2D test":"Return to 2D");
-        status="Checking glasses access and firmware…";nativePending=true;ticket=null;restoreOnReserve=false;
+        status="Checking glasses access and firmware…";nativePending=true;ticket=null;restoreOnReserve=false;restoreMode=1;
         run=new DisplayTestRun(kind,new DisplayTestRun.Driver(){
             public void mode(boolean stereo,int request){
                 note("REQUEST "+(stereo?"SBS 3840x1080@60":"2D 1920x1080@60"));
                 invoke("mode",new Class<?>[]{Object.class,boolean.class,Consumer.class},ticket,stereo,callback(request,false));
             }
             public void restore(int request){
-                dismissPattern();restoreRequest=request;restoreOnReserve=true;note("RECOVERY requested: 2D mode 1");
+                dismissPattern();restoreRequest=request;restoreOnReserve=true;note("RECOVERY requested: 2D mode "+restoreMode);
                 if(ticket!=null)finishTicket();
             }
             public void capture(String stage){DisplayTests.this.capture(stage,()->{
@@ -89,7 +89,11 @@ public final class DisplayTests {
             });}
             public void pattern(boolean stereo){showPattern(stereo);}
             public void status(String text){status=text;note(text);changed();}
-            public void complete(String text,boolean restored){status=text;dismissPattern();note("COMPLETE restored="+restored+"; "+text);changed();}
+            public void complete(String text,boolean restored){
+                status=text;dismissPattern();note("COMPLETE restored="+restored+"; "+text);
+                if(!restored||run.failedOutput()){String expected=id;records.execute(()->{try{journal.pinFailure(expected);}catch(Exception failure){android.util.Log.w("UnboundDisplayTest","Cannot pin failed test",failure);}});}
+                changed();
+            }
         },SystemClock.uptimeMillis());
         String expected=id;
         control.execute(()->{
@@ -102,6 +106,7 @@ public final class DisplayTests {
                     invoke("start",new Class<?>[]{Object.class,Consumer.class},ticket,(Consumer<Bundle>)answer->main.post(()->{
                         if(!expected.equals(id))return;
                         note("CONTROL "+answer.getString("message"));
+                        restoreMode=answer.getInt("restore_mode",1);run.recoveryTiming(answer.getInt("restore_hz_milli",0));
                         run.ready(answer.getBoolean("ok"),answer.getString("message"),SystemClock.uptimeMillis());changed();
                     }));
                 });
@@ -121,7 +126,7 @@ public final class DisplayTests {
     private void begin(String label){
         id=Long.toHexString(System.currentTimeMillis())+"-"+(++sequence);feedbackAvailable=false;feedback="";lastInventory="";dismissPattern();
         String expected=id;journalReady=records.submit(()->{try{journal.begin(expected,label);}catch(Exception failure){android.util.Log.w("UnboundDisplayTest","Cannot begin test history",failure);}});
-        DebugData.get(context).pauseDisplayObservations();
+        DebugData.get(context).modeTest(id);DebugData.get(context).pauseDisplayObservations();
         note("INITIAL "+DebugData.externalDisplays(context));
     }
     private final Runnable poll=new Runnable(){public void run(){
@@ -149,7 +154,7 @@ public final class DisplayTests {
     }
     private void finishTicket(){
         Object token=ticket;restoreOnReserve=false;
-        invoke("finish",new Class<?>[]{Object.class,Consumer.class},token,callback(restoreRequest,true));
+        invoke(run!=null&&run.kind==DisplayTestRun.Kind.RESTORE?"recover":"finish",new Class<?>[]{Object.class,Consumer.class},token,callback(restoreRequest,true));
     }
     private void invoke(String method,Class<?>[] types,Object... args){
         try{api().getMethod(method,types).invoke(null,args);}
@@ -168,16 +173,25 @@ public final class DisplayTests {
     private void dismissPattern(){if(pattern!=null){try{pattern.dismiss();}catch(RuntimeException ignored){}pattern=null;}}
     private void note(String text){String expected=id;records.execute(()->{try{journal.note(expected,text);}catch(Exception failure){android.util.Log.w("UnboundDisplayTest","Cannot retain test result",failure);}});}
     private void capture(String stage,Runnable finished){
-        String expected=id,requested="Requested wallMs="+System.currentTimeMillis()+"; uptimeMs="+SystemClock.uptimeMillis()+"\n"+DebugData.externalDisplays(context);
+        String expected=id,requested="Phase="+(run==null?"connection-check":run.phase)+"; requested test="+(run==null?"none":run.kind)+"\nRequested wallMs="+System.currentTimeMillis()+"; uptimeMs="+SystemClock.uptimeMillis()+"\n"+DebugData.externalDisplays(context);
         capturesPending++;changed();
         try{captures.execute(()->{
+            boolean captured=false;
             try{
                 Future<?> ready=journalReady;if(ready!=null)ready.get(5,TimeUnit.SECONDS);
                 String report=requested+"\n"+DebugDisplay.captureStartup(context);
-                journal.capture(expected,stage,report);
+                journal.capture(expected,stage,report);captured=true;
             }catch(Exception failure){try{journal.note(expected,"CAPTURE "+stage+" unavailable: "+error(failure));}catch(Exception ignored){}}
-            finally{main.post(()->{capturesPending--;if(expected.equals(id)&&finished!=null)finished.run();changed();});}
-        });}catch(java.util.concurrent.RejectedExecutionException full){capturesPending--;note("CAPTURE "+stage+" skipped: previous captures still finishing");if(finished!=null)finished.run();changed();}
+            finally{boolean saved=captured;main.post(()->{
+                capturesPending--;
+                if(expected.equals(id)){
+                    if(!saved&&stage.equals("before")&&run!=null&&run.busy())run.fail("Could not save the original display snapshot. Reconnect and try again.",SystemClock.uptimeMillis());
+                    else if(finished!=null)finished.run();
+                }
+                changed();
+            });}
+        });}catch(java.util.concurrent.RejectedExecutionException full){capturesPending--;note("CAPTURE "+stage+" skipped: previous captures still finishing");if(stage.equals("before")&&run!=null&&run.busy())run.fail("Display snapshots are busy. Reconnect and try again.",SystemClock.uptimeMillis());
+            else if(finished!=null)finished.run();changed();}
     }
     private void changed(){for(Runnable observer:new ArrayList<>(observers))observer.run();}
 }

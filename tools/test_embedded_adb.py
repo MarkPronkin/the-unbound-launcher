@@ -111,6 +111,9 @@ class EmbeddedAdbManifestTests(unittest.TestCase):
         applications = [attrs for tag, attrs in expected if tag == "application"]
         self.assertEqual(applications[0]["debuggable"], 0xFFFFFFFF)
         applications[0]["debuggable"] = 0
+        sdk = [attrs for tag, attrs in expected if tag == "uses-sdk"]
+        self.assertEqual(sdk, [{"minSdkVersion": 29, "targetSdkVersion": 33}])
+        sdk[0]["targetSdkVersion"] = 35
         self.assertEqual(elements(release), expected)
         self.assertEqual(patch_release_manifest(release), release)
         verify_attribute_order(release)

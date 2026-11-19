@@ -2,7 +2,9 @@
 // override or DRM readiness, use copies of the port's non-secure display.
 // Android FLAG_SECURE and virtual-display flags are untouched.
 .text
-.equ PORT_BASE, 0x12ca1e8
+// SetUserProperty returns at 0x12ca1e4. PickUpApp uses the next 60 bytes
+// to initialize its floating icon. ResetAnalyticsData starts at 0x12ca3c4.
+.equ PORT_BASE, 0x12ca224
 .macro jump target
     .word 0x14000000 | (((\target - (PORT_BASE + (. - app_surface_routing))) >> 2) & 0x03ffffff)
 .endm

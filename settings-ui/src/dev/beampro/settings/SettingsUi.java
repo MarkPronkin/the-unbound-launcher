@@ -338,7 +338,7 @@ public final class SettingsUi {
                         continue;
                     }
                     if (source == view(activity, "mSystemNotificationView")) {
-                        experience.add(new Binding(source, "notifications", false));
+                        source.setVisibility(View.GONE);
                     } else if (source == view(activity, "mCastScreenView")) {
                         experience.add(new Binding(source, "mirror", false));
                     } else if (source == view(activity, "mScreenColorView")) {
@@ -754,7 +754,6 @@ public final class SettingsUi {
                         : defaultMirroring ? "Start in screen mirroring" : text(source, "mTvTitle"));
                 subtitle.setText(subtitleOverride != null ? subtitleOverride : defaultMirroring
                         ? (checked(sourceSwitch) ? "On · Mirror your phone after reconnecting" : "Off · Open AR Space on connection")
-                        : source == view(activity, "mSystemNotificationView") ? "Phone notifications in AR Space"
                         : text(source, "mTvSubTitle"));
                 subtitle.setVisibility(subtitle.getText().length() == 0 ? View.GONE : View.VISIBLE);
                 if (toggle != null) {

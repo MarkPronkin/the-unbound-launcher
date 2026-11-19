@@ -59,7 +59,7 @@ final class DebugData {
         Thread thread = new Thread(task, "unbound-control-traces"); thread.setDaemon(true); return thread;
     });
     private final AtomicBoolean traceRunning = new AtomicBoolean();
-    private volatile String traceAttempt;
+    private volatile String traceAttempt, modeAttempt;
     private volatile Future<?> traceTask;
     private final ExecutorService displayCaptures = Executors.newSingleThreadExecutor(task -> {
         Thread thread = new Thread(task, "unbound-startup-display-snapshots"); thread.setDaemon(true); return thread;
@@ -256,9 +256,11 @@ final class DebugData {
         report.append("Device: ").append(Build.MANUFACTURER).append(' ').append(Build.MODEL).append('\n');
         report.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ").append(Build.VERSION.SDK_INT).append(")\n");
         report.append("Debug mode: ").append(enabled()).append("; collecting: ").append(collecting()).append('\n');
+        report.append("Android build: ").append(Build.FINGERPRINT).append("; securityPatch=").append(Build.VERSION.SECURITY_PATCH).append('\n');
+        report.append("Hardware: ").append(Build.HARDWARE).append("; board=").append(Build.BOARD).append("; device=").append(Build.DEVICE).append('\n');
         report.append("app.log covers this app's UID only. Oldest data rotates at 12 MB. ZIP is limited to 15 MB.\n");
         report.append("No pairing codes, app preferences or screenshots are added by this report.\n");
-        report.append("Guided display-test results and their three labelled snapshots are included when tests were requested, even if app log collection is off. Tests record requested SDK display modes, observed output and wearer feedback separately.\n");
+        report.append("Guided display-test results, the first failed test snapshots and the latest three labelled snapshots are included when tests were requested, even if app log collection is off. Tests record original and requested SDK display modes, input-mode results, firmware readbacks, observed output and wearer feedback separately.\n");
         report.append("Network diagnostics include interface IP addresses, routes, Ethernet status and glasses ping output.\n");
         report.append("Display and SurfaceFlinger dumps may include display identifiers and app/window names.\n");
         report.append("Display-link diagnostics include USB port state, selected system display logs, available kernel/link messages and connector EDID. Android may deny some sources.\n");
@@ -299,6 +301,16 @@ final class DebugData {
         data.queueDiagnostics("Connection failure: " + reason, true);
     }
 
+    /** SDK mode observers use native read-only getters only while collection is enabled. */
+    public static boolean modeDiagnosticsEnabled() {
+        DebugData data=instance;return data!=null&&data.enabled()&&data.collecting();
+    }
+    void modeTest(String id) { modeAttempt="display-test-"+id; }
+    public static void modeEvent(String event,String detail) {
+        DebugData data=instance;if(data==null||!modeDiagnosticsEnabled())return;
+        connectionEvent(data.context,data.modeAttempt==null?"unscoped-mode":data.modeAttempt,event,detail);
+    }
+
     /** Passive Java state only. The connection thread never waits for files or diagnostic IPC. */
     public static void connectionEvent(Context context, String attempt, String event, String detail) {
         DebugData data = get(context);
@@ -325,6 +337,7 @@ final class DebugData {
             Log.w("UnboundDebug", "Startup event storage is busy; event remains in app.log");
         }
         if (kind.equals("sdk_start")) {
+            data.modeAttempt=id;
             boolean first;
             synchronized (data.controlLock) {
                 first = !id.equals(data.controlStartAttempt); data.controlStartAttempt = id;

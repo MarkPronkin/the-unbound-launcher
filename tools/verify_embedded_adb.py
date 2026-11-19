@@ -17,8 +17,9 @@ from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, SAMPLING_MARK
 from phone_pointer import ENTRY as POINTER_LIBRARY, MARKER as POINTER_MARKER
 from renderer_diagnostics import ENTRY as RENDERER_LIBRARY, MARKER as RENDERER_MARKER
 from app_version import manifest_version
+from receiver_registrations import patch_receivers
 from permission_manifest import MENU_ACTIVITY, MENU_CONFIG_CHANGES, MENU_ORIGINAL_ACTIVITIES, MENU_THEME_RESOURCE
-from embedded_adb_manifest import AUTHORITY, patch_release_manifest, patch_usb_attach_manifest
+from embedded_adb_manifest import AUTHORITY, patch_release_manifest, patch_usb_attach_manifest, without_notification_listener
 from adaptive_manifest import patch_adaptive_manifest
 from storage_manifest import PERMISSION as STORAGE_PERMISSION, patch_storage_manifest
 from display_startup import patch_display_startup
@@ -34,8 +35,9 @@ from brightness_lock import patch_brightness_lock
 from input_compat import patch_input_compat
 from ping_cancellation import patch_ping_cancellation
 from glasses_startup import patch_glasses_startup
+from mode_diagnostics import patch_mode_diagnostics
 from ethernet_ping import patch_ethernet_ping
-from notifications import patch_notifications
+from notifications import ADAPTERS, SRC as NOTIFICATION_SOURCES, compile_notification_adapters, without_notification_mirroring
 from rog_r1 import patch_rog_r1
 from display_mode_compat import LIBRARY as MODE_LIBRARY, patch_display_mode, verify_display_mode
 from egl_colorspace_compat import patch_egl_colorspace, verify_egl_colorspace
@@ -108,7 +110,14 @@ def verify(apk):
         assert manifest_version(z.read("AndroidManifest.xml")) == VERSION
         verify_attribute_order(z.read("AndroidManifest.xml"))
         entries = elements(z.read("AndroidManifest.xml"))
-        before = elements(patch_binary_identity("AndroidManifest.xml", patch_storage_manifest(patch_connection_theme_manifest(patch_usb_attach_manifest(patch_release_manifest(patch_adaptive_manifest(base.read("AndroidManifest.xml"))))))))
+        assert [a for t, a in entries if t == "uses-sdk"] == [{"minSdkVersion": 29, "targetSdkVersion": 35}]
+        manifest = patch_release_manifest(patch_adaptive_manifest(base.read("AndroidManifest.xml")))
+        manifest = without_notification_listener(patch_usb_attach_manifest(manifest))
+        before = elements(patch_binary_identity("AndroidManifest.xml", patch_storage_manifest(patch_connection_theme_manifest(manifest))))
+        assert not any(t == "service" and (a.get("permission") == "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+                       or a.get("name") == "com.xreal.evapro.NotifyService") for t, a in entries)
+        assert ("action", {"name": "android.service.notification.NotificationListenerService"}) not in entries
+        assert ("uses-permission", {"name": "android.permission.POST_NOTIFICATIONS"}) in entries
         assert [a['package'] for t, a in entries if t == 'manifest'] == [PACKAGE]
         application = [attrs for tag, attrs in entries if tag == "application"]
         assert len(application) == 1 and application[0]["debuggable"] == 0
@@ -125,11 +134,13 @@ def verify(apk):
         assert len(debug_provider) == 1 and debug_provider[0]['exported'] == 0
         assert debug_provider[0]['grantUriPermissions'] == 0xFFFFFFFF
         assert debug_provider[0]['authorities'] == PACKAGE + '.unbound.debug'
-        assert [e for e in entries if e[0] == "uses-permission"] == [e for e in before if e[0] == "uses-permission"]
+        assert [e for e in entries if e[0] == "uses-permission"] == [e for e in before if e[0] == "uses-permission"] + [
+            ("uses-permission", {"name": "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"})]
         assert [a for t, a in entries if t == "uses-permission" and a.get("name") == STORAGE_PERMISSION] == [{"name": STORAGE_PERMISSION}]
         for tag, name, exported in [("activity", "AdbPairingActivity", 0), ("service", "PairingOverlayService", 0), ("provider", "LocalBridgeProvider", 0xFFFFFFFF)]:
             match = [a for t, a in entries if t == tag and a.get("name") == "dev.beampro.adb." + name]
             assert len(match) == 1 and match[0]["exported"] == exported
+            if name == "PairingOverlayService": assert match[0]["foregroundServiceType"] == 0x800
             if tag == "provider": assert match[0]["authorities"] == AUTHORITY and match[0]["process"] == ":unbound_bridge"
         auto_receiver=[a for t,a in entries if t=='receiver' and a.get('name')=='dev.beampro.adb.AutoGlassesReceiver']
         assert len(auto_receiver)==1 and auto_receiver[0]['exported']==0
@@ -166,7 +177,11 @@ def verify(apk):
         assert "Ldev/beampro/port/DisplayStartupCompat;" in definitions
         assert "Ldev/beampro/port/PresentationOnlyCompat;" in definitions
         assert "Ldev/beampro/port/BackgroundUnitySurface;" in definitions
+        assert "Lcom/xreal/evapro/NotifyService;" not in definitions
+        assert all(b"Landroid/service/notification/NotificationListenerService;" not in z.read(name)
+                   for name in set(definitions.values())), "Notification listener still packaged"
         assert "Ldev/beampro/port/ArSessionService;" in definitions
+        assert definitions.get("Ldev/beampro/port/ReceiverRegistration;") == "classes4.dex"
         assert "Ldev/beampro/settings/ExperimentalPresentation;" not in definitions
         assert "Ldev/beampro/port/StereoPresentationCompat;" in definitions
         assert "Ldev/beampro/port/PresentationWindowDiagnostics;" in definitions
@@ -208,6 +223,7 @@ def verify(apk):
         assert "Ldev/beampro/settings/ExperimentalOptionsChecks;" not in definitions
         for cls in ("DisplayTests", "DisplayTestsPage", "DisplayTestRun", "DisplayTestJournal", "DisplayTestPattern", "DisplayTestScreens"):
             assert "Ldev/beampro/settings/" + cls + ";" in definitions
+        assert "Ldev/beampro/port/GlassesModeDiagnostics;" in definitions
         assert "Ldev/beampro/port/DisplayTestCompat;" in definitions
         display_test_control = z.read(definitions["Ldev/beampro/port/DisplayTestCompat;"])
         assert b"startBackgroundSdk" in display_test_control and b"set2D3D" in display_test_control
@@ -238,7 +254,12 @@ def verify(apk):
         with tempfile.TemporaryDirectory() as work:
             legacy_main = repackage_dex(z.read("classes.dex"), Path(work) / "identity-main", java, restore=True)
             legacy_icons = repackage_dex(z.read("classes2.dex"), Path(work) / "identity-icons", java, restore=True)
-            startup_base=patch_display_startup(base.read("classes.dex"),Path(work)/"startup-base",java)
+            legacy_main = patch_receivers("classes.dex", legacy_main, Path(work) / "main-receivers", java, restore=True)
+            legacy_icons = patch_receivers("classes2.dex", legacy_icons, Path(work) / "sdk-receivers", java, restore=True)
+            adapters = compile_notification_adapters(Path(work) / "notification-adapters", java, Path.home() / "Library/Android/sdk")
+            main_baseline = without_notification_mirroring("classes.dex", base.read("classes.dex"), adapters, Path(work) / "notification-main", java)
+            icon_baseline = without_notification_mirroring("classes2.dex", base.read("classes2.dex"), adapters, Path(work) / "notification-sdk", java)
+            startup_base=patch_display_startup(main_baseline,Path(work)/"startup-base",java)
             presentation_base=patch_presentation(startup_base,Path(work)/"presentation-base",java)
             controller_base=patch_controller_usb_permission(presentation_base,Path(work)/"controller-base",java)
             connection_base=patch_connection_startup(controller_base,Path(work)/"connection-base",java)
@@ -255,35 +276,35 @@ def verify(apk):
             controller=patch_controller_usb_permission(connection,Path(work)/"controller",java,restore=True,baseline=presentation_base)
             presentation=patch_presentation(controller,Path(work)/"presentation-restore",java,restore=True,baseline=startup_base)
             restored = patch_display_startup(presentation, Path(work), java, restore=True,
-                                             baseline=base.read("classes.dex"))
-            assert restored == base.read("classes.dex"), "Display startup patch scope differs from the baseline"
+                                             baseline=main_baseline)
+            assert restored == main_baseline, "Display startup patch scope differs from the baseline"
             restored = patch_display_startup(z.read("classes3.dex"), Path(work) / "presentation", java, restore=True,
                                              baseline=base.read("classes3.dex"))
             assert restored == base.read("classes3.dex"), "SDK Presentation hook differs from the baseline"
-            icon_base=patch_icon_resolution(base.read("classes2.dex"),Path(work)/"icon-base",java)
+            icon_base=patch_icon_resolution(icon_baseline,Path(work)/"icon-base",java)
             color_base=patch_color_dex(icon_base,Path(work)/"color-base",java)
             usb_base=patch_usb_permission(color_base,Path(work)/"usb-base",java)
             audio_base=patch_disconnect_audio(usb_base,Path(work)/"audio-base",java)
             mode_base=patch_controller_mode(audio_base,Path(work)/"mode-base",java)
             ping_base=patch_ping_cancellation(mode_base,Path(work)/"ping-base",java)
             glasses_base=patch_glasses_startup(ping_base,Path(work)/"glasses-base",java)
-            ethernet_base=patch_ethernet_ping(glasses_base,Path(work)/"ethernet-base",java)
-            notifications_base=patch_notifications(ethernet_base,Path(work)/"notifications-base",java)
-            rog_base=patch_rog_r1(notifications_base,Path(work)/"rog-base",java)
+            mode_diagnostics_base=patch_mode_diagnostics(glasses_base,Path(work)/"mode-diagnostics-base",java)
+            ethernet_base=patch_ethernet_ping(mode_diagnostics_base,Path(work)/"ethernet-base",java)
+            rog_base=patch_rog_r1(ethernet_base,Path(work)/"rog-base",java)
             pointer_base=patch_input_compat(rog_base,Path(work)/"pointer-base",java)
             legacy_icons=patch_brightness_lock(legacy_icons,Path(work)/"brightness-lock",java,restore=True,baseline=pointer_base)
             legacy_icons=patch_input_compat(legacy_icons,Path(work)/"pointer-input",java,restore=True,baseline=rog_base)
-            legacy_icons=patch_rog_r1(legacy_icons,Path(work)/"rog-r1",java,restore=True,baseline=notifications_base)
-            restored=patch_notifications(legacy_icons,Path(work)/"notifications",java,restore=True,baseline=ethernet_base)
-            restored=patch_ethernet_ping(restored,Path(work)/"ethernet-ping",java,restore=True,baseline=glasses_base)
+            restored=patch_rog_r1(legacy_icons,Path(work)/"rog-r1",java,restore=True,baseline=ethernet_base)
+            restored=patch_ethernet_ping(restored,Path(work)/"ethernet-ping",java,restore=True,baseline=mode_diagnostics_base)
+            restored=patch_mode_diagnostics(restored,Path(work)/"mode-diagnostics",java,restore=True,baseline=glasses_base)
             restored=patch_glasses_startup(restored,Path(work)/"glasses-startup",java,restore=True,baseline=ping_base)
             restored=patch_ping_cancellation(restored,Path(work)/"ping-cancellation",java,restore=True,baseline=mode_base)
             restored=patch_controller_mode(restored,Path(work)/"controller-mode",java,restore=True,baseline=audio_base)
             restored=patch_disconnect_audio(restored,Path(work)/"disconnect-audio",java,restore=True,baseline=usb_base)
             restored=patch_usb_permission(restored,Path(work)/"usb",java,restore=True,baseline=color_base)
             restored=patch_color_dex(restored,Path(work)/"colors",java,restore=True,baseline=icon_base)
-            restored = patch_icon_resolution(restored,Path(work)/"icons",java,restore=True,baseline=base.read("classes2.dex"))
-            assert restored == base.read("classes2.dex"), "Headset icon hook scope differs from the baseline"
+            restored = patch_icon_resolution(restored,Path(work)/"icons",java,restore=True,baseline=icon_baseline)
+            assert restored == icon_baseline, "Headset icon hook scope differs from the baseline"
             routed = patch_binary_identity(LIBRARY, z.read(LIBRARY), restore=True)
             immersive_report = verify_immersive_stereo(routed)
             routed = patch_immersive_stereo(routed, restore=True)
@@ -391,6 +412,8 @@ def verify(apk):
                          "tools/rog_r1.py", "tools/PatchRogR1Dex.java",
                          "tools/egl_colorspace_compat.py",
                          "port-client/src/dev/beampro/port/ArSessionService.java",
+                         "port-client/src/dev/beampro/port/ReceiverRegistration.java",
+                         "tools/PatchReceiverRegistrations.java", "tools/receiver_registrations.py", "tools/storage_manifest.py",
                          "port-client/src/dev/beampro/port/BackgroundUnitySurface.java",
                          "port-client/src/dev/beampro/port/ConnectionHandoff.java",
                          "port-client/src/dev/beampro/port/ConnectionAnimation.java",
@@ -422,6 +445,7 @@ def verify(apk):
                          "settings-ui/src/dev/beampro/settings/MenuActivity.java",
                          "settings-ui/src/dev/beampro/settings/MenuPage.java",
                          "port-client/src/dev/beampro/port/DisplayTestCompat.java",
+                         "port-client/src/dev/beampro/port/GlassesModeDiagnostics.java",
                          "settings-ui/src/dev/beampro/settings/StartupTrace.java",
                          "settings-ui/src/dev/beampro/settings/HelpPage.java",
                          "bridge/src/dev/beampro/bridge/DisplayDumpPipe.java",
@@ -446,7 +470,7 @@ def verify(apk):
             for name in ("skip_ota.py", "PatchSkipOtaDex.java", "startup_tutorial.py", "updater_manifest.py", "debug_manifest.py",
                          "experimental_stereo.py", "experimental_stereo.S", "experimental_stereo_native.json", "PatchExperimentalStereoDex.java",
                          "package_identity.py", "RepackageDex.java", "ping_cancellation.py", "PatchPingCancellationDex.java",
-                         "glasses_startup.py", "PatchGlassesStartupDex.java", "ethernet_ping.py", "PatchEthernetPingDex.java",
+                         "glasses_startup.py", "PatchGlassesStartupDex.java", "mode_diagnostics.py", "PatchModeDiagnosticsDex.java", "ethernet_ping.py", "PatchEthernetPingDex.java",
                          "notifications.py", "PatchNotificationsDex.java",
                          "display_mode_compat.py", "overlay_routing.py", "recording_duration.py", "recording_logo.py", "high_performance_apps.py", "anchor_windows.py", "app_surface_routing.py",
                          "photo_sound.py", "PatchPhotoSoundDex.java",
@@ -455,6 +479,9 @@ def verify(apk):
                          "controller_mode.py", "PatchControllerModeDex.java", "home_button.py", "PatchHomeButtonDex.java",
                          "input_compat.py", "PatchInputCompatDex.java", "brightness_lock.py", "PatchBrightnessLockDex.java"):
                 assert sources.read("tools/" + name) == Path(__file__).with_name(name).read_bytes(), "Bundled patch source differs"
+            for adapter in ADAPTERS:
+                path = NOTIFICATION_SOURCES / (adapter + ".java")
+                assert sources.read(path.relative_to(ROOT).as_posix()) == path.read_bytes()
             assert sources.read("native/hardware-buffer-texture/library.c") == (ROOT / "native/hardware-buffer-texture/library.c").read_bytes()
             assert sources.read("native/renderer-diagnostics/library.c") == (ROOT / "native/renderer-diagnostics/library.c").read_bytes()
             for name in ("library.c", "pointer_state.h"):
@@ -474,7 +501,7 @@ def verify(apk):
             "resource_ids_and_unity_metadata_offsets_preserved": True,
             "package_relocation_reverse_dex_semantics_verified": True,
             "single_apk": True, "companion_dependency_removed": True, "helper_sha256": helper_sha,
-            "debuggable": False,
+            "debuggable": False, "min_sdk": 29, "target_sdk": 35,
             "about_version_packaged": True,
             "github_app_updater_and_private_installer_packaged": True,
             "help_menu_and_private_debug_zip_provider_packaged": True,
@@ -484,7 +511,7 @@ def verify(apk):
             "sdk_ping_cancellation_callback_guard_wired": True,
             "sdk_ethernet_probe_delegates_to_fixed_shell_ping": True,
             "sdk_native_startup_scoped_network_selection_wired": True,
-            "notification_delivery_uses_native_app_fallback_with_exact_dex_scope": True,
+            "notification_mirroring_removed": True, "pairing_and_session_notifications_packaged": True,
             "bundled_source_version_matches_package": True,
             "xreal_usb_request_hook_restores_exact_baseline": True,
             "xreal_usb_helper_and_deferred_callback_wired": True,

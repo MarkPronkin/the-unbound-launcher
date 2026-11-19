@@ -14,7 +14,7 @@ import zipfile
 from app_version import load_version, manifest_version, patch_manifest_version, write_java_version
 from branding import APP_NAME, app_name_values, patch_resources
 from permission_manifest import patch_menu_manifest
-from embedded_adb_manifest import patch_manifest, patch_release_manifest, patch_usb_attach_manifest, AUTHORITY
+from embedded_adb_manifest import patch_manifest, patch_release_manifest, patch_usb_attach_manifest, without_notification_listener, AUTHORITY
 from display_startup import patch_display_startup
 from presentation_only import patch_presentation
 from adaptive_manifest import patch_adaptive_manifest
@@ -29,8 +29,10 @@ from brightness_lock import patch_brightness_lock
 from input_compat import patch_input_compat
 from ping_cancellation import patch_ping_cancellation
 from glasses_startup import patch_glasses_startup
+from mode_diagnostics import patch_mode_diagnostics
+from receiver_registrations import patch_receivers
 from ethernet_ping import patch_ethernet_ping
-from notifications import patch_notifications
+from notifications import compile_notification_adapters, without_notification_mirroring
 from rog_r1 import IDENTITY_SOURCE, patch_rog_r1
 from settings_artwork import custom_settings_artwork
 from display_mode_compat import LIBRARY as MODE_LIBRARY, patch_display_mode, verify_display_mode
@@ -48,7 +50,7 @@ from experimental_stereo import patch_stereo_dex, patch_stereo_native
 from photo_sound import patch_photo_sound
 from updater_manifest import patch_updater_manifest
 from debug_manifest import patch_debug_manifest
-from storage_manifest import patch_storage_manifest
+from storage_manifest import add_manifest_permission, patch_storage_manifest
 from package_identity import PACKAGE, METADATA, BINARY_ENCODINGS, patch_binary_identity, repackage_dex
 from hardware_buffer_texture import ENTRY as TEXTURE_LIBRARY, build_library
 from phone_pointer import ENTRY as POINTER_LIBRARY, build_library as build_pointer_library
@@ -90,20 +92,21 @@ def pairing_source_file(path, root=ROOT):
 def write_pairing_sources(destination, root=ROOT):
     """Package corresponding sources without filesystem identities or private files."""
     paths = []
-    for directory in ["embedded-adb", "settings-ui/src", "bridge/src", "port-client/src", "compat/src"]:
+    for directory in ["embedded-adb", "settings-ui/src", "bridge/src", "port-client/src", "compat/src", "compat/notifications"]:
         paths.extend(path for path in (root / directory).rglob("*") if pairing_source_file(path, root))
     paths.extend(root / name for name in ["version.json", "LICENSE"])
     for name in ["build_embedded_adb.py", "app_version.py", "updater_manifest.py", "debug_manifest.py", "embedded_adb_manifest.py", "adaptive_manifest.py", "display_startup.py", "PatchDisplayStartupDex.java", "connection_startup.py", "PatchConnectionStartupDex.java", "disconnect_audio.py", "PatchDisconnectAudioDex.java", "skip_ota.py", "PatchSkipOtaDex.java", "startup_tutorial.py", "experimental_stereo.py", "experimental_stereo.S", "experimental_stereo_native.json", "PatchExperimentalStereoDex.java", "app_color.py", "PatchAppColorDex.java", "app_color_select.S", "app_color_oes.S", "app_color_native.json", "xreal_telemetry.py", "icon_resolution.py", "PatchIconResolutionDex.java", "usb_permission.py", "PatchUsbPermissionDex.java", "PatchControllerUsbDex.java"]:
         paths.append(root / "tools" / name)
     paths.extend(root / "tools" / name for name in ("package_identity.py", "RepackageDex.java"))
-    paths.extend(root / "tools" / name for name in ("startup_theme.py", "branding.py", "permission_manifest.py"))
+    paths.extend(root / "tools" / name for name in ("receiver_registrations.py", "PatchReceiverRegistrations.java"))
+    paths.extend(root / "tools" / name for name in ("startup_theme.py", "branding.py", "permission_manifest.py", "storage_manifest.py"))
     paths.extend(root / "tools" / name for name in ("ping_cancellation.py", "PatchPingCancellationDex.java"))
     paths.extend(root / "tools" / name for name in ("controller_mode.py", "PatchControllerModeDex.java"))
     paths.extend(root / "tools" / name for name in ("home_button.py", "PatchHomeButtonDex.java"))
     paths.extend(root / "tools" / name for name in ("photo_sound.py", "PatchPhotoSoundDex.java"))
     paths.extend(root / "tools" / name for name in ("brightness_lock.py", "PatchBrightnessLockDex.java"))
     paths.extend(root / "tools" / name for name in ("input_compat.py", "PatchInputCompatDex.java"))
-    paths.extend(root / "tools" / name for name in ("glasses_startup.py", "PatchGlassesStartupDex.java"))
+    paths.extend(root / "tools" / name for name in ("glasses_startup.py", "PatchGlassesStartupDex.java", "mode_diagnostics.py", "PatchModeDiagnosticsDex.java"))
     paths.extend(root / "tools" / name for name in ("ethernet_ping.py", "PatchEthernetPingDex.java"))
     paths.extend(root / "tools" / name for name in ("notifications.py", "PatchNotificationsDex.java"))
     paths.extend(root / "tools" / name for name in ("rog_r1.py", "PatchRogR1Dex.java"))
@@ -153,7 +156,7 @@ def main():
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
     build = output / "build"; build.mkdir(exist_ok=True)
     sdk = Path.home() / "Library/Android/sdk"
-    tools = sdk / "build-tools/36.0.0"; platform = sdk / "platforms/android-34/android.jar"
+    tools = sdk / "build-tools/36.0.0"; platform = sdk / "platforms/android-35/android.jar"
     java = Path(subprocess.check_output(["/usr/libexec/java_home", "-v", "17"], text=True).strip())
     env = dict(os.environ, JAVA_HOME=str(java))
     vendor = ROOT / "embedded-adb/vendor"
@@ -273,8 +276,11 @@ def main():
     presentation_dex = None
     icon_dex = None
     if not args.test_only:
+        adapters = compile_notification_adapters(build / "notification-adapters", java, sdk, env)
         with zipfile.ZipFile(BASE) as source:
-            startup_dex = patch_display_startup(source.read("classes.dex"), build / "display-startup", java, env)
+            main_baseline = without_notification_mirroring("classes.dex", source.read("classes.dex"), adapters, build / "notification-main", java, env)
+            icons_baseline = without_notification_mirroring("classes2.dex", source.read("classes2.dex"), adapters, build / "notification-sdk", java, env)
+            startup_dex = patch_display_startup(main_baseline, build / "display-startup", java, env)
             startup_dex = patch_presentation(startup_dex, build / "presentation-only", java, env)
             startup_dex = patch_controller_usb_permission(startup_dex, build / "controller-usb", java, env)
             startup_dex = patch_connection_startup(startup_dex, build / "connection-startup", java, env)
@@ -284,15 +290,15 @@ def main():
             startup_dex = patch_input_compat(startup_dex, build / "keyboard-input", java, env)
             startup_dex = patch_photo_sound(startup_dex, build / "photo-sound", java, env)
             presentation_dex = patch_display_startup(source.read("classes3.dex"), build / "stereo-presentation", java, env)
-            icon_dex = patch_icon_resolution(source.read("classes2.dex"), build / "icon-resolution", java, env)
+            icon_dex = patch_icon_resolution(icons_baseline, build / "icon-resolution", java, env)
             icon_dex = patch_color_dex(icon_dex, build / "app-colors", java, env)
             icon_dex = patch_usb_permission(icon_dex, build / "usb-permission", java, env)
             icon_dex = patch_disconnect_audio(icon_dex, build / "disconnect-audio", java, env)
             icon_dex = patch_controller_mode(icon_dex, build / "controller-mode", java, env)
             icon_dex = patch_ping_cancellation(icon_dex, build / "ping-cancellation", java, env)
             icon_dex = patch_glasses_startup(icon_dex, build / "glasses-startup", java, env)
+            icon_dex = patch_mode_diagnostics(icon_dex, build / "mode-diagnostics", java, env)
             icon_dex = patch_ethernet_ping(icon_dex, build / "ethernet-ping", java, env)
-            icon_dex = patch_notifications(icon_dex, build / "notifications", java, env)
             icon_dex = patch_rog_r1(icon_dex, build / "rog-r1", java, env)
             icon_dex = patch_input_compat(icon_dex, build / "pointer-input", java, env)
             icon_dex = patch_brightness_lock(icon_dex, build / "brightness-lock", java, env)
@@ -305,6 +311,8 @@ def main():
             if info.filename == "classes.dex" and startup_dex is not None: value = startup_dex
             if info.filename == "classes3.dex" and presentation_dex is not None: value = presentation_dex
             if info.filename == "classes2.dex" and icon_dex is not None: value = icon_dex
+            if not args.test_only and info.filename in ("classes.dex", "classes2.dex"):
+                value = patch_receivers(info.filename, value, build / "receivers" / info.filename, java)
             if info.filename == "classes4.dex": value = client_dex.read_bytes()
             if info.filename == APP_SHADER and not args.test_only: value = automatic_app_shader(source)
             if info.filename in OES_SHADERS and not args.test_only: value = direct_oes_shader(value)
@@ -322,9 +330,11 @@ def main():
                 value = texture_library
             if info.filename == "AndroidManifest.xml" and not args.test_only:
                 value = patch_usb_attach_manifest(patch_release_manifest(patch_adaptive_manifest(patch_manifest(patch_manifest_version(value, VERSION)))))
+                value = without_notification_listener(value)
                 value = patch_debug_manifest(patch_updater_manifest(value))
                 value = patch_menu_manifest(patch_connection_theme_manifest(value))
                 value = patch_storage_manifest(value)
+                value = add_manifest_permission(value, "android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION")
             if info.filename == "resources.arsc" and not args.test_only:
                 # This builder reuses a pinned APK; apply current branding here too.
                 value = patch_resources(value)
@@ -375,9 +385,8 @@ def main():
                                            'skip_screen_off_confirmation': {'default': False, 'volume_recovery_preserved': True},
                                            'applies_without_restart': True}
     if not args.test_only:
-        report['notifications'] = {'system_only_intent_inspection_removed': True,
-                                   'tap_action': 'renderer native-app fallback using PendingIntent creator',
-                                   'callbacks_and_access_unchanged': True}
+        report['notifications'] = {'phone_notification_mirroring': False, 'notification_listener_declared': False,
+                                   'pairing_and_session_notifications': True}
     if not args.test_only:
         report['brightness_lock'] = {'forwards_only_zero_nonzero_transitions': True,
                                      'adaptive_brightness_recenter_removed': True,

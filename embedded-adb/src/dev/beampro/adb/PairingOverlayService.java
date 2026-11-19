@@ -32,6 +32,8 @@ public final class PairingOverlayService extends Service {
         }
     };
     @Override public IBinder onBind(Intent intent) { return null; }
+    // Android 14+ can end the short service before our five-minute cleanup timer.
+    @Override public void onTimeout(int startId) { stopSelf(); }
     @Override public void onCreate() {
         super.onCreate();
         NotificationManager manager = getSystemService(NotificationManager.class);

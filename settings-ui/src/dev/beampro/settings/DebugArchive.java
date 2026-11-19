@@ -207,7 +207,7 @@ final class DebugArchive {
                 if(displayTests.hasData()){
                     zip.putNextEntry(new ZipEntry("display-tests.txt"));zip.write(displayTests.report());zip.closeEntry();
                     java.util.ArrayList<File> captures=new java.util.ArrayList<>();
-                    for(String stage:new String[]{"before","stereo","restored"}){
+                    for(String stage:DisplayTestJournal.EXPORT_STAGES){
                         File capture=displayTests.captureFile(stage);if(capture.isFile())captures.add(capture);
                     }
                     writeSnapshots(zip,"display-test-captures.txt",captures.toArray(new File[0]),DisplayDiagnostics.MAX_STARTUP_BYTES,"Guided display test snapshot");

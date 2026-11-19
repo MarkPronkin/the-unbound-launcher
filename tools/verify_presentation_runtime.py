@@ -71,9 +71,11 @@ public class LaunchSpaceAcrivity extends Activity {
 }
 
 MANIFEST = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.presentationtest">
-<uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33"/>
+<uses-sdk android:minSdkVersion="29" android:targetSdkVersion="35"/>
 <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT"/>
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 <application android:name="dev.beampro.presentationtest.PresentationDeviceChecks$App" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:debuggable="true">
 <activity android:name="dev.beampro.presentationtest.PresentationDeviceChecks$Entry" android:exported="true" android:launchMode="singleTask" android:taskAffinity="fixture.entry"/>
@@ -160,6 +162,8 @@ def run_checks(adb,apk,output,surface_loss_negative_control=False):
     subprocess.run([*adb,'install','--no-incremental','-r',str(apk)],check=True)
     subprocess.run([*adb,'shell','appops','set','dev.beampro.presentationtest','SYSTEM_ALERT_WINDOW','allow'],check=True)
     subprocess.run([*adb,'shell','pm','grant','dev.beampro.presentationtest','android.permission.POST_NOTIFICATIONS'],check=True)
+    # An emulator has no USB glasses grant. Use the same Nearby Devices permission the launcher offers.
+    subprocess.run([*adb,'shell','pm','grant','dev.beampro.presentationtest','android.permission.BLUETOOTH_CONNECT'],check=True)
     result=subprocess.run([*adb,'shell','am','instrument','-w','dev.beampro.presentationtest/dev.beampro.presentationtest.PresentationDeviceChecks'],capture_output=True,text=True,timeout=90)
     (output/'android-checks.log').write_text(result.stdout+result.stderr)
     print(result.stdout+result.stderr)

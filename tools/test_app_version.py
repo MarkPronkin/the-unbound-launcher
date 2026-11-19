@@ -12,12 +12,12 @@ class AppVersionTests(unittest.TestCase):
         with ZipFile(root / "artifacts/port-default-m/myglasses-startup-candidate.apk") as source:
             cls.original = source.read("AndroidManifest.xml")
 
-    def test_real_base_and_upgradable_alpha_package(self):
+    def test_real_base_and_upgradable_beta_package(self):
         base = manifest_version(self.original)
         self.assertEqual(base, {"version_name": "2.2.2", "version_code": 2873})
         version = load_version()
-        self.assertEqual(version["version_name"], "0.2.6 alpha")
-        self.assertGreater(version["version_code"], 2971)
+        self.assertEqual(version["version_name"], "0.3.0 beta")
+        self.assertGreater(version["version_code"], 2976)
         updated = patch_manifest_version(self.original, version)
         self.assertEqual(manifest_version(updated), version)
         self.assertEqual(patch_manifest_version(updated, version), updated)

@@ -4,16 +4,27 @@ import subprocess
 import tempfile
 import unittest
 
-from test_display_startup import ROOT, JAVA
+from test_display_startup import ROOT, JAVA, STUBS as DISPLAY_STUBS
 from test_usb_permission import STUBS as USB_STUBS
 
 STUBS = dict(USB_STUBS)
+for name in ('android/view/Display.java','android/hardware/display/DisplayManager.java'):
+    STUBS[name] = DISPLAY_STUBS[name]
 STUBS.update({
     'android/content/Context.java': '''package android.content;public class Context {
       public final android.hardware.usb.UsbManager usb=new android.hardware.usb.UsbManager();
+      public final android.hardware.display.DisplayManager displays=new android.hardware.display.DisplayManager();
       public final ContentResolver resolver=new ContentResolver();public Context getApplicationContext(){return this;}
       public ContentResolver getContentResolver(){return resolver;}
-      public <T>T getSystemService(Class<T> c){return c.cast(usb);}}''',
+      public <T>T getSystemService(Class<T> c){return c.cast(c==android.hardware.display.DisplayManager.class?displays:usb);}}''',
+    'dev/beampro/port/DisplayStartupCompat.java': '''package dev.beampro.port;public class DisplayStartupCompat {
+      static boolean xreal(android.view.Display d){return d.xreal&&d.valid&&d.id>0;}}''',
+    'android/os/SystemClock.java': 'package android.os;public class SystemClock {public static long uptimeMillis(){return System.nanoTime()/1000000;}}',
+    'com/xreal/glasses/api/Control.java': '''package com.xreal.glasses.api;public class Control {
+      public static Control getInstance(){return new Control();}
+      public int nativeGetDpCurrentEdid(){return ai.nreal.nebula.manager.XREALManager.instance.mNRServiceControl.currentMode;}
+      public int nativeGetDpInputMode(){return 0;}public int nativeGetDpWorkingState(){return 1;}
+      public long nativeGetSupportedDisplayModeMask(){return 1023;}public int nativeGet2D3DMode(){return 1;}}''',
     'android/os/Bundle.java': '''package android.os;public class Bundle extends java.util.HashMap<String,Object> {
       public IBinder getBinder(String k){return (IBinder)get(k);}public void putBinder(String k,IBinder v){put(k,v);}
       public void putBoolean(String k,boolean v){put(k,v);}public boolean getBoolean(String k){return Boolean.TRUE.equals(get(k));}
@@ -39,7 +50,8 @@ STUBS.update({
         public final Ping mPingHelper=new Ping();public volatile OnStartSDKCallback callback;
         public final java.util.concurrent.CountDownLatch entered=new java.util.concurrent.CountDownLatch(1);
         public boolean isStartSdk,isEthernetSeries=true,hold,throwOnStart,modeResult=true;
-        public int starts,stops,teardowns;public Runnable duringMode;
+        public int starts,stops,teardowns,currentMode=1,reads;public Runnable duringMode;
+        public int get2D3D(){reads++;return currentMode;}
         public final java.util.List<Integer> modes=new java.util.ArrayList<>();
         public static class Ping {public final android.os.Handler mSdkHandler=new android.os.Handler();}
         public void startBackgroundSdk(OnStartSDKCallback cb){starts++;callback=cb;entered.countDown();
@@ -48,7 +60,7 @@ STUBS.update({
         public boolean set2D3D(int mode){
           if(isEthernetSeries&&dev.beampro.port.GlassesNetworkCompat.open!=1)throw new AssertionError("mode command lacks network lease");
           if(!isStartSdk)throw new AssertionError("mode command before SDK ready");modes.add(mode);
-          if(duringMode!=null){Runnable r=duringMode;duringMode=null;r.run();}return modeResult;}
+          if(duringMode!=null){Runnable r=duringMode;duringMode=null;r.run();}if(modeResult)currentMode=mode;return modeResult;}
         public void stopSdk(){stops++;isStartSdk=false;mPingHelper.mSdkHandler.post(()->teardowns++);}
       }''',
     'ai/nreal/nebula/manager/XREALManager.java': '''package ai.nreal.nebula.manager;
@@ -90,7 +102,7 @@ class DisplayTestsTests(unittest.TestCase):
                 target.write_text(code)
                 sources.append(target)
             sources += [ROOT / 'port-client/src/dev/beampro/port' / name for name in
-                        ('DisplayTestCompat.java', 'FirmwarePolicy.java')]
+                        ('DisplayTestCompat.java', 'FirmwarePolicy.java', 'GlassesModeDiagnostics.java')]
             sources += [ROOT / 'compat/src/dev/beampro/compat/GlassesIdentity.java', ROOT / 'tools/DisplayTestCompatTest.java']
             subprocess.run([str(JAVA / 'bin/javac'), '--release', '8', '-d', tmp, *map(str, sources)], check=True)
             output = subprocess.check_output([str(JAVA / 'bin/java'), '-cp', tmp,

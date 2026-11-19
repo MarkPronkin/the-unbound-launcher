@@ -4,7 +4,7 @@ import hashlib
 from xreal_telemetry import RETURN, file_offset
 
 # After high-performance app handling, before package identity relocation.
-BASELINE_SHA256 = "4bd2767fa12fed592c08653e0ef0b386f2e18be088867a00edf5bd7f375067fd"
+BASELINE_SHA256 = "3dd7daaf399316f1ccbbd43c6ac0fcd2119957da8113fa49411967b12f1cc4f0"
 FIRST_REBUILD = 0x34F6C38
 LAYOUT_CALL = 0x34F6C8C
 REBUILD_LAYOUT = 0x1700588

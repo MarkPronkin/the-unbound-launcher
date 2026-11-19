@@ -2,6 +2,8 @@ package dev.beampro.port;
 
 import android.content.Context;
 import android.hardware.usb.UsbDevice;
+import android.hardware.display.DisplayManager;
+import android.view.Display;
 import android.hardware.usb.UsbManager;
 import android.net.Uri;
 import android.os.Bundle;
@@ -31,7 +33,8 @@ public final class DisplayTestCompat {
     }
     public static void start(Object token,Consumer<Bundle> callback) { ((Session)token).start(callback); }
     public static void mode(Object token,boolean stereo,Consumer<Bundle> callback) { ((Session)token).mode(stereo,callback); }
-    public static void finish(Object token,Consumer<Bundle> callback) { ((Session)token).finish(callback); }
+    public static void finish(Object token,Consumer<Bundle> callback) { ((Session)token).finish(callback,false); }
+    public static void recover(Object token,Consumer<Bundle> callback) { ((Session)token).finish(callback,true); }
     public static boolean attached(Object token) { return ((Session)token).connected(); }
     public static void cancelAutomaticEntry(Context context) throws Exception {
         UsbDevice device=singleDevice(context.getSystemService(UsbManager.class));if(device==null)return;
@@ -67,6 +70,8 @@ public final class DisplayTestCompat {
         volatile boolean closing,preparing,waiting,prepared,ownsSdk,closeQueued,closed;
         volatile Consumer<Bundle> closeCallback;
         UsbDevice device;UsbManager usb;Object sdk;Handler handler;boolean ethernet;String firmwareVersion="";
+        boolean modeAttempted,forceRestore;
+        int originalMode=-1,restoreMode=1,restoreHzMilli;String originalOutput="unavailable";
         Session(Context context){this.context=context;}
         synchronized void start(Consumer<Bundle> callback) {
             if(preparing||waiting||prepared||delivered.get()||closed||closing){callback.accept(result(false,"The display test has already started or stopped",-1));return;}
@@ -113,13 +118,56 @@ public final class DisplayTestCompat {
                 } catch(Exception|LinkageError failure){preparing=waiting=false;if(delivered.compareAndSet(false,true))callback.accept(result(false,message(failure),-1));closeIfPossible();}
             });
         }
-        private void started(boolean ok,Consumer<Bundle> callback) {
+        private synchronized void started(boolean ok,Consumer<Bundle> callback) {
             if(!delivered.compareAndSet(false,true))return;
+            preparing=true;
+            if(handler==null||!handler.post(()->{
+                try {
+                    ethernet=Boolean.TRUE.equals(get(sdk,"isEthernetSeries"));prepared=ok;
+                    if(ok&&!closing)rememberMode();
+                    Bundle answer=result(ok,ok?"Firmware "+firmwareVersion+" accepted; glasses control ready ("+(ethernet?"Ethernet EDID":"legacy display mode")
+                            +"); originalMode="+originalMode+"; originalOutput="+originalOutput+"; restoreMode="+restoreMode+"; control={"+observedControl(true)+"}"
+                            :"Glasses control could not start. Reconnect and try again.",-1);
+                    answer.putInt("restore_mode",restoreMode);answer.putInt("restore_hz_milli",restoreHzMilli);
+                    callback.accept(answer);
+                } catch(Exception|LinkageError failure){callback.accept(result(false,message(failure),-1));}
+                finally{preparing=false;closeIfPossible();}
+            })) {preparing=false;callback.accept(result(false,"The glasses control worker stopped. Reconnect the glasses.",-1));closeIfPossible();}
+        }
+        private int readMode() throws Exception {
+            requireDevice();GlassesNetworkCompat.Lease lease=GlassesNetworkCompat.select(context);
+            try {requireDevice();int value=((Number)call(sdk,"get2D3D",new Class<?>[0])).intValue();requireDevice();return value;}
+            finally{if(lease!=null)lease.close();}
+        }
+        private String observedMode() {
+            try{return String.valueOf(readMode());}catch(Exception|LinkageError unavailable){return "unavailable:"+unavailable.getClass().getSimpleName();}
+        }
+        private String observedControl(boolean capabilities) {
+            GlassesNetworkCompat.Lease lease=null;
             try {
-                ethernet=Boolean.TRUE.equals(get(sdk,"isEthernetSeries"));prepared=ok;
-                callback.accept(result(ok,ok?"Firmware "+firmwareVersion+" accepted; glasses control ready ("+(ethernet?"Ethernet EDID":"legacy display mode")+")":"Glasses control could not start. Reconnect and try again.",-1));
-            } catch(Exception failure){callback.accept(result(false,message(failure),-1));}
-            closeIfPossible();
+                requireDevice();lease=GlassesNetworkCompat.select(context);
+                Object control=Class.forName("com.xreal.glasses.api.Control").getMethod("getInstance").invoke(null);
+                String value=GlassesModeDiagnostics.state(control,ethernet,capabilities);requireDevice();return value;
+            } catch(Exception|LinkageError unavailable){return "unavailable:"+unavailable.getClass().getSimpleName();}
+            finally{if(lease!=null)lease.close();}
+        }
+        private void rememberMode() {
+            try {
+                originalMode=readMode();
+                DisplayManager manager=context.getSystemService(DisplayManager.class);Display found=null;
+                if(manager==null)return;
+                for(Display display:manager.getDisplays())if(DisplayStartupCompat.xreal(display)){
+                    if(found!=null){originalOutput="ambiguous";return;}found=display;
+                }
+                if(found==null)return;
+                Display.Mode mode=found.getMode();float hz=mode.getRefreshRate();
+                originalOutput=mode.getPhysicalWidth()+"x"+mode.getPhysicalHeight()+"@"+hz+"; display="+found.getDisplayId();
+                boolean mono=ethernet?(originalMode>=1&&originalMode<=4)||originalMode==9
+                        :originalMode==1||originalMode>=5&&originalMode<=8||originalMode==10;
+                if(mono&&found.getState()==Display.STATE_ON&&mode.getPhysicalWidth()==1920&&mode.getPhysicalHeight()==1080&&hz>=30&&hz<=240){
+                    restoreMode=originalMode;restoreHzMilli=Math.round(hz*1000);
+                }
+            } catch(Exception|LinkageError unavailable){originalOutput="unavailable:"+unavailable.getClass().getSimpleName();}
         }
         void mode(boolean stereo,Consumer<Bundle> callback) {
             final int mode=stereo?(ethernet?5:3):1;
@@ -128,9 +176,12 @@ public final class DisplayTestCompat {
             if(!worker.post(()->{
                 try {
                     if(closing)throw new IllegalStateException("The display test has stopped");
-                    boolean ok=setMode(mode);
-                    callback.accept(result(ok,ok?(ethernet?"Ethernet EDID ":"Legacy mode ")+mode+" returned true"
-                            :"The glasses rejected the "+(stereo?"SBS":"2D")+" display request",mode));
+                    String before=observedMode();long start=android.os.SystemClock.uptimeMillis();
+                    modeAttempted=true;boolean ok=setMode(mode);
+                    long duration=android.os.SystemClock.uptimeMillis()-start;
+                    String after=observedMode();
+                    callback.accept(result(ok,(ethernet?"Ethernet EDID ":"Legacy mode ")+mode+" returned "+ok
+                            +"; beforeMode="+before+"; afterMode="+after+"; writeMs="+duration+"; control={"+observedControl(false)+"}",mode));
                 } catch(Exception|LinkageError failure){callback.accept(result(false,message(failure),mode));}
             }))callback.accept(result(false,"The glasses control worker stopped. Reconnect the glasses.",mode));
         }
@@ -143,10 +194,10 @@ public final class DisplayTestCompat {
                 requireDevice();return ok;
             } finally {if(lease!=null)lease.close();}
         }
-        synchronized void finish(Consumer<Bundle> callback) {
+        synchronized void finish(Consumer<Bundle> callback,boolean force) {
             if(closed){callback.accept(result(true,"Display test is closed",1));return;}
             if(closeCallback!=null)return;
-            closing=true;closeCallback=callback;closeIfPossible();
+            closing=true;forceRestore=force;closeCallback=callback;closeIfPossible();
         }
         private synchronized void closeIfPossible() {
             if(!closing||closed||closeQueued||preparing||waiting)return;
@@ -156,8 +207,11 @@ public final class DisplayTestCompat {
                 Bundle restored;
                 try {
                     boolean ready=Boolean.TRUE.equals(get(sdk,"isStartSdk"));
-                    boolean ok=ready?setMode(1):!prepared;
-                    restored=result(ok,ready?"Return to 2D (mode 1) returned "+ok:"Control startup did not change the display mode",1);
+                    boolean needed=modeAttempted||forceRestore;
+                    boolean ok=ready&&needed?setMode(restoreMode):!needed||!prepared;
+                    restored=result(ok,!needed?"No mode command was issued; original output retained"
+                            :ready?"Return to 2D (mode "+restoreMode+") returned "+ok+"; afterMode="+observedMode()+"; control={"+observedControl(false)+"}"
+                            :"Control startup did not change the display mode",restoreMode);
                 } catch(Exception|LinkageError failure){restored=result(false,message(failure),1);}
                 try {if(ownsSdk)call(sdk,"stopSdk",new Class<?>[0]);}
                 catch(Exception|LinkageError failure){restored=result(false,message(failure),1);}

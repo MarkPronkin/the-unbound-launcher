@@ -210,3 +210,288 @@ with that test; the launcher component alone does not establish its value.
 This retest changes the evidence, not the supported display modes. No runtime
 patch or new APK is produced from it. A mono AR fallback or return to 2D on
 failure remains separate implementation work requiring hardware validation.
+
+## Guided display retest on 0.2.6 alpha, build 2972
+
+Two November 11 exports reproduce the failure on **Nubia NX809J, Android 16,
+XREAL One Pro**, with the same accepted firmware
+**1.9.1.20260914175625**:
+
+- `unbound-debug-20261111-195135-1b98ac5e.zip`
+- `unbound-debug-20261111-195501-5a95e52b.zip`
+
+The archives and unmodified extractions are retained under
+`artifacts/nubia-nx809j-onepro-2972/`, with archive hashes and checked event
+counts in `evidence.json`. Times below are UTC on November 11; the device
+renders these as November 12 in UTC+5.
+
+**The new finding is that the independent 2D EDID switch also loses native
+output. The guided SBS test never reaches its stereo command.** This narrows
+the problem to display-mode negotiation before AR rendering, without proving
+whether the phone driver, glasses firmware, EDID contents or physical link
+causes the fallback.
+
+### One AR attempt retained in both exports
+
+`app.log`, `glasses-startup.txt`, `glasses-control-trace.txt` and
+`display-startup.txt` are byte-identical between the archives. The first-failure
+and recent-timeline sections also repeat the same startup events. There is
+**one distinct AR attempt**, `1a1cc295ac9-1`, rather than two independent
+attempts:
+
+- `export-1/glasses-startup.txt:28–32`: recommended firmware is accepted;
+  SDK startup begins at **19:50:26.256**, with display 45 offering only
+  **1920 × 1080 / 120 Hz**.
+- `:35–39`: the external display disappears at **19:50:26.626**; SDK result
+  0 follows. Display 46 returns at **19:50:28.642** with only
+  **640 × 480 / 60 Hz**, then turns on.
+- `:40`: startup times out at **19:51:11.692** with the same VGA-only
+  physical mode list. The export contains no renderer geometry sample or
+  immersive Presentation capture.
+
+USB access is granted. The app-owned control socket reaches `ESTABLISHED`
+from `169.254.2.10` to `169.254.2.1:52999` and its send queue drains
+(`export-1/glasses-control-trace.txt:17–29`). App-UID interface-bound pings
+receive all three replies at each retained network snapshot. These observations
+support a working control transport; they do not identify individual firmware
+requests or establish display-link correctness.
+
+### A 2D request independently causes the same fallback
+
+The second export adds guided-test history (`export-2/display-tests.txt`):
+
+- `:4–8`: a connection check at **19:53:37.546** and the start of the 2D
+  test at **19:53:43.559** observe a new display 47 at
+  **1920 × 1080 / 120 Hz**. The history does not record how this native
+  output was restored between checks.
+- `:9–15`: control preparation succeeds. At **19:53:43.803**, the test
+  requests **1920 × 1080 / 60 Hz**, and **Ethernet EDID 1 returns true**.
+  The display disappears at **19:53:44.079** and is replaced by display 48
+  at **640 × 480 / 60 Hz** at **19:53:45.851**. No native mode is advertised.
+- `:16–19`: recovery repeats mode 1 and also returns true, but the
+  observed output stays VGA. At **19:54:16.118**, recovery completes with
+  `restored=false` and requests a physical reconnect.
+- `:20–30`: the subsequent **3D SBS test** starts from VGA, requests the
+  same 2D baseline, and is stopped before reaching stereo. Its recovery
+  again returns true without restoring native output. There is **no
+  `REQUEST SBS` or mode-5 command** in the guided-test history, and no test
+  pattern or wearer feedback is recorded.
+
+`DisplayTestCompat` prepares the background control client without selecting
+an EDID or launching Unity, then sends `set2D3D(1)` for the baseline.
+`DisplayTestRun` requires stable 1080p60 before capturing that baseline and
+requesting SBS. Thus this export demonstrates a 2D-switch failure independent
+of AR rendering; it does **not** measure the outcome of the guided stereo
+request. Ordinary AR startup still fails separately as described above.
+
+### The missing modes remain below app mode selection
+
+The final connected SurfaceFlinger dump lists only VGA for the external
+display. Qualcomm SDM reports **one configuration**, a **640 × 480** display
+and mixer, and an **800 × 525** total timing at **25.175 MHz**
+(`export-2/surfaceflinger.txt:1733–1745`). The retained startup snapshot likewise
+lists only VGA in DisplayManager and SurfaceFlinger. Selecting a preferred
+mode or relaxing the AR readiness check cannot recover a native timing that
+the hardware composer does not expose.
+
+Selected system logs remain empty; kernel filtering yields no useful link
+messages. Android denies `dmesg` and DRM connector/EDID reads. Consequently,
+the evidence does not establish why native modes disappear or that 60 Hz
+itself is unsupported. An EDID change, hotplug sequence or link/firmware
+interaction could produce the same observation.
+
+The next isolation test should start with a fresh connection at the observed
+1080p120 timing and test the glasses' own full-SBS switch outside Unbound AR,
+capturing the connected physical mode list. A future app diagnostic should
+also allow testing SBS from that existing native baseline without first
+requiring the failing EDID-1 transition. Recovery to the original working
+timing requires separate implementation and hardware validation; repeating
+mode 1 is demonstrably insufficient in this capture.
+
+This investigation updates the report only. No runtime fix or APK is produced:
+the logs establish the failure stage, but do not establish a working replacement
+mode or switch sequence. Existing guided-display host tests validate the
+command selection and baseline gate; they cannot validate this phone's
+display negotiation.
+
+## Additional fresh-connection capture and diagnostic candidate, build 2973
+
+`unbound-debug-20261111-200434-d2160715.zip` extends the same build-2972
+session. The retained AR startup evidence is still byte-identical to the first
+export. Its guided history contains 16 checks/tests, nine 2D-baseline requests,
+nine unconfirmed recoveries and no SBS request. The final SBS-labelled run
+starts from **1920 × 1080 / 120 Hz** at **20:02:46.311 UTC**, sends EDID 1
+at **20:02:46.588**, and observes only VGA at **20:02:48.599**. This repeats
+the baseline failure on a fresh native connection.
+
+The supplied `Screenrecorder-20261112-010243.mp4` starts with the phone's
+Current output field showing **1920 × 1080 / 120 Hz**. The older failure
+message remains visible beneath it. Starting the old test removes the display,
+then shows VGA and an unsuccessful recovery. This corroborates the phone's
+reported physical timing; the recording does not capture the optical glasses
+image or establish working stereo. Both the third export and its provenance
+are retained alongside the earlier local evidence.
+
+The local **0.2.7 alpha / build 2973** candidate changes the diagnostic path:
+
+- SBS testing saves the existing connected display snapshot, accepts stable
+  native 1080p 2D at its existing refresh rate, and requests SBS directly. It
+  does not first force the failing 1080p60 baseline. The separate 2D60 test
+  remains available and also captures its original output before switching.
+- Control preparation reads the original SDK mode on the SDK worker. When
+  that mode is a known mono code and the physical output is active native
+  1080p, test cleanup requests the saved mode and verifies its original refresh
+  rate. Unknown/non-native initial output retains the existing mode-1 fallback.
+  Cancelling a test before any write leaves the original mode untouched;
+  the explicit Return to 2D action still issues a recovery request.
+- Test history records original mode/output, recovery target, command timing,
+  SDK mode readbacks, firmware input/working state and the supported-mode mask
+  when those native getters are available. Getter failures are retained as
+  unavailable data rather than treated as a successful read.
+- With debug collection enabled, three scoped native-write observers inside
+  the SDK's `set2D3D` retain EDID, input-mode and legacy commands, arguments,
+  original/read-back state, individual boolean results and elapsed time in
+  `glasses-startup.txt`, independently of app logcat. Input-mode failure is
+  therefore visible even when the SDK returns EDID-setting success. The
+  observers preserve native write order, arguments, results and exceptions;
+  they query state before writes so a failed write's native error remains
+  available to the SDK's own error check. Request events precede those getters
+  so a stalled diagnostic read still leaves evidence.
+- The first failed guided test's before/switched/recovery snapshots are pinned
+  beside the latest test's snapshots, within the 15 MB export cap. The existing
+  `stereo` slot also holds the post-switch snapshot for a 2D test; each capture
+  now records its actual test kind and phase. A failed original snapshot aborts
+  the test instead of issuing a switch with no baseline evidence.
+- AR startup reports persistent VGA-only output after ten seconds of continuous
+  observation when no native timing is advertised. Transient hotplug, a native
+  advertised mode or a successful handoff keeps the original readiness path.
+  The report also includes the Android build fingerprint and security patch.
+
+These changes improve isolation and recovery; they do not establish a working
+AR switch on the NX809J. The automatic AR selector and native libraries are
+unchanged. Android's restrictions on raw connector EDID and driver logs still
+apply, so the next capture may narrow the cause without exposing the driver's
+exact rejection reason.
+
+### Reporter retest with this candidate
+
+1. Install build 2973. Enable Debug mode and log collection before reproducing
+   the problem, and open Help → Display tests before reconnecting the glasses.
+2. Reconnect directly and wait until Current output shows native 1080p. Run
+   **Test 3D · SBS 60 Hz first**, keep the page open through automatic recovery,
+   and record pattern feedback if a pattern appears.
+3. Create the debug file while the glasses remain connected. This captures
+   the saved original mode, direct stereo request, individual native command
+   results, physical mode changes and the attempt to restore the original mode.
+4. If testing 2D60 too, reconnect to native output first and export again after
+   that test. The pinned first failure remains available alongside the latest
+   test. A separate normal AR attempt with collection enabled also records the
+   SDK's individual EDID/input commands without relying on app logcat.
+
+At delivery, the candidate was local only and had not been tested on the
+reporter's hardware. The subsequent reporter retest is recorded below.
+
+Candidate validation passes **16 targeted host regression tests** plus the final
+archive-capacity checks, including six full guided snapshots within the 15 MB
+export limit and a late recovery capture updating the pinned failed run.
+The full signed-APK audit passes: signature/alignment, no duplicate classes,
+matching bundled sources, and exact reversal of the scoped SDK hooks. All
+**88 native libraries** are byte-identical to released 0.2.6, and its signing
+certificate matches, allowing an in-place update. The APK, checksum, audit logs
+and validation receipt are in `artifacts/unbound-launcher-nubia-modes-2973/`.
+No APK was installed on a phone or published by this task.
+
+## Reporter retest on build 2973: recovery confirmed, stereo still blocked
+
+The reporter supplied `unbound-debug-20261111-214528-52d5521d.zip` and
+`unbound-debug-20261111-214605-86e0f501.zip`, both from **0.2.7 alpha / 2973**.
+The Android fingerprint identifies the NX809J's REDMAGIC Android 16 build
+`20261021.232226`, with security patch **2026-10-01**. Firmware remains
+**1.9.1.20260914175625**.
+
+Unmodified exports and archive hashes are retained locally under
+`artifacts/nubia-nx809j-onepro-2973/`. Its `evidence.json` checks the event counts,
+snapshot modes and deduplicated attempt IDs. Line references below use
+`export-1/`; all times are November 11 UTC (November 12 in device-local UTC+5).
+
+The two ZIPs contain byte-identical startup events, guided-test history, control
+trace and six guided snapshots. They describe **one normal AR attempt, two
+2D tests, one explicit recovery and one direct SBS test**, rather than two
+independent retests. Only final export-time diagnostics differ.
+
+### Original-mode recovery now works on this phone
+
+Every prepared guided session reports **original EDID 9**, physical
+**1920 × 1080 / 120 Hz**, firmware input mode **0**, and recovery target **9**.
+Both 2D60 tests still fall back to VGA, but restoring EDID 9 returns physical
+1080p120 without an intervening recorded disconnect. The SBS test recovers in
+the same way. All four recovery completions report `restored=true`, including
+the separate Return to 2D action.
+
+The retained first-failure snapshots show the first 2D test's native output,
+VGA failure and recovered native output. The latest snapshots independently
+show the same three states for the direct SBS test. DisplayManager,
+SurfaceFlinger and Qualcomm SDM agree: native/recovered output uses one
+1920 × 1080 configuration at 120 Hz, with 2200 × 1125 total timing and a
+297 MHz pixel clock; each failed switch exposes one VGA configuration at
+60 Hz, with 800 × 525 totals and a 25.175 MHz clock. This validates the
+original-mode recovery against connected physical/compositor evidence; it
+does not establish AR rendering or optical correctness.
+
+### Direct SBS also fails after both native commands succeed
+
+Normal AR at **21:43:12** requests EDID **5**, then input mode **1** with
+flags **0**. Both native setters return true. SDK result 0 follows while the
+external display is absent. Persistent VGA-only output then triggers the new
+specific failure at **21:43:25.403**, about thirteen seconds after SDK startup.
+
+The guided SBS run (`1a1cc923763-5`) confirms this independently of Unity:
+
+- **21:44:57.193:** EDID 9 and active 1080p120 are recorded before switching.
+- **21:45:00.255:** the test requests **3840 × 1080 / 60 Hz** directly from
+  the existing native baseline; no 2D60 request precedes it.
+- The EDID-5 write returns true in **38 ms**, and the separate input-mode
+  `(1, 0)` write returns true in **23 ms**. The immediate readback reports
+  input **1** and working state **1**.
+- **21:45:02.540:** display 95 appears with only **640 × 480 / 60 Hz**.
+  Its connected compositor snapshot likewise contains no native timing.
+- **21:45:12.453:** immediately before recovery, firmware readback reports
+  **EDID 5 / input 1**. This narrows the failure beyond a rejected or omitted
+  input-mode command: the requested firmware state is observable while the
+  phone still exposes only VGA.
+- **21:45:12.436–15.739:** restoring EDID 9 returns display 96 to native
+  **1080p120**, and physical recovery is confirmed after a stable interval.
+
+The immediate EDID readback is **0** during several transitions, including
+successful recovery to mode 9. Later reads return the intended mode (1 after
+2D60, 5 after SBS, 9 at subsequent native preparation). Zero therefore cannot
+be treated as proof of a wrong mode number or rejected command. Similarly,
+the raw supported-mode-mask getter returns **−1**; it supplies no reliable
+enumeration of alternative timings for this investigation.
+
+### What this establishes and what remains unknown
+
+The new diagnostics and recovery behave as intended on the reporter's phone.
+The test no longer blocks stereo behind a forced 2D60 baseline, and the
+individual command results rule out the suspected hidden input-setter failure
+in these attempts. The control trace's app-owned socket establishes and its
+queues drain; interface-bound pings again receive all three replies.
+
+AR and direct SBS remain blocked by missing native physical modes. The
+compositor offers only VGA after either requested mode 1 or mode 5, despite
+accepted control writes and the later matching firmware mode readback. Raw
+connector EDID reads and `dmesg` are still denied, and selected driver logs
+remain empty, so the capture cannot identify malformed/different EDID data,
+phone-driver timing rejection or a link/firmware interaction as the exact cause.
+
+EDID 9 / native 1080p120 is now a hardware-validated recovery target. A 120 Hz
+mono AR compatibility path is a concrete workaround to investigate, but it
+would also need a matching Unity rendering mode and lifecycle handling. The
+working phone-output recovery does not establish that such an AR path already
+works. Another useful discriminator remains the glasses' full-SBS output on
+the same phone outside Unbound's SDK-controlled transition, with its connected
+physical mode list retained.
+
+This follow-up records the new evidence and hardware recovery result. It does
+not produce another APK or claim a stereo/AR fix; repeating the same 2D60 or
+SBS60 tests on build 2973 would not resolve the remaining EDID/driver question.

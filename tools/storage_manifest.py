@@ -7,6 +7,10 @@ PERMISSION = "android.permission.MANAGE_EXTERNAL_STORAGE"
 
 
 def patch_storage_manifest(original):
+    return add_manifest_permission(original, PERMISSION)
+
+
+def add_manifest_permission(original, permission):
     nodes = list(chunks(original))
     _, pool_at, _, pool_size = next(node for node in nodes if node[0] == 1)
     pool = original[pool_at:pool_at + pool_size]
@@ -26,7 +30,7 @@ def patch_storage_manifest(original):
         for index in range(count):
             position = at + header + offset + index * stride
             if strings[struct.unpack_from("<I", original, position + 4)[0]] == "name" and original[position + 15] == 3 \
-                    and strings[struct.unpack_from("<I", original, position + 16)[0]] == PERMISSION:
+                    and strings[struct.unpack_from("<I", original, position + 16)[0]] == permission:
                 return original
     if len(applications) != 1:
         raise ValueError("Expected one application element")
@@ -42,7 +46,7 @@ def patch_storage_manifest(original):
         if existing not in strings:
             raise ValueError("Missing manifest string: " + existing)
     ns, name, tag, value = (index(item) for item in (
-        "http://schemas.android.com/apk/res/android", "name", "uses-permission", PERMISSION))
+        "http://schemas.android.com/apk/res/android", "name", "uses-permission", permission))
     # <uses-permission> belongs to <manifest>, so it goes directly before <application>.
     begin = struct.pack("<HHIII", 0x102, 16, 56, 0, 0xFFFFFFFF)
     begin += struct.pack("<IIHHHHHH", 0xFFFFFFFF, tag, 20, 20, 1, 0, 0, 0)

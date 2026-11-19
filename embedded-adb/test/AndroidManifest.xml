@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="dev.beampro.adbtest" android:versionCode="1" android:versionName="0.1">
-    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="33" />
+    <uses-sdk android:minSdkVersion="30" android:targetSdkVersion="35" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
@@ -14,7 +14,7 @@
         </activity>
         <activity android:name="dev.beampro.settings.PermissionSetupActivity" android:exported="false" />
         <activity-alias android:name="ai.nreal.nebula.activity.splash.SplashActivity" android:targetActivity="dev.beampro.adb.SetupEntryActivity" android:exported="false" />
-        <service android:name="dev.beampro.adb.PairingOverlayService" android:exported="false" />
+        <service android:name="dev.beampro.adb.PairingOverlayService" android:exported="false" android:foregroundServiceType="shortService" />
         <provider android:name="dev.beampro.adb.LocalBridgeProvider" android:authorities="dev.beampro.adbtest.bridge" android:exported="true" android:process=":unbound_bridge" />
     </application>
     <instrumentation android:name="dev.beampro.adb.AdbDeviceChecks" android:targetPackage="dev.beampro.adbtest" />

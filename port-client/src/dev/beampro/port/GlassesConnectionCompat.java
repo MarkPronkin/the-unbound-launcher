@@ -359,7 +359,8 @@ public final class GlassesConnectionCompat {
         FirmwarePolicy.Result firmwareResult;
         Session waitingFor;
         boolean preparing, success, checkingDisplay, handoffFinished, usbReconfiguration;
-        long mtpSince, readySince;
+        long mtpSince, readySince, fallbackSince=-1;
+        int fallbackDisplay=-1;
         int resumes;
         String phase = "Waiting for glasses USB access";
         ConnectionAnimation animation;
@@ -550,7 +551,12 @@ public final class GlassesConnectionCompat {
                     fail("Connection timed out while " + phase.toLowerCase() + ". Unplug and reconnect the glasses, then try again."); return;
                 }
                 if (!firmwareAccepted) { MAIN.postDelayed(this,250);return; }
-                if (sdkReady) { MAIN.postDelayed(this, 250); return; }
+                if (sdkReady) {
+                    if((handoff==null||!handoff.isReady())&&fallbackOnly(now)) {
+                        fail("The glasses switched to 640 × 480 and the phone exposes no native 1080p mode. Unplug and reconnect the glasses. Run Display tests in Help and share a new debug file.");return;
+                    }
+                    MAIN.postDelayed(this, 250); return;
+                }
                 if ((Boolean) get(presenter, "hasMTP")) {
                     if (mtpSince == 0) { mtpSince = now; stage("Waiting for glasses to reconnect"); }
                     // The USB handler Activity was deliberately removed from the port.
@@ -573,6 +579,25 @@ public final class GlassesConnectionCompat {
                 }
             } catch (Exception error) { error("Cannot finish the glasses connection. Reconnect them and try again.", error); return; }
             if (active()) MAIN.postDelayed(this, 250);
+        }
+        /** A transient hotplug is normal; persistent VGA without any native timing cannot start AR. */
+        boolean fallbackOnly(long now) {
+            Display found=null;
+            for(Display display:displays.getDisplays())if(DisplayStartupCompat.xreal(display)){
+                if(found!=null){fallbackSince=-1;return false;}found=display;
+            }
+            if(found==null||found.getState()!=Display.STATE_ON){fallbackSince=-1;return false;}
+            Display.Mode current=found.getMode();
+            if(current==null||current.getPhysicalWidth()!=640||current.getPhysicalHeight()!=480){fallbackSince=-1;return false;}
+            Display.Mode[] modes=found.getSupportedModes();
+            if(modes==null||modes.length==0){fallbackSince=-1;return false;}
+            for(Display.Mode mode:modes)if(mode.getPhysicalHeight()==1080
+                    &&(mode.getPhysicalWidth()==1920||mode.getPhysicalWidth()==3840)){fallbackSince=-1;return false;}
+            if(fallbackSince<0||fallbackDisplay!=found.getDisplayId()){
+                fallbackSince=now;fallbackDisplay=found.getDisplayId();
+                debug("fallback_only","Physical output is VGA; no native timing advertised; observing for 10000 ms");
+            }
+            return now-fallbackSince>=10000;
         }
         void checkDisplay() {
             boolean ready = false;

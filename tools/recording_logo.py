@@ -4,7 +4,7 @@ import hashlib
 from xreal_telemetry import file_offset
 
 # After anchored-window placement, before package identity relocation.
-BASELINE_SHA256 = "4e4666af45defde5017a836003c8b36102bd1fa1a9988f7b65f13918bb58bec1"
+BASELINE_SHA256 = "48057625f712a3154982f5c3331daefac839ba4f9a88c8b63248286c44010da1"
 TARGETS = (
     {"name": "VideoRecordView.Start: pass no sprite to the video logo builder",
      "address": 0xF0B22C, "original": "e10318aa", "replacement": "e1031faa"},

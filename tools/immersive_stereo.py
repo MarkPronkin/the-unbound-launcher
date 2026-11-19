@@ -12,7 +12,7 @@ from xreal_telemetry import RETURN, file_offset
 
 ROOT = Path(__file__).resolve().parents[1]
 CODE_ADDRESS = 0x12CFCFC
-BASELINE_SHA256 = "1b161e15cec73aef9b01b9a1944b13b58fdddfa233a186536a63269dc4acfefd"
+BASELINE_SHA256 = "a5a750d98f72824287ebf747e0111577f15d3da7d79f7e7f7ab2310c4c7c0d47"
 MODES = {1: "Half SBS", 2: "Full SBS", 3: "Half Top/Bottom"}
 SHADERS = {
     "assets/bin/Data/9170089354b04c2409fde6362cb92e81": "b015288f93924385309a30f1fda39b58897c54219fd2799344b53f3410a0135a",

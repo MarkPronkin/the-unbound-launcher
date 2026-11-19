@@ -1,60 +1,95 @@
 package dev.beampro.notificationchecks;
 
-import android.app.*;
-import android.content.*;
+import android.app.Activity;
+import android.app.Instrumentation;
+import android.app.NotificationManager;
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
-import java.lang.reflect.*;
+import java.lang.reflect.Array;
+import java.util.List;
 
-/** Exercise the APK's notification adapter and post a real cross-app tap action. */
+/** Exercise the installed launcher, including its own foreground pairing notification. */
 public final class NotificationDeviceChecks extends Instrumentation {
-    private Bundle arguments;
-    public static final class HostActivity extends Activity { }
-    @Override public void onCreate(Bundle args) { arguments=args; start(); }
+    @Override public void onCreate(Bundle args) {
+        super.onCreate(args);
+        start();
+    }
+
     @Override public void onStart() {
-        Bundle result=new Bundle();
+        Context context = getTargetContext();
+        String pkg = context.getPackageName();
+        Intent service = new Intent().setClassName(pkg, "dev.beampro.adb.PairingOverlayService").setAction("notification");
+        Activity screen = null;
+        Bundle result = new Bundle();
         try {
-            Context context=getTargetContext();
-            NotificationManager manager=context.getSystemService(NotificationManager.class);
-            manager.createNotificationChannel(new NotificationChannel("checks","Launcher notification checks",NotificationManager.IMPORTANCE_DEFAULT));
-            PendingIntent activity=PendingIntent.getActivity(context,1,new Intent(context,HostActivity.class),PendingIntent.FLAG_IMMUTABLE);
-            Notification notice=new Notification.Builder(context,"checks").setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(arguments.getString("title","Unbound app notification test"))
-                    .setContentText("A real app notification with a tap action")
-                    .setContentIntent(activity).build();
-            if ("post".equals(arguments.getString("mode"))) {
-                manager.notify("unbound-check",42,notice);
-                result.putString("stream","Posted app notification with activity PendingIntent\n"); finish(-1,result); return;
+            PackageManager pm = context.getPackageManager();
+            require(pm.queryIntentServices(new Intent(NotificationListenerService.SERVICE_INTERFACE).setPackage(pkg), 0).isEmpty(),
+                    "Android can still discover a notification listener");
+            try {
+                pm.getServiceInfo(new ComponentName(pkg, "com.xreal.evapro.NotifyService"), 0);
+                throw new AssertionError("Reader service is registered");
+            } catch (PackageManager.NameNotFoundException expected) {}
+
+            ClassLoader loader = context.getClassLoader();
+            Class<?> legacy = loader.loadClass("ai.nreal.android.nebulaspaceproxy.NebulaNotificationListenerService");
+            require(!NotificationListenerService.class.isAssignableFrom(legacy), "Legacy adapter is a listener");
+            require(Boolean.FALSE.equals(legacy.getMethod("isNotificationListenerEnabled", Context.class).invoke(null, context)),
+                    "Legacy read access enabled");
+            legacy.getMethod("openNotificationListenSettings", Context.class).invoke(null, (Object) null);
+            legacy.getMethod("startService", Activity.class).invoke(null, (Object) null);
+            Class<?> helper = loader.loadClass("com.xreal.evapro.NotifyHelper");
+            Object adapter = helper.getMethod("getInstance").invoke(null);
+            helper.getMethod("init", Context.class).invoke(adapter, (Object) null);
+            require(Array.getLength(helper.getMethod("getActiveNotifications").invoke(adapter)) == 0,
+                    "Renderer received notifications");
+
+            Class<?> setup = loader.loadClass("dev.beampro.settings.PermissionSetupActivity");
+            boolean postingOption = false;
+            for (Object option : (List<?>) setup.getMethod("accesses", Context.class).invoke(null, context)) {
+                String key = (String) option.getClass().getField("key").get(option);
+                require(!"notification_access".equals(key), "Setup offers listener access");
+                if ("notifications".equals(key)) postingOption = true;
             }
-            if ("cancel".equals(arguments.getString("mode"))) {
-                manager.cancelAll(); result.putString("stream","Cancelled test notifications\n"); finish(-1,result); return;
+            require(postingOption, "Setup is missing the app notification option");
+            screen = startActivitySync(new Intent().setClassName(pkg, setup.getName()).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            waitForIdleSync();
+            Activity active = screen;
+            runOnMainSync(() -> active.startForegroundService(service));
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            long deadline = SystemClock.elapsedRealtime() + 12000;
+            while (!pairingNotificationPosted(manager, pkg)) {
+                require(SystemClock.elapsedRealtime() < deadline, "Pairing notification missing");
+                SystemClock.sleep(100);
             }
-            Class<?> helperClass=Class.forName("com.xreal.evapro.NotifyHelper");
-            Class<?> infoClass=Class.forName("com.xreal.evapro.NotifyInfo");
-            Object helper=helperClass.getMethod("getInstance").invoke(null);
-            Field contextField=helperClass.getDeclaredField("mContext");contextField.setAccessible(true);contextField.set(helper,context);
-            Method getIntent=helperClass.getMethod("getIntent",infoClass);
-            int checks=0;
-            PendingIntent broadcast=PendingIntent.getBroadcast(context,2,new Intent("dev.beampro.CHECK"),PendingIntent.FLAG_IMMUTABLE);
-            PendingIntent service=PendingIntent.getService(context,3,new Intent("dev.beampro.CHECK").setPackage(context.getPackageName()),PendingIntent.FLAG_IMMUTABLE);
-            for(PendingIntent action:new PendingIntent[]{null,activity,broadcast,service}) {
-                Notification notification=new Notification.Builder(context,"checks").setSmallIcon(android.R.drawable.ic_dialog_info)
-                        .setContentTitle("Notification check").setContentText("Keep notification delivery independent of tap-action inspection")
-                        .setContentIntent(action).build();
-                StatusBarNotification sbn=new StatusBarNotification(context.getPackageName(),context.getPackageName(),42,"checks",
-                        android.os.Process.myUid(),android.os.Process.myPid(),0,notification,android.os.Process.myUserHandle(),System.currentTimeMillis());
-                Object info=infoClass.getConstructor(Context.class,StatusBarNotification.class).newInstance(context,sbn);
-                if(getIntent.invoke(helper,info)!=null)throw new AssertionError("Use the renderer's native-app fallback");
-                if(!"Notification check".equals(infoClass.getMethod("getTitle").invoke(info)))throw new AssertionError("Title changed");
-                if(!context.getPackageName().equals(infoClass.getMethod("getPackageName").invoke(info)))throw new AssertionError("Package changed");
-                Object creator=helperClass.getMethod("getCreatorPackage",infoClass).invoke(helper,info);
-                if(action==null?creator!=null:!context.getPackageName().equals(creator))throw new AssertionError("Native-app tap target lost");
-                checks+=4;
+            result.putString("stream", "PASS notification checks: zero listeners, empty renderer adapter, setup and pairing notification verified\n");
+        } catch (Throwable failure) {
+            result.putString("stream", "FAIL " + android.util.Log.getStackTraceString(failure) + "\n");
+        } finally {
+            context.stopService(service);
+            if (screen != null) {
+                Activity active = screen;
+                runOnMainSync(active::finish);
             }
-            result.putString("stream","PASS notification adapter checks: "+checks+"\n");finish(-1,result);
-        } catch(Throwable failure) {
-            while(failure instanceof InvocationTargetException)failure=((InvocationTargetException)failure).getCause();
-            result.putString("stream","FAIL notification adapter: "+failure+"\n");finish(1,result);
         }
+        finish(result.getString("stream").startsWith("PASS") ? -1 : 1, result);
+    }
+
+    private static boolean pairingNotificationPosted(NotificationManager manager, String pkg) {
+        for (StatusBarNotification entry : manager.getActiveNotifications()) {
+            if (entry.getId() == 7318 && pkg.equals(entry.getPackageName())
+                    && "unbound-adb-pairing".equals(entry.getNotification().getChannelId())
+                    && entry.getNotification().actions != null) return true;
+        }
+        return false;
+    }
+
+    private static void require(boolean condition, String failure) {
+        if (!condition) throw new AssertionError(failure);
     }
 }

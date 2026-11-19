@@ -6,7 +6,6 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.Application;
 import android.app.NotificationManager;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -183,11 +182,6 @@ public class PermissionSetupActivity extends Activity {
         if (declared.contains(Manifest.permission.REQUEST_INSTALL_PACKAGES)) {
             items.add(new Access("install", "Install app updates", "Allow updates from " + SettingsUi.APP_NAME + ". Each installation still needs your approval.", context.getPackageManager().canRequestPackageInstalls(), false));
         }
-        ComponentName listener = new ComponentName(context.getPackageName(), "com.xreal.evapro.NotifyService");
-        try {
-            context.getPackageManager().getServiceInfo(listener, 0);
-            items.add(new Access("notification_access", "Notification access", "Optional: show notifications from other apps in AR Space.", notifications.isNotificationListenerAccessGranted(listener), false));
-        } catch (PackageManager.NameNotFoundException ignored) {}
         if (Build.VERSION.SDK_INT >= 31 && context.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH)) {
             runtime(items, context, declared, "nearby", "Nearby devices", "Optional: connect paired Bluetooth controllers and input devices.", Manifest.permission.BLUETOOTH_CONNECT);
         }
@@ -225,10 +219,6 @@ public class PermissionSetupActivity extends Activity {
             case "overlay": return new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, packageUri);
             case "install": return new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, packageUri);
             case "notifications": return new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.getPackageName());
-            case "notification_access":
-                if (Build.VERSION.SDK_INT >= 30) return new Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
-                        .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, new ComponentName(context.getPackageName(), "com.xreal.evapro.NotifyService").flattenToString());
-                return new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS);
             case "battery": return new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, packageUri);
             case "storage": return new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, packageUri);
             default: return new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, packageUri);
@@ -430,7 +420,7 @@ public class PermissionSetupActivity extends Activity {
     static String glyph(String key) {
         switch (key) {
             case "overlay": return "overlay";
-            case "notifications": case "notification_access": return "notifications";
+            case "notifications": return "notifications";
             case "install": return "download";
             case "nearby": return "bluetooth";
             case "camera": return "camera";

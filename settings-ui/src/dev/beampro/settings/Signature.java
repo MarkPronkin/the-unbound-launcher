@@ -66,7 +66,23 @@ public final class Signature {
     public static void window(Window window) {
         window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS
                 | WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION);
-        if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(true);
+        if (Build.VERSION.SDK_INT >= 35 && window.getContext().getApplicationInfo().targetSdkVersion >= 35) {
+            // Android 15 draws the activity behind system bars. Keep the whole phone UI,
+            // including fixed bottom buttons and pairing inputs, inside the usable area.
+            window.setDecorFitsSystemWindows(false);
+            View content = window.findViewById(android.R.id.content);
+            content.setBackgroundColor(BACKGROUND);
+            content.setOnApplyWindowInsetsListener((view, insets) -> {
+                int types = android.view.WindowInsets.Type.systemBars() | android.view.WindowInsets.Type.displayCutout()
+                        | android.view.WindowInsets.Type.ime();
+                android.graphics.Insets padding = insets.getInsets(types);
+                view.setPadding(padding.left, padding.top, padding.right, padding.bottom);
+                return android.view.WindowInsets.CONSUMED;
+            });
+            content.requestApplyInsets();
+        } else if (Build.VERSION.SDK_INT >= 30) {
+            window.setDecorFitsSystemWindows(true);
+        }
         window.setStatusBarColor(BACKGROUND);
         window.setNavigationBarColor(BACKGROUND);
         window.setNavigationBarDividerColor(BACKGROUND);

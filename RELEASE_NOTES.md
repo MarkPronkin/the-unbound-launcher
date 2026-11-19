@@ -1,144 +1,66 @@
-# Unbound Launcher 0.2.6 alpha
+# Unbound Launcher 0.3.0 beta
 
-Android build **2972**, released **2026-11-11**.
-This update includes all changes since **0.2.5 alpha (build 2967)**, including
-local development builds 2968–2971 and the app-launch crash correction described
-below. Earlier fixes, including those from withdrawn 0.2.4 alpha, remain included.
+November 19, 2026 · Android build **2977**
 
-## Changes since 0.2.5 alpha
+Unbound Launcher's first public beta includes the changes developed in builds
+2973–2976 since [0.2.6 alpha](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.2.6-alpha).
 
-- **Fixed the build 2971 crash when opening an app in AR Space.** The revised
-  immersive 3D menu could pass an unresolved Unity string literal to localization
-  while creating an app window, terminating the renderer. Label metadata is now
-  initialized before use. The OnePlus 15 crash logs identify this exact failure;
-  a new ARM64 regression reproduces it before the fix and passes afterward.
-  The wearer confirms that opening an app in this exact build keeps AR Space
-  running on OnePlus 15 / XREAL One. Fresh crash logs show no renderer crash.
-  [Investigation](reports/app-launch-crash-v026.md).
-- **Guided display tests under Settings → Help.** Check the glasses connection,
-  test **1920 × 1080 2D at 60 Hz**, or test **3840 × 1080 SBS at 60 Hz** without
-  launching AR Space. The 3D test captures a 2D baseline first and shows a grid
-  with one centered circle per eye for 20 seconds when the requested timing is
-  available. Tests request a return to 2D when finished, stopped or left; unplug
-  and reconnect if recovery fails. Automatic AR entry is paused while the page
-  is open. Test history, wearer feedback and bounded display/USB snapshots are
-  included in debug exports even with log collection off. Observed timing and
-  picture feedback are recorded separately. Physical switching and recovery
-  still need hardware validation; these tests do not restore missing modes.
-- **Samsung S21 FE readiness correction.** A completed shell ping with the exact
-  `SO_BINDTODEVICE: Operation not permitted` error now allows the existing
-  control-network validation and native startup to proceed. The wearer reports
-  repeated successful AR sessions, stereo rendering and head tracking with their
-  equivalent local patch on SM-G990B / One UI 8.0. Other recognized interface
-  binding denials use a bounded ICMP probe bound to the Android glasses network.
-  Ordinary packet loss, helper timeouts, missing routes and USB cancellation
-  retain their failure behavior. This exact release needs an affected-device
-  retest. [Evidence and checks](reports/samsung-g990b-one-v025.md).
-- **Firmware read failures have their own warning.** Empty, failed or timed-out
-  reads display **Firmware check paused**, explaining that the firmware may
-  already be current. Exit remains available; continuation stays disabled while
-  a read is active and becomes **Continue without verification** after a failed
-  read finishes. A confirmed mismatch retains its separate warning. Late results
-  update the warning or resume startup appropriately. Diagnostics record each
-  component's start, completion duration and errors. This corrects the misleading
-  S26 Ultra warning; its USB-read stalls and native control failure remain
-  unresolved. [Investigation](reports/samsung-s26-ultra-one-pro-v025.md).
-- **Three direct immersive 3D choices.** The picker shows **Half SBS**,
-  **Full SBS** and **Half Top/Bottom** together; **Close** turns 3D off. Half
-  top/bottom sends the top image to the left eye and the bottom image to the
-  right eye, restoring vertically compressed eye images. It was wearer-confirmed
-  in development build 2970. Full top/bottom was removed after broken output was
-  reported; saved selections migrate to half top/bottom. The revised picker
-  still needs a visual glasses retest; the app-launch correction is
-  wearer-confirmed on OnePlus 15 / XREAL One with this release APK.
-- **Optional quiet Eye photos and immediate screen-off.** Two switches under
-  **Settings → Experimental** are off by default and apply immediately.
-  **Disable XREAL Eye shutter sound** silences the photo cue while other app
-  sounds keep playing. **Skip screen-off confirmation** immediately switches off
-  the phone panel when the controller button is pressed. Touches and the pointer
-  remain blocked; either volume button restores the screen. The phone remains
-  unlocked. Turning a switch off restores the original behavior. Emulator checks
-  cover persistence, reads by the separate renderer process, sound selection and
-  controller behavior; physical Eye sound and panel-power checks remain pending.
-- **More precise compatibility evidence.** A connected Nubia NX809J / One Pro
-  retest on 0.2.5 confirms that the hardware composer exposes only 640 × 480
-  after the stereo switch. The visible wallpaper belongs to the OEM secondary
-  launcher; it does not establish a successful AR launch. New Samsung reports
-  distinguish the S21 FE ping denial from the S26 Ultra's USB and control
-  transport failures. [Nubia investigation](reports/nubia-nx809j-one-pro-v023.md).
+## Changes since 0.2.6 alpha
 
-Previous features remain, including VPN/ADB recovery, setup for continued use on
-mobile data after starting the helper on Wi-Fi, controller touch routing,
-DRM-readiness rendering fallback, retained startup display diagnostics, optional
-2D 60 Hz, anchored-window preservation, concurrent high performance apps,
-logo-free video recording and XREAL Eye recording without a fixed launcher time
-limit. See the [0.2.5 changelog](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.2.5-alpha)
-for the earlier changes, including all fixes from withdrawn 0.2.4.
+- **Moving apps in AR Space.** Picking up an app now initializes the floating
+  icon used while moving it. An ARM64 regression test checks the icon passed
+  back to the AR menu.
+- **Phone notifications stay on the phone.** Unbound no longer requests access
+  to other apps' notifications or mirrors them into AR Space. It still posts
+  its own notifications for Wireless debugging pairing and AR session controls.
+  [Notification behavior](reports/launcher-notifications.md).
+- **Android 15 support.** The launcher now targets Android 15 (API 35). Setup
+  keeps pairing inputs and buttons clear of the system bars, display cutouts
+  and keyboard. The pairing service and broadcast receivers in the bundled SDK
+  now use the declarations required on newer Android versions.
+- **Display tests restore the original 2D mode.** Under **Settings → Help →
+  Display tests**, the launcher saves the connected display mode and refresh
+  rate before switching. The side-by-side (SBS) test can start from an existing
+  1080p connection, including 120 Hz. After a test the launcher tries to
+  restore the saved 2D timing. On Nubia NX809J with XREAL One Pro, a reporter
+  confirmed that development build 2973 restored 1080p120 after both 2D and
+  stereo tests. AR and stereo on that combination are still blocked at 640 × 480.
+  [Nubia test results](reports/nubia-nx809j-one-pro-v023.md).
+- **More useful display failure reports.** Debug exports retain the first
+  failed display test alongside the latest test. With log collection enabled,
+  the report includes the results of individual glasses mode commands. AR
+  startup also reports when the phone continues to offer only 640 × 480.
 
 ## Installing or upgrading
 
-Install **`the-unbound-launcher-0.2.6-alpha.apk`**. Build **2972** keeps package
-**`dev.markpronkin.unbound`** and the existing signing certificate registered
-with the owner's Android developer account. It updates public releases from
-0.1.1 through 0.2.5 alpha, including withdrawn 0.2.4, and local development builds
-through 2971 in place, preserving app data, pairing and settings.
-[Package registration](reports/package-identity.md).
+Setup requires an arm64 Android 11+ phone with USB-C DisplayPort Alt Mode,
+compatible glasses and Wi-Fi for Wireless debugging. The APK is about 1 GB.
 
-Enable **USB debugging** and **Wireless debugging**, then restart the helper
-under **Settings → On-device ADB → Connect and start** on Wi-Fi and reconnect the
-glasses. **Settings → About → Check for updates** can find 0.2.6.
-Once the helper is Ready, keep USB debugging enabled when leaving Wi-Fi to use
-mobile data. If the helper stops or the phone reboots, return to Wi-Fi and start
-it again.
+Download **`the-unbound-launcher-0.3.0-beta.apk`** from the release assets, or
+open **Settings → About → Check for updates** on a supported alpha install.
+The beta uses the same Android package (`dev.markpronkin.unbound`) and signing
+certificate as releases 0.1.1–0.2.6 alpha. It upgrades those releases and local
+builds through 2976 in place, preserving app data, pairing and settings.
 
-A clean install is required from 0.1.0 alpha or a build using
-`com.xreal.evapro.nebula`; Android does not transfer data between package names.
-Requirements remain an arm64 Android 11+ phone with USB-C DisplayPort Alt Mode,
-compatible glasses, Wi-Fi for Wireless debugging setup and about 1 GB for the
-APK. If Android asks how to use the glasses display, choose **Mirror**. The
-firmware gate checks the model's pinned stable release before AR startup.
+After updating, connect to Wi-Fi, open **Settings → On-device ADB → Connect
+and start**, then reconnect the glasses. Version 0.1.0 alpha and older My
+Glasses ports used a different Android package and require a clean install.
+For first-time setup, see the [installation guide](https://github.com/MarkPronkin/the-unbound-launcher/blob/v0.3.0-beta/README.md#install-and-set-up).
 
-## Validation and known limitations
+## Validation and hardware coverage
 
-All **269 host regression tests** pass, with no failures or skips. The separate
-APK audit passes package/version, class uniqueness, current bundled sources,
-scoped DEX/native patch restoration and Unity shader-loading checks. The APK
-passes Signature Scheme v3 verification and 16 KB ZIP alignment, with application
-debugging disabled. All 258 bundled source files match the workspace. Signing
-certificate comparison and full receipts are retained in the local release
-package's `validation.json` and companion files.
+All **273 host regression tests** passed. On an Android 13 emulator, the
+signed beta upgraded from public 0.2.6 alpha in place, retained the app UID and
+original install time, and opened successfully. Android registered zero
+notification listeners. The setup and pairing notification checks passed.
 
-The exact release APK was installed in place on OnePlus 15 / XREAL One. The
-wearer confirmed that opening an app keeps AR Space running, and no new crash
-appeared in the collected crash buffer. This focused check does not validate
-every new feature or hardware combination.
+The APK passed v3 signature verification and 16 KB ZIP alignment checks.
+The signing certificate matches the public alpha. All 267 files in the
+bundled source archive match the release workspace.
 
-- The exact release APK's app-launch correction is wearer-confirmed on
-  OnePlus 15 / XREAL One. This focused retest does not establish that all three
-  immersive formats or the other new features have passed physical testing.
-- Guided display timing, pattern appearance and automatic 2D recovery need
-  physical-glasses checks. A successful SDK command alone does not establish
-  native timing or a clear picture.
-- The Samsung S21 FE correction needs a retest of this APK. S26 Ultra USB-read
-  stalls and native control transport failures remain unresolved.
-- Pixel 10 Pro and Nubia NX809J / One Pro's VGA-only stereo links, Samsung / 1S
-  control-channel timeouts and OPPO / Air 2 Pro's experimental 3D remain unresolved.
-- VPN transitions, mobile-data helper retention, the Honor touch correction,
-  Moto rendering fallback and restored 2D 60 Hz need affected-device retests.
-- Renderer network selection, anchored windows, concurrent high performance
-  apps, logo-free recordings, Retroid geometry and the R1 firmware reader retain
-  their previously documented hardware-validation limits.
-- Adaptive brightness, screen-off gamepad behavior, Eye shutter muting and the
-  immediate screen-off option still need their respective wearer checks. Volume
-  recovery requires readable hardware input nodes and the updated helper.
-- Earlier reconnect-related audio distortion and a temporary freeze, remaining
-  app-color differences and hardware-dependent input/Bluetooth issues are not
-  claimed fixed. Protected/DRM video in spatial windows and Miracast receiving
-  remain unsupported.
+Physical-glasses testing of build 2977 is pending. Earlier hardware results
+are listed by phone, glasses and build in the [compatibility table](https://github.com/MarkPronkin/the-unbound-launcher/blob/v0.3.0-beta/README.md#status).
 
-See the [README](https://github.com/MarkPronkin/the-unbound-launcher#readme) for
-setup and compatibility evidence. This is an independent, fan-made alpha based
-on XREAL's original software, unaffiliated with XREAL. XREAL-origin code and
-artwork remain XREAL's property. The author's original code uses the MIT License;
-third-party components retain their licenses. Notices and pairing-library
-sources are bundled in the APK.
+Unbound Launcher is an independent, fan-made project based on XREAL's Beam Pro
+software. XREAL retains the rights to its code and artwork. The APK includes
+third-party notices and pairing-library sources.

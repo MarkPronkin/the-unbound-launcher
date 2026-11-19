@@ -10,9 +10,9 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
 
-/** Fixed local test history and three labelled captures, independent of logcat collection. */
+/** Fixed local history, current captures and the first failed test captures, independent of logcat collection. */
 final class DisplayTestJournal {
-    static final int MAX_REPORT_BYTES=64_000, CAPTURES=3;
+    static final int MAX_REPORT_BYTES=64_000, CAPTURES=6;
     static final int EXPORT_RESERVE=MAX_REPORT_BYTES+CAPTURES*(DisplayDiagnostics.MAX_STARTUP_BYTES+256)+4096;
     private final File directory;
     DisplayTestJournal(File directory) { this.directory=directory; }
@@ -41,7 +41,20 @@ final class DisplayTestJournal {
         if(!stage.equals("before")&&!stage.equals("stereo")&&!stage.equals("restored"))throw new IllegalArgumentException("Unknown display test stage");
         if(!file("run").isFile()||!run.equals(new String(Files.readAllBytes(file("run").toPath()),StandardCharsets.UTF_8)))return;
         write(file(stage),DisplayDiagnostics.encode(DisplayDiagnostics.DISPLAY_STARTUP,"run="+run+" stage="+stage+"\n"+text));
+        pin(run,stage);
     }
+    /** Keep the first failed run even if subsequent checks replace the current slots. */
+    synchronized void pinFailure(String run) throws IOException {
+        if(file("failed-run").isFile())return;
+        if(!file("run").isFile()||!run.equals(new String(Files.readAllBytes(file("run").toPath()),StandardCharsets.UTF_8)))return;
+        write(file("failed-run"),run.getBytes(StandardCharsets.UTF_8));
+        for(String stage:new String[]{"before","stereo","restored"})pin(run,stage);
+    }
+    private void pin(String run,String stage) throws IOException {
+        if(!file("failed-run").isFile()||!run.equals(new String(Files.readAllBytes(file("failed-run").toPath()),StandardCharsets.UTF_8)))return;
+        if(file(stage).isFile())write(file("first-"+stage),Files.readAllBytes(file(stage).toPath()));
+    }
+    static final String[] EXPORT_STAGES={"first-before","first-stereo","first-restored","before","stereo","restored"};
     synchronized byte[] report() throws IOException {
         return file("history").isFile()?StartupTrace.encode(new String(Files.readAllBytes(file("history").toPath()),StandardCharsets.UTF_8),MAX_REPORT_BYTES):new byte[0];
     }

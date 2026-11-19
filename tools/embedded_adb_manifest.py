@@ -10,8 +10,7 @@ from package_identity import AUTHORITY
 AR_BACKDROP_THEME = 16974383
 
 
-def patch_usb_attach_manifest(original):
-    """Keep USB broadcasts, but stop advertising Splash as an Android USB handler."""
+def _manifest_elements(original):
     nodes = list(chunks(original))
     _, at, _, size = next(n for n in nodes if n[0] == 1)
     strings = _pool_strings(original[at:at + size])
@@ -39,6 +38,31 @@ def patch_usb_attach_manifest(original):
             stack.pop()["end"] = index
     if stack:
         raise ValueError("Unclosed manifest elements")
+    return nodes, elements
+
+
+def _without_nodes(original, nodes, removed):
+    output = bytearray(original[:8])
+    for index, (_, at, _, size) in enumerate(nodes):
+        if index not in removed:
+            output += original[at:at + size]
+    struct.pack_into("<I", output, 4, len(output))
+    return bytes(output)
+
+
+def without_notification_listener(original):
+    nodes, elements = _manifest_elements(original)
+    listeners = [n for n in elements if n['tag'] == 'service' and
+                 n['attrs'].get('permission') == 'android.permission.BIND_NOTIFICATION_LISTENER_SERVICE']
+    if len(listeners) != 1 or listeners[0]['attrs'].get('name') != 'com.xreal.evapro.NotifyService':
+        raise ValueError('Expected the single stock notification listener')
+    listener = listeners[0]
+    return _without_nodes(original, nodes, range(listener['start'], listener['end'] + 1))
+
+
+def patch_usb_attach_manifest(original):
+    """Keep USB broadcasts, but stop advertising Splash as an Android USB handler."""
+    nodes, elements = _manifest_elements(original)
     splash = [node for node in elements if node["tag"] == "activity"
               and node["attrs"].get("name") == "ai.nreal.nebula.activity.splash.SplashActivity"]
     if len(splash) != 1:
@@ -60,23 +84,21 @@ def patch_usb_attach_manifest(original):
         removed.update(range(child["start"], child["end"] + 1))
     if (filters, metadata) not in ((0, 0), (1, 1)):
         raise ValueError("Unexpected USB handler declaration")
-    output = bytearray(original[:8])
-    for index, (_, at, _, size) in enumerate(nodes):
-        if index not in removed:
-            output += original[at:at + size]
-    struct.pack_into("<I", output, 4, len(output))
-    return bytes(output)
+    return _without_nodes(original, nodes, removed)
 
 
 def patch_release_manifest(original):
-    """Disable the baseline's development flag without changing other attributes."""
+    """Set the release target and disable debugging on the pinned launcher manifest."""
     nodes = list(chunks(original))
     _, at, _, size = next(n for n in nodes if n[0] == 1)
     strings = _pool_strings(original[at:at + size])
     output = bytearray(original)
-    found = 0
+    updated = []
     for kind, at, header, _ in nodes:
-        if kind != 0x102 or strings[struct.unpack_from("<I", original, at + header + 4)[0]] != "application":
+        if kind != 0x102:
+            continue
+        tag = strings[struct.unpack_from("<I", original, at + header + 4)[0]]
+        if tag not in ("uses-sdk", "application"):
             continue
         offset, stride, count = struct.unpack_from("<HHH", original, at + header + 8)
         if stride != 20:
@@ -84,15 +106,21 @@ def patch_release_manifest(original):
         for index in range(count):
             position = at + header + offset + index * stride
             name = strings[struct.unpack_from("<I", original, position + 4)[0]]
-            if name != "debuggable":
+            if (tag, name) == ("uses-sdk", "targetSdkVersion"):
+                if original[position + 15] != 0x10 or struct.unpack_from("<I", original, position + 16)[0] not in (33, 35):
+                    raise ValueError("Unexpected baseline target SDK")
+                value = 35
+            elif (tag, name) == ("application", "debuggable"):
+                if original[position + 15] != 0x12:
+                    raise ValueError("Expected a boolean debuggable attribute")
+                value = 0
+            else:
                 continue
-            if original[position + 15] != 0x12:
-                raise ValueError("Expected a boolean debuggable attribute")
             struct.pack_into("<I", output, position + 8, 0xFFFFFFFF)
-            struct.pack_into("<I", output, position + 16, 0)
-            found += 1
-    if found != 1:
-        raise ValueError("Expected one explicit application debuggable attribute")
+            struct.pack_into("<I", output, position + 16, value)
+            updated.append(name)
+    if sorted(updated) != ["debuggable", "targetSdkVersion"]:
+        raise ValueError("Expected a single target SDK and application debuggable attribute")
     return bytes(output)
 
 
@@ -143,7 +171,8 @@ def patch_manifest(original):
     # share that process rather than starting with an empty registry in the UI.
     additions += element("activity", [("name", 3, "dev.beampro.port.ArBackdropActivity"), ("exported", 0x12, 0),
                                       ("process", 3, ":space"), ("theme", 1, AR_BACKDROP_THEME)])
-    additions += element("service", [("name", 3, "dev.beampro.adb.PairingOverlayService"), ("exported", 0x12, 0)])
+    additions += element("service", [("name", 3, "dev.beampro.adb.PairingOverlayService"), ("exported", 0x12, 0),
+                                     ("foregroundServiceType", 0x11, 0x800)])  # shortService
     additions += element("service", [("name", 3, "dev.beampro.port.ArSessionService"), ("exported", 0x12, 0),
                                      ("process", 3, ":space"), ("foregroundServiceType", 0x11, 16)])
     receiver = element("receiver", [("name", 3, "dev.beampro.adb.AutoGlassesReceiver"), ("exported", 0x12, 0)])

@@ -176,9 +176,21 @@ public class DebugArchiveChecks {
    check(captures.indexOf("2D BASELINE")<captures.indexOf("SBS VGA FALLBACK")&&captures.indexOf("SBS VGA FALLBACK")<captures.indexOf("RECOVERED 2D"),"before, stereo and recovery dumps are exported in test order");
    check(captures.getBytes(java.nio.charset.StandardCharsets.UTF_8).length<=3*(DisplayDiagnostics.MAX_STARTUP_BYTES+128),"manual-test snapshots obey a separate total byte budget");
   }
+  tests.pinFailure("manual-one");
+  tests.capture("manual-one","restored","LATE RECOVERED 2D\n"+display+surface);
   tests.begin("manual-two","new test");tests.capture("manual-one","stereo","STALE OLD RUN");
   check(!tests.captureFile("stereo").exists(),"late captures cannot overwrite a newer run's evidence");
-  tests.capture("manual-two","before","CURRENT BASELINE");
+  tests.capture("manual-two","before","CURRENT BASELINE\n"+display+surface);
+  tests.capture("manual-two","stereo","CURRENT SWITCHED\n"+surface+display);
+  tests.capture("manual-two","restored","CURRENT RESTORED\n"+surface+display);
+  tests.pinFailure("manual-two");
+  file=archive.export(display.substring(0,64000),display,surface,geometry,display.substring(0,48000));
+  check(file.length()<=15000000,"first failure and current test snapshots fit beside all other diagnostic files");
+  try(ZipFile zip=new ZipFile(file)){
+   String retained=new String(zip.getInputStream(zip.getEntry("display-test-captures.txt")).readAllBytes(),java.nio.charset.StandardCharsets.UTF_8);
+   check(retained.contains("2D BASELINE")&&retained.contains("SBS VGA FALLBACK")&&retained.contains("CURRENT BASELINE")&&retained.contains("LATE RECOVERED 2D")&&!retained.contains("STALE OLD RUN"),"pin the first failed run while retaining the current run independently");
+   check(retained.getBytes(java.nio.charset.StandardCharsets.UTF_8).length<=6*(DisplayDiagnostics.MAX_STARTUP_BYTES+128),"all six manual-test snapshots have a fixed export budget");
+  }
   tests=new DisplayTestJournal(root);
   check(tests.hasData()&&new String(tests.report(),java.nio.charset.StandardCharsets.UTF_8).contains("WEARER_FEEDBACK"),"test results survive app restart and later tests");
   try{tests.capture("manual-two","../unexpected","bad");throw new AssertionError("accepted stage path");}catch(IllegalArgumentException expectedError){}

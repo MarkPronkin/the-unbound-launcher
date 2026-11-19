@@ -1,6 +1,7 @@
 """Execute all capability-routing trampolines and verify the private EGL probe."""
 import hashlib
 from pathlib import Path
+import struct
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,7 @@ from xreal_telemetry import file_offset
 from test_universal_color import GL_STUB, object_text
 
 sys.path.insert(0,str(ROOT/'artifacts/tools/python'))
-from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_INTR
+from unicorn import Uc, UC_ARCH_ARM64, UC_MODE_ARM, UC_HOOK_CODE, UC_HOOK_INTR
 from unicorn.arm64_const import *
 
 
@@ -53,6 +54,51 @@ class AppSurfaceRoutingTests(unittest.TestCase):
             obj=Path(work)/'routing.o'
             subprocess.run(['clang','-target','aarch64-linux-android','-c',str(ROOT/'tools/app_surface_routing.S'),'-o',str(obj)],check=True)
             self.assertEqual(object_text(obj.read_bytes()),bytes.fromhex(self.spec['targets'][-1]['replacement']))
+
+    def test_ar_pickup_returns_an_initialized_floating_icon(self):
+        # Start at PickUpApp's Instantiate call in the composed library.
+        # The caller stores the returned clone on the view manager at +0x98.
+        pickup, instantiate = 0x32f42a4, 0x199abf8
+        obj, parent, method, manager = 0x700000, 0x700200, 0x700400, 0x700600
+        icon_info, clone, klass, init_method = 0x700800, 0x700a00, 0x700c00, 0x700e00
+        initializer = 0x710000
+        for result in (clone, 0):
+            with self.subTest(clone_created=bool(result)):
+                cpu = Uc(UC_ARCH_ARM64, UC_MODE_ARM)
+                for address in (pickup, 0x12ca1e8, instantiate):
+                    page = address & ~0xfff
+                    cpu.mem_map(page, 0x1000)
+                    at = file_offset(self.patched, page)
+                    cpu.mem_write(page, self.patched[at:at + 0x1000])
+                cpu.mem_map(obj, 0x1000)
+                cpu.mem_map(initializer, 0x1000)
+                cpu.mem_map(0x800000, 0x1000)
+                cpu.reg_write(UC_ARM64_REG_SP, 0x801000)
+                for address, value in ((obj + 0x88, icon_info), (clone, klass),
+                                       (klass + 0x178, initializer), (klass + 0x180, init_method)):
+                    cpu.mem_write(address, struct.pack('<Q', value))
+                args = (UC_ARM64_REG_X0, UC_ARM64_REG_X1, UC_ARM64_REG_X2)
+                for reg, value in zip(args, (obj, parent, method)):
+                    cpu.reg_write(reg, value)
+                cpu.reg_write(UC_ARM64_REG_X19, manager)
+                calls = []
+
+                def managed_call(cpu, address, size, data):
+                    if address not in (instantiate, initializer):
+                        return
+                    calls.append((address, *(cpu.reg_read(reg) for reg in args)))
+                    cpu.reg_write(UC_ARM64_REG_X0, result if address == instantiate else 0)
+                    cpu.reg_write(UC_ARM64_REG_PC, cpu.reg_read(UC_ARM64_REG_LR))
+
+                cpu.hook_add(UC_HOOK_CODE, managed_call)
+                cpu.emu_start(pickup, pickup + 8, count=64)
+                expected = [(instantiate, obj, parent, method)]
+                if result:
+                    expected.append((initializer, clone, icon_info, init_method))
+                self.assertEqual(calls, expected)
+                self.assertEqual(cpu.reg_read(UC_ARM64_REG_PC), pickup + 8)
+                self.assertEqual(cpu.reg_read(UC_ARM64_REG_SP), 0x801000)
+                self.assertEqual(cpu.mem_read(manager + 0x98, 8), struct.pack('<Q', result))
 
     CASES=[None,b'',b'\0',b'\1',b'\2',b'\xff',b'\1\0',b'\1\1','read-error']
 

@@ -129,7 +129,18 @@ public final class AdbSetupChecks extends Instrumentation {
             require(current.findViewById(android.R.id.content).findViewWithTag("adb-mobile-status") != null,
                     "Mobile use and restart recovery are explained during setup");
             require(PermissionSetupActivity.hasReviewedPermissions(current), "permission review is saved");
-            require(current.getWindow().getStatusBarColor() == Color.BLACK && current.getWindow().getNavigationBarColor() == Color.BLACK, "OLED system bars");
+            if (Build.VERSION.SDK_INT >= 35 && current.getApplicationInfo().targetSdkVersion >= 35) {
+                View content = current.findViewById(android.R.id.content);
+                require(content.getBackground() instanceof android.graphics.drawable.ColorDrawable
+                        && ((android.graphics.drawable.ColorDrawable) content.getBackground()).getColor() == Color.BLACK,
+                        "black content behind transparent system bars");
+                android.graphics.Insets bars = content.getRootWindowInsets().getInsets(WindowInsets.Type.systemBars());
+                require(content.getPaddingTop() >= bars.top && content.getPaddingBottom() >= bars.bottom,
+                        "pairing controls clear both system bars");
+            } else {
+                require(current.getWindow().getStatusBarColor() == Color.BLACK
+                        && current.getWindow().getNavigationBarColor() == Color.BLACK, "OLED system bars");
+            }
             require(!buttonStarting("Continue").isEnabled(), "cannot continue without a live helper");
             buttonStarting("Continue").performClick();
             require(AdbBootstrap.needsSetup(current), "programmatic click cannot complete disconnected setup");

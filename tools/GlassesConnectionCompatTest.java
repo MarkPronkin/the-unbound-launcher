@@ -177,6 +177,24 @@ public final class GlassesConnectionCompatTest {
         ConnectionAnimation.last.complete();Handler.advance(0);
         check(ConnectionAnimation.last.failed&&ConnectionHandoff.last.cancelled&&p.success==0,"A controller lost during the ready morph returns to recovery instead of reporting success");close(p);
 
+        p=fixture();m=XREALManager.instance;ConnectionHandoff.defer=true;
+        Display.Mode fallback=new Display.Mode(98,640,480,60f),nativeMode=new Display.Mode(99,3840,1080,60f);
+        Display onlyVga=new Display(19,true,fallback,fallback);Context.displays.displays=new Display[]{onlyVga};
+        GlassesConnectionCompat.begin(p);Handler.advance(9000);
+        check(!ConnectionAnimation.last.failed,"Transient VGA output does not fail startup immediately");
+        Handler.advance(2000);
+        check(ConnectionAnimation.last.failed&&ConnectionAnimation.last.phase.contains("no native 1080p mode"),"Persistent VGA-only output gets a specific display-negotiation failure");close(p);
+
+        p=fixture();m=XREALManager.instance;ConnectionHandoff.defer=true;
+        onlyVga=new Display(19,true,fallback,fallback,nativeMode);Context.displays.displays=new Display[]{onlyVga};
+        GlassesConnectionCompat.begin(p);Handler.advance(12000);
+        check(!ConnectionAnimation.last.failed,"An advertised native mode keeps the existing mode-selection path alive");close(p);
+
+        p=fixture();m=XREALManager.instance;ConnectionHandoff.defer=true;
+        onlyVga=new Display(19,true,fallback,fallback);Context.displays.displays=new Display[]{onlyVga};
+        GlassesConnectionCompat.begin(p);Handler.advance(9000);onlyVga.current=nativeMode;Handler.advance(2000);
+        check(!ConnectionAnimation.last.failed,"Native output appearing during the observation window cancels the VGA failure");close(p);
+
         p=fixture();m=XREALManager.instance;m.waitingDisplay=true;
         Display.Mode stereo=new Display.Mode(8,3840,1080,60f),vga=new Display.Mode(9,640,480,60f);
         Display glasses=new Display(4,true,vga,stereo,vga);Context.displays.displays=new Display[]{glasses};
