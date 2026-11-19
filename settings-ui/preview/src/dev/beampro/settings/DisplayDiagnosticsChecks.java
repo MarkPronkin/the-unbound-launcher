@@ -165,6 +165,7 @@ public final class DisplayDiagnosticsChecks extends Instrumentation {
         };
         public boolean onCreate(){return true;}
         @Override public Bundle call(String method,String arg,Bundle extras){
+            if(method.startsWith("auto-connect-")) return AutoConnect.handle(getContext(), method, arg, extras);
             if(method.equals("fixture")){
                 if(arg.equals("release"))release.countDown();
                 if(arg.equals("blocked"))release=new CountDownLatch(1);

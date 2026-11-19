@@ -9,12 +9,25 @@ import zipfile
 import zlib
 
 from build_embedded_adb import BASE
-from photo_sound import patch_photo_sound
+from package_identity import METADATA
+from photo_sound import patch_photo_sound, patch_recording_sound
 
 JAVA = Path(subprocess.check_output(['/usr/libexec/java_home', '-v', '17'], text=True).strip())
 
 
 class PhotoSoundTests(unittest.TestCase):
+    def test_recording_redirect_only_changes_the_jni_class_literal(self):
+        with zipfile.ZipFile(BASE) as archive:
+            original = archive.read(METADATA)
+        patched = patch_recording_sound(original)
+        stock = b'android.media.MediaActionSound'
+        guarded = b'dev.beampro.port.CaptureSounds'
+        self.assertEqual(patched.index(guarded), original.index(stock))
+        self.assertEqual(len(patched), len(original))
+        self.assertEqual(patched.replace(guarded, stock), original)
+        with self.assertRaises(ValueError):
+            patch_recording_sound(patched)
+
     def test_exact_restoration_and_rejection_of_double_patch_and_unrelated_changes(self):
         with zipfile.ZipFile(BASE) as archive:
             original = archive.read('classes.dex')

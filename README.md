@@ -15,7 +15,7 @@ you smoothly.
 > XREAL. It builds on XREAL's original Beam Pro software. All rights to that
 > software remain with XREAL.
 
-[Download 0.3.0 beta](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.3.0-beta)
+[Download 0.3.1 beta](https://github.com/MarkPronkin/the-unbound-launcher/releases/tag/v0.3.1-beta)
 · [Changelog](RELEASE_NOTES.md)
 · [Website](https://markpronkin.github.io/the-unbound-launcher/)
 · [Discord community](https://discord.gg/J7t64xupfQ)
@@ -55,7 +55,7 @@ actually been tested.
 
 ## Status
 
-The current release is **0.3.0 beta (build 2977)**, released November 19, 2026.
+The current release is **0.3.1 beta (build 2978)**, released November 19, 2026.
 The table records the build and hardware behind each result. The last public
 alpha passed an app-launch retest on OnePlus 15 / XREAL One. A later development
 build restored 1080p120 after failed display tests on Nubia NX809J / One Pro.
@@ -186,14 +186,13 @@ firmware. See the [firmware gate notes](reports/firmware-gate.md).
 
 ## Install and set up
 
-Install **`the-unbound-launcher-0.3.0-beta.apk`** (Android build **2977**).
-This beta restores floating-icon initialization when moving apps in AR Space,
-updates Android 15 support, and improves display-test recovery and diagnostics.
-Phone notifications stay on the phone. Unbound still posts its own pairing and
-session controls. See the [release notes](RELEASE_NOTES.md).
+Install **`the-unbound-launcher-0.3.1-beta.apk`** (Android build **2978**).
+You can now leave connected glasses in your phone’s default display mode and
+enter AR Space manually. The optional XREAL Eye shutter-sound setting also
+mutes the cue at the start of a video. See the [release notes](RELEASE_NOTES.md).
 
-**Upgrade in place from 0.1.1 through 0.2.6 alpha**, including the withdrawn
-0.2.4 release and development builds through 2976. The package
+**Upgrade in place from 0.3.0 beta or 0.1.1–0.2.6 alpha**, including the
+withdrawn 0.2.4 alpha and development builds through 2977. The package
 `dev.markpronkin.unbound` and signing certificate carry forward, preserving
 app data, pairing and settings. Use **Settings → About → Check for updates** or
 install the APK directly. On Wi-Fi, restart the updated helper under
@@ -372,18 +371,18 @@ original startup mode is 2D, leaving existing 3D defaults unchanged. It is off
 by default and mutually exclusive with Force 3D. Reconnect after changing either
 option; turn both off to use the original model defaults.
 
-### Photo sound and screen-off confirmation
+### Capture sounds and screen-off confirmation
 
 Two more switches under **Settings → Experimental** are off by default:
 
-- **Disable XREAL Eye shutter sound** silences the photo capture cue while other
-  app sounds keep playing.
+- **Disable XREAL Eye shutter sound** mutes the photo shutter and the cue that
+  plays when video recording starts. The recording-stop cue still plays.
 - **Skip screen-off confirmation** turns off the phone screen as soon as the
   controller button is pressed. Phone touches and the pointer are still blocked;
   press either volume button to restore the screen. The phone remains unlocked.
 
 Both choices are saved and apply immediately. Turn either switch off to restore
-the shutter sound or confirmation dialog.
+the capture sounds or confirmation dialog.
 
 ## What you get
 
@@ -394,9 +393,12 @@ From NebulaOS:
 - Anchored and smooth-follow viewing
 - Launcher with app grid, recent apps, and quick access to Wi-Fi and Bluetooth
   settings
-- Screen-mirroring mode, selected with **Start in screen mirroring**
 
 Added by this port:
+
+- **Disable auto connect** in Settings leaves the glasses under Android’s normal
+  display control when plugged in. Open Unbound and tap **Enter AR Space** to
+  connect manually, or turn the switch off to restore automatic connection.
 
 - **Ten app windows at once**; the original allows two
 - **No separate high performance app cap**: opening another
@@ -555,12 +557,12 @@ force-add ignored files. Ignore rules do not remove files already tracked by Git
 
 ### Launch package
 
-The local upload package is in `artifacts/releases/v0.3.0-beta/`. Upload the
+The local upload package is in `artifacts/releases/v0.3.1-beta/`. Upload the
 versioned APK and its SHA-256 checksum as GitHub Release assets under tag
-`v0.3.0-beta`, marked as a prerelease. Use the [release notes](RELEASE_NOTES.md)
+`v0.3.1-beta`, marked as a prerelease. Use the [release notes](RELEASE_NOTES.md)
 for the description. APKs and signing keys stay outside Git history.
 
-The public version is **0.3.0 beta**, Android build **2977**. The app manifest
+The public version is **0.3.1 beta**, Android build **2978**. The app manifest
 and About screen read their version from `version.json`. The local release
 directory holds the APK, checksum and validation receipts.
 
@@ -588,7 +590,7 @@ earlier stages during an ordinary version update.
 python3 tools/build_embedded_adb.py
 
 # Verify and test
-python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-0.3.0-beta/the-unbound-launcher.apk
+python3 tools/verify_embedded_adb.py artifacts/unbound-launcher-0.3.1-beta/the-unbound-launcher.apk
 python3 -m unittest discover -s tools -p 'test_*.py' -v
 ```
 

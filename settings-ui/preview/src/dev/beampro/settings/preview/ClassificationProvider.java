@@ -13,6 +13,8 @@ public final class ClassificationProvider extends ContentProvider {
     private IBinder bridge;
     public boolean onCreate() { return true; }
     @Override public synchronized Bundle call(String method, String arg, Bundle extras) {
+        if (method != null && method.startsWith("auto-connect-"))
+            return dev.beampro.settings.AutoConnect.handle(getContext(), method, arg, extras);
         int caller = Binder.getCallingUid();
         if ("publish".equals(method)) {
             if (caller != 2000) throw new SecurityException("Shell fixture only");

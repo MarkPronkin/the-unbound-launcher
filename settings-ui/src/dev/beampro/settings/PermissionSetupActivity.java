@@ -90,6 +90,16 @@ public class PermissionSetupActivity extends Activity {
 
     /** Called immediately after the original Activity's super.onCreate, before its startup logic. */
     public static boolean guard(Activity activity) {
+        if (android.hardware.usb.UsbManager.ACTION_USB_DEVICE_ATTACHED.equals(activity.getIntent().getAction())
+                && "dev.markpronkin.unbound".equals(activity.getPackageName())) {
+            try {
+                if (!AutoConnect.automatic(activity)) { activity.finish(); return true; }
+            } catch (RuntimeException unavailable) {
+                android.util.Log.w("UnboundConnect", "Cannot verify automatic entry", unavailable);
+                activity.finish();
+                return true;
+            }
+        }
         boolean acknowledged = activity.getIntent().getBooleanExtra(PASSED, false);
         if (activity.getClass().getName().endsWith(".SplashActivity") && !acknowledged) acknowledgedSession = false;
         if (!hasAcceptedDisclaimer(activity) || AdbEntry.needsSetup(activity) || TermsConsent.required(activity) || !Settings.canDrawOverlays(activity)

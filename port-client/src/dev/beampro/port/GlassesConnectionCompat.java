@@ -104,7 +104,7 @@ public final class GlassesConnectionCompat {
     static Session session(Object presenter) {
         return current != null && current.presenter == presenter && !current.disposed ? current : null;
     }
-    /** Read the same persisted choice as Settings and the original SDK, across app processes. */
+    /** The stock USB camera option can still select the SDK's casting mode. */
     public static boolean startInScreenMirroring(Context context) throws Exception {
         return Boolean.TRUE.equals(Class.forName("ai.nreal.nebula.util.helper.DbHelpUtil")
                 .getMethod("getBoolean", Context.class, String.class, boolean.class)
@@ -348,6 +348,7 @@ public final class GlassesConnectionCompat {
         final Handler work;
         final UsbManager usb;
         final DisplayManager displays;
+        String resumedManualDevice;
         long deadline = SystemClock.uptimeMillis() + DEADLINE_MS;
         volatile boolean failed, disposed, busy, sdkPending, sdkReady;
         volatile boolean firmwareChecking, firmwarePaused, firmwareAccepted, sdkInvoked;
@@ -399,6 +400,8 @@ public final class GlassesConnectionCompat {
             });
         }
         void start() throws Exception {
+            // A passive attachment has no SDK connection yet, even if auto connect was since re-enabled.
+            if (!Boolean.TRUE.equals(get(manager, "mUsbConnect"))) call(manager, "init");
             stage(phase);
             MAIN.postDelayed(this, 250);
             call(presenter, "checkUsb", new Class<?>[]{boolean.class}, false);
@@ -449,6 +452,17 @@ public final class GlassesConnectionCompat {
                 return GlassesIdentity.rogR1Usb(firmwareUsb.getVendorId(),firmwareUsb.getProductId());
             // XREAL boot/app USB identities are adjacent odd/even pairs.
             return (device.getProductId()+1)/2==(firmwareUsb.getProductId()+1)/2;
+        }
+        void resumeManualUsb() throws Exception {
+            if (!usbReconfiguration || firmwareUsb == null) return;
+            for (UsbDevice device : usb.getDeviceList().values()) {
+                String name = device.getDeviceName();
+                if (!sameUsbFamily(device) || firmwareUsb.equals(device) || name.equals(resumedManualDevice)) continue;
+                resumedManualDevice = name;
+                if (Boolean.TRUE.equals(Class.forName("dev.beampro.settings.AutoConnect")
+                        .getMethod("continueManual", Context.class, String.class, String.class)
+                        .invoke(null, activity, firmwareUsb.getDeviceName(), name))) call(manager, "init");
+            }
         }
         void checkFirmware() {
             synchronized(this) {
@@ -562,6 +576,7 @@ public final class GlassesConnectionCompat {
                     // The USB handler Activity was deliberately removed from the port.
                     // Resume its former onNewIntent continuation from live USB readiness,
                     // including a re-enumeration that finishes before hasMTP is set.
+                    resumeManualUsb();
                     boolean connected = (Boolean) get(manager, "mUsbConnect");
                     long delay = Math.min(5000L, 1500L << Math.min(resumes, 2));
                     if (connected && liveUsb() != null && now - mtpSince >= delay) {
@@ -661,6 +676,7 @@ public final class GlassesConnectionCompat {
                 return;
             }
             usbReconfiguration=result==2;
+            resumedManualDevice=null;
             finishResult(result);
         }
         void completeSuccess(int result) {

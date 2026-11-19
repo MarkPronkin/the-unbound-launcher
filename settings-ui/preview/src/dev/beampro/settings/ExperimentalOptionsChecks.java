@@ -3,9 +3,7 @@ package dev.beampro.settings;
 import android.app.Instrumentation;
 import android.content.Context;
 import android.content.Intent;
-import android.content.ContentProvider;
-import android.content.ContentValues;
-import android.database.Cursor;
+import android.media.MediaActionSound;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.AtomicFile;
@@ -30,12 +28,12 @@ public final class ExperimentalOptionsChecks extends Instrumentation {
             checkOtherProcess(false);
             open();
             runOnMainSync(() -> {
-                require(!toggle(ExperimentalOptions.QUIET_PHOTOS).isChecked(), "Shutter sound enabled by default");
+                require(!toggle(ExperimentalOptions.QUIET_CAPTURE_SOUNDS).isChecked(), "Capture sounds enabled by default");
                 require(!toggle(ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION).isChecked(), "Confirmation shown by default");
                 require(toggle(ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION).getContentDescription().toString().contains("volume"),
                         "Volume recovery is explained beside the switch");
-                toggle(ExperimentalOptions.QUIET_PHOTOS).performClick();
-                require(ExperimentalOptions.enabled(activity, ExperimentalOptions.QUIET_PHOTOS), "Quiet photo switch saves");
+                toggle(ExperimentalOptions.QUIET_CAPTURE_SOUNDS).performClick();
+                require(ExperimentalOptions.enabled(activity, ExperimentalOptions.QUIET_CAPTURE_SOUNDS), "Quiet capture switch saves");
                 require(!ExperimentalOptionsCompat.skipScreenOffConfirmation(activity), "Options are independent");
                 activity.findViewById(0x00bea001).findViewWithTag("experimental-" + ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION).performClick();
                 require(ExperimentalOptionsCompat.skipScreenOffConfirmation(activity), "Whole row saves to the client preference contract");
@@ -44,10 +42,10 @@ public final class ExperimentalOptionsChecks extends Instrumentation {
             waitForIdleSync(); open();
             checkOtherProcess(true);
             runOnMainSync(() -> {
-                require(toggle(ExperimentalOptions.QUIET_PHOTOS).isChecked(), "Quiet photo preference survives recreation");
+                require(toggle(ExperimentalOptions.QUIET_CAPTURE_SOUNDS).isChecked(), "Quiet capture preference survives recreation");
                 require(toggle(ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION).isChecked(), "Confirmation preference survives recreation");
                 activity.setConnectedModel(7);
-                require(toggle(ExperimentalOptions.QUIET_PHOTOS).isChecked(), "Connection refresh preserves preference");
+                require(toggle(ExperimentalOptions.QUIET_CAPTURE_SOUNDS).isChecked(), "Connection refresh preserves preference");
             });
             int shutter = context.getResources().getIdentifier("kaca", "raw", context.getPackageName());
             require(shutter != 0, "Shutter resource fixture exists");
@@ -58,7 +56,7 @@ public final class ExperimentalOptionsChecks extends Instrumentation {
             checkStockHelper(arguments.getString("photo_sound_dex"), shutter, true);
             checkStockHelper(arguments.getString("original_sound_dex"), shutter, false);
             runOnMainSync(() -> {
-                toggle(ExperimentalOptions.QUIET_PHOTOS).performClick();
+                toggle(ExperimentalOptions.QUIET_CAPTURE_SOUNDS).performClick();
                 toggle(ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION).performClick();
                 require(!ExperimentalOptionsCompat.suppressPhotoSound(activity, shutter), "Disabling quiet photos immediately restores sound");
                 require(!ExperimentalOptionsCompat.skipScreenOffConfirmation(activity), "Disabling skip immediately restores confirmation");
@@ -67,7 +65,7 @@ public final class ExperimentalOptionsChecks extends Instrumentation {
             waitForIdleSync(); open();
             checkOtherProcess(false);
             runOnMainSync(() -> {
-                require(!toggle(ExperimentalOptions.QUIET_PHOTOS).isChecked()
+                require(!toggle(ExperimentalOptions.QUIET_CAPTURE_SOUNDS).isChecked()
                         && !toggle(ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION).isChecked(), "Both disabled states survive recreation");
                 activity.finish();
             });
@@ -82,7 +80,7 @@ public final class ExperimentalOptionsChecks extends Instrumentation {
     }
 
     void reset() {
-        for (String key : new String[]{ExperimentalOptions.QUIET_PHOTOS, ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION})
+        for (String key : new String[]{ExperimentalOptions.QUIET_CAPTURE_SOUNDS, ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION})
             new AtomicFile(new File(getTargetContext().getFilesDir(), ExperimentalOptions.FILE + "-" + key)).delete();
     }
 
@@ -90,24 +88,9 @@ public final class ExperimentalOptionsChecks extends Instrumentation {
         Bundle state = getTargetContext().getContentResolver().call(Uri.parse("content://dev.beampro.settings.preview.experimental"), "read", null, null);
         require(state != null && state.getInt("pid") != android.os.Process.myPid(), "Client fixture runs in a separate process");
         require(state.getBoolean("quiet") == expected && state.getBoolean("skip") == expected, "Already-running client observes current choices: " + expected);
-    }
-
-    public static final class ClientProvider extends ContentProvider {
-        @Override public boolean onCreate() { return true; }
-        @Override public Bundle call(String method, String arg, Bundle extras) {
-            Context context = getContext();
-            int resource = context.getResources().getIdentifier("kaca", "raw", context.getPackageName());
-            Bundle state = new Bundle();
-            state.putInt("pid", android.os.Process.myPid());
-            state.putBoolean("quiet", ExperimentalOptionsCompat.suppressPhotoSound(context, resource));
-            state.putBoolean("skip", ExperimentalOptionsCompat.skipScreenOffConfirmation(context));
-            return state;
-        }
-        @Override public Cursor query(Uri uri, String[] projection, String selection, String[] args, String order) { return null; }
-        @Override public String getType(Uri uri) { return null; }
-        @Override public Uri insert(Uri uri, ContentValues values) { return null; }
-        @Override public int delete(Uri uri, String selection, String[] args) { return 0; }
-        @Override public int update(Uri uri, ContentValues values, String selection, String[] args) { return 0; }
+        require(state.getInt("startCue") == (expected ? -1 : MediaActionSound.START_VIDEO_RECORDING),
+                "Recording start follows the shutter switch");
+        require(state.getInt("stopCue") == MediaActionSound.STOP_VIDEO_RECORDING, "Recording stop always plays");
     }
 
     void checkStockHelper(String dex, int shutter, boolean patched) throws Exception {
@@ -119,7 +102,7 @@ public final class ExperimentalOptionsChecks extends Instrumentation {
         // Without init(), the original body reaches a null SoundPool. Suppression
         // must return before that body; the negative controls must still reach it.
         for (boolean quiet : new boolean[]{true, false, true}) {
-            ExperimentalOptions.save(context, ExperimentalOptions.QUIET_PHOTOS, quiet);
+            ExperimentalOptions.save(context, ExperimentalOptions.QUIET_CAPTURE_SOUNDS, quiet);
             for (int resource : new int[]{shutter, android.R.drawable.ic_menu_camera, 0}) {
                 boolean returned = false;
                 try { helper.getMethod("play", int.class, float.class).invoke(sound, resource, .75f); returned = true; }

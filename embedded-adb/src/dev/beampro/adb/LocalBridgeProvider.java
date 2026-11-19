@@ -18,6 +18,8 @@ public final class LocalBridgeProvider extends ContentProvider {
     @Override public boolean onCreate() { return true; }
 
     @Override public Bundle call(String method, String arg, Bundle extras) {
+        if (method != null && method.startsWith("auto-connect-"))
+            return dev.beampro.settings.AutoConnect.handle(getContext(), method, arg, extras);
         int caller = Binder.getCallingUid();
         if ("publish".equals(method)) {
             if (caller != 2000) throw new SecurityException("Only the user-started ADB shell may publish");

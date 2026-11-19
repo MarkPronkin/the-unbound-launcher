@@ -47,7 +47,7 @@ from immersive_stereo import SHADERS as IMMERSIVE_SHADERS, patch_immersive_shade
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
-from photo_sound import patch_photo_sound
+from photo_sound import patch_photo_sound, patch_recording_sound
 from updater_manifest import patch_updater_manifest
 from debug_manifest import patch_debug_manifest
 from storage_manifest import add_manifest_permission, patch_storage_manifest
@@ -314,6 +314,7 @@ def main():
             if not args.test_only and info.filename in ("classes.dex", "classes2.dex"):
                 value = patch_receivers(info.filename, value, build / "receivers" / info.filename, java)
             if info.filename == "classes4.dex": value = client_dex.read_bytes()
+            if info.filename == METADATA and not args.test_only: value = patch_recording_sound(value)
             if info.filename == APP_SHADER and not args.test_only: value = automatic_app_shader(source)
             if info.filename in OES_SHADERS and not args.test_only: value = direct_oes_shader(value)
             if info.filename in IMMERSIVE_SHADERS and not args.test_only: value = patch_immersive_shader(value)
@@ -381,7 +382,7 @@ def main():
     if not args.test_only:report['immersive_stereo_shaders']=immersive_shader_report
     if not args.test_only:report['debuggable']=False
     if not args.test_only:
-        report['experimental_options'] = {'disable_eye_shutter_sound': {'default': False, 'scope': 'raw/kaca capture cue'},
+        report['experimental_options'] = {'disable_eye_shutter_sound': {'default': False, 'scope': 'photo shutter and video recording start cues'},
                                            'skip_screen_off_confirmation': {'default': False, 'volume_recovery_preserved': True},
                                            'applies_without_restart': True}
     if not args.test_only:

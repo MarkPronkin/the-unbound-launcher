@@ -1,8 +1,22 @@
-"""Apply and round-trip audit the optional photo shutter sound guard."""
+"""Route photo and recording cues through the optional capture sound guards."""
+import hashlib
 from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
+METADATA_SHA256 = 'c8c1b60a0449ef5bc258c61d0f89e12c454259af4817047c59a64fe1c5f0c381'
+
+
+def patch_recording_sound(metadata):
+    """Redirect the JNI class constructed by NativeMediaActionSound.Play(int)."""
+    if hashlib.sha256(metadata).hexdigest() != METADATA_SHA256:
+        raise ValueError('Unexpected Unity metadata for the recording sound guard')
+    stock = b'android.media.MediaActionSound'
+    guarded = b'dev.beampro.port.CaptureSounds'
+    # A fixed-width class name preserves the Unity string literal table and offsets.
+    if metadata.count(stock) != 1 or len(stock) != len(guarded):
+        raise ValueError('Expected a single fixed-width media action sound literal')
+    return metadata.replace(stock, guarded)
 
 
 def patch_photo_sound(original, build, java, env=None, *, restore=False, baseline=None):

@@ -321,7 +321,7 @@ public final class SettingsUi {
                 appDetection(experimental);
                 experimentalStereo(experimental);
                 experimentalOption(experimental, "camera", "Disable XREAL Eye shutter sound",
-                        "Take photos without the shutter sound. Other app sounds keep playing.", ExperimentalOptions.QUIET_PHOTOS);
+                        "Mute the photo shutter and the sound when video recording starts.", ExperimentalOptions.QUIET_CAPTURE_SOUNDS);
                 experimentalOption(experimental, "sleep", "Skip screen-off confirmation",
                         "Turn off the phone screen immediately. Press either volume button to restore it. Your phone remains unlocked.",
                         ExperimentalOptions.SKIP_SCREEN_OFF_CONFIRMATION);
@@ -340,7 +340,7 @@ public final class SettingsUi {
                     if (source == view(activity, "mSystemNotificationView")) {
                         source.setVisibility(View.GONE);
                     } else if (source == view(activity, "mCastScreenView")) {
-                        experience.add(new Binding(source, "mirror", false));
+                        autoConnect(experience);
                     } else if (source == view(activity, "mScreenColorView")) {
                         experience.add(new Binding(source, "color", false));
                     } else if (source == view(activity, "mSleepTimeView")) {
@@ -419,7 +419,14 @@ public final class SettingsUi {
             heroParams.setMargins(-dp(GUTTER), dp(landscape ? 4 : 12), -dp(GUTTER), 0); body.addView(hero, heroParams);
             launch = button(activity, "Enter AR Space", PRIMARY);
             launch.setOnClickListener(v -> {
-                if (visible(originalLaunch) && AdbEntry.allowLaunch(activity)) originalLaunch.performClick();
+                if (!visible(originalLaunch) || !AdbEntry.allowLaunch(activity)) return;
+                try {
+                    if (AutoConnect.prepareManual(activity)) originalLaunch.performClick();
+                    else Toast.makeText(activity, "Reconnect your glasses and try again.", Toast.LENGTH_LONG).show();
+                } catch (Exception error) {
+                    Log.w(TAG, "Cannot start manual glasses connection", error);
+                    Toast.makeText(activity, "Could not connect to the glasses.", Toast.LENGTH_LONG).show();
+                }
             });
             LinearLayout actions = launchBody == null ? body : launchBody;
             add(actions, launch, 0, 0);
@@ -501,6 +508,35 @@ public final class SettingsUi {
                 detectionToggle.setContentDescription("Detect as game. " + description);
                 detectionRow.setAlpha(detection.busy ? .6f : 1f);
             } finally { syncingDetection = false; }
+        }
+
+        void autoConnect(Section section) {
+            String description = "Use your phone’s default display mode when you plug in your glasses. Open AR Space manually.";
+            Row row = new Row(activity, "phone", "Disable auto connect", description);
+            SignatureSwitch toggle = new SignatureSwitch(activity);
+            toggle.setContentDescription("Disable auto connect. " + description);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(52), dp(48));
+            params.setMarginStart(dp(12));
+            row.addView(toggle, params);
+            try { toggle.setChecked(!AutoConnect.automatic(activity)); }
+            catch (RuntimeException error) {
+                Log.w(TAG, "Cannot read connection preference", error);
+                toggle.setEnabled(false);
+                row.subtitle.setText("Connection preference unavailable.");
+            }
+            toggle.setOnCheckedChangeListener((button, value) -> {
+                try { AutoConnect.disable(activity, value); }
+                catch (RuntimeException error) {
+                    Log.w(TAG, "Cannot save connection preference", error);
+                    button.setChecked(!value);
+                    Toast.makeText(activity, "Could not save the setting.", Toast.LENGTH_LONG).show();
+                }
+            });
+            row.onClick(v -> { if (toggle.isEnabled()) toggle.toggle(); });
+            row.title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.subtitle.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            row.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            section.card.addView(row);
         }
 
         void experimentalStereo(Section section) {
@@ -618,9 +654,9 @@ public final class SettingsUi {
                 for (Section section : sections) section.sync();
                 for (Runnable syncOption : experimentalOptions) syncOption.run();
                 if (!permissions) {
-                    boolean connected = visible(originalInfo);
+                    boolean connected = visible(originalInfo) || visible(originalLaunch);
                     SleepTimer timer = SleepTimer.get(activity);
-                    timer.refresh(connected, false);
+                    timer.refresh(visible(originalInfo), false);
                     if (sleepRow != null) {
                         sleepRow.subtitle.setText(timer.summary());
                         sleepRow.setContentDescription("Automatic sleep time, " + timer.summary());
@@ -749,17 +785,12 @@ public final class SettingsUi {
                     });
                     return;
                 }
-                boolean defaultMirroring = source == view(activity, "mCastScreenView");
-                title.setText(titleOverride != null ? titleOverride
-                        : defaultMirroring ? "Start in screen mirroring" : text(source, "mTvTitle"));
-                subtitle.setText(subtitleOverride != null ? subtitleOverride : defaultMirroring
-                        ? (checked(sourceSwitch) ? "On · Mirror your phone after reconnecting" : "Off · Open AR Space on connection")
-                        : text(source, "mTvSubTitle"));
+                title.setText(titleOverride != null ? titleOverride : text(source, "mTvTitle"));
+                subtitle.setText(subtitleOverride != null ? subtitleOverride : text(source, "mTvSubTitle"));
                 subtitle.setVisibility(subtitle.getText().length() == 0 ? View.GONE : View.VISIBLE);
                 if (toggle != null) {
                     toggle.setChecked(checked(sourceSwitch));
-                    toggle.setContentDescription(title.getText() + (subtitle.getText().length() == 0 ? "" : ", " + subtitle.getText())
-                            + (defaultMirroring ? ". Unplug and reconnect your glasses to apply." : ""));
+                    toggle.setContentDescription(title.getText() + (subtitle.getText().length() == 0 ? "" : ", " + subtitle.getText()));
                 } else {
                     right.setText(text(source, "mTvRightText"));
                     right.setVisibility(right.getText().length() == 0 ? View.GONE : View.VISIBLE);

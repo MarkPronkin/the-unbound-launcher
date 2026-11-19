@@ -13,6 +13,7 @@ final class AutoArEntry {
     static final String TOKEN = "dev.beampro.bridge.AUTO_AR";
     interface Platform {
         int installedUid() throws Exception;
+        boolean enabled();
         boolean unlocked() throws Exception;
         boolean grant(Key device) throws Exception;
         void launch() throws Exception;
@@ -31,10 +32,11 @@ final class AutoArEntry {
     private Key launched;
 
     AutoArEntry(Platform platform, int uid) { this.platform=platform;this.uid=uid; }
-    AutoArEntry(PackageManager packages, int uid, XrealUsbPermissions usb) {
+    AutoArEntry(PackageManager packages, int uid, XrealUsbPermissions usb, java.util.function.BooleanSupplier enabled) {
         this(new Platform() {
             final ScheduledExecutorService worker=Executors.newSingleThreadScheduledExecutor();
             public int installedUid() throws Exception { return packages.getApplicationInfo(XrealUsbPermissions.PACKAGE,0).uid; }
+            public boolean enabled() { return enabled.getAsBoolean(); }
             public boolean unlocked() throws Exception {
                 IBinder binder=(IBinder)Class.forName("android.os.ServiceManager").getMethod("getService",String.class).invoke(null,"window");
                 Object service=Class.forName("android.view.IWindowManager$Stub").getMethod("asInterface",IBinder.class).invoke(null,binder);
@@ -74,22 +76,25 @@ final class AutoArEntry {
         final Key key;
         Pending(Key key) { this.key=key; }
         boolean current() { synchronized(AutoArEntry.this) { return pending==this; } }
+        void clear() { synchronized(AutoArEntry.this) { if(pending==this)pending=null; } }
         public void run() {
             if(!current())return;
             try {
                 if(platform.installedUid()!=uid)throw new SecurityException("Launcher installation changed");
+                if(!platform.enabled()) { clear();return; }
                 if(!platform.unlocked()) { platform.later(this,1000);return; }
                 // Re-enumerate and validate in the existing isolated USB worker just
                 // before launch. Never decode UsbDevice in the system-context helper.
-                if(!platform.grant(key)) { synchronized(AutoArEntry.this){if(pending==this)pending=null;}return; }
+                if(!platform.grant(key)) { clear();return; }
                 if(!current())return;
+                if(!platform.enabled()) { clear();return; }
                 if(!platform.unlocked()) { platform.later(this,1000);return; }
                 platform.launch();
                 synchronized(AutoArEntry.this) { if(pending==this) { launched=key;pending=null; } }
                 platform.log("started device="+key.name);
             } catch(Exception error) {
                 platform.log("failed "+error);
-                synchronized(AutoArEntry.this) { if(pending==this)pending=null; }
+                clear();
             }
         }
     }

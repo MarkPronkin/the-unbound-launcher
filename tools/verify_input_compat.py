@@ -67,7 +67,7 @@ def main():
     classes.mkdir(exist_ok=True)
     run(java / 'bin/javac', '--release', '8', '-classpath', platform, '-d', classes, settings,
         ROOT / 'port-client/src/dev/beampro/port/KeyboardCompat.java',
-        ROOT / 'embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java', ROOT / 'tools/InputCompatDeviceChecks.java')
+        ROOT / "settings-ui/src/dev/beampro/settings/AutoConnect.java", ROOT / 'embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java', ROOT / 'tools/InputCompatDeviceChecks.java')
     run(java / 'bin/jar', 'cf', build / 'fixture.jar', '-C', classes, '.')
     dex = build / 'dex'
     dex.mkdir(exist_ok=True)

@@ -17,6 +17,10 @@ final class ProviderCallCompat {
     }
 
     static Bundle publish(Object provider, Class<?> api, Object source, String authority, Bundle payload) throws Exception {
+        return call(provider, api, source, authority, "publish", payload);
+    }
+
+    static Bundle call(Object provider, Class<?> api, Object source, String authority, String method, Bundle payload) throws Exception {
         Method call = null;
         if (source != null) {
             try { call = api.getMethod("call", source.getClass(), String.class, String.class, String.class, Bundle.class); }
@@ -24,8 +28,8 @@ final class ProviderCallCompat {
         }
         // Only signature absence selects another contract. Never retry a rejected or
         // failed publication through an older signature, or change the shell identity.
-        if (call != null) return (Bundle) call.invoke(provider, source, authority, "publish", null, payload);
+        if (call != null) return (Bundle) call.invoke(provider, source, authority, method, null, payload);
         call = api.getMethod("call", String.class, String.class, String.class, String.class, String.class, Bundle.class);
-        return (Bundle) call.invoke(provider, "com.android.shell", null, authority, "publish", null, payload);
+        return (Bundle) call.invoke(provider, "com.android.shell", null, authority, method, null, payload);
     }
 }

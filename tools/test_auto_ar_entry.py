@@ -45,9 +45,11 @@ RECEIVER_STUBS.update({
     'dev/beampro/settings/TermsConsent.java': '''package dev.beampro.settings;public class TermsConsent {
       public static boolean accepted=true;public static boolean hasAccepted(android.content.Context c){return accepted;}}''',
     'dev/beampro/port/GlassesConnectionCompat.java': '''package dev.beampro.port;public class GlassesConnectionCompat {
-      public static boolean active,mirroring,failRead;public static boolean sessionActive(){return active;}
-      public static boolean startInScreenMirroring(android.content.Context c){
-        if(failRead)throw new IllegalStateException("Preference unavailable");return mirroring;}}''',
+      public static boolean active;public static boolean sessionActive(){return active;}}''',
+    'dev/beampro/settings/AutoConnect.java': '''package dev.beampro.settings;public class AutoConnect {
+      public static boolean disabled,failRead;
+      public static boolean automatic(android.content.Context c){
+        if(failRead)throw new IllegalStateException("Preference unavailable");return !disabled;}}''',
     'com/xreal/glassesdisplayplugevent/helper/GlassesTypeUtil.java': '''package com.xreal.glassesdisplayplugevent.helper;
       public class GlassesTypeUtil {public static int checkGlassesType(android.hardware.usb.UsbDevice d){return 7;}}''',
     'dev/beampro/adb/AdbBootstrap.java': '''package dev.beampro.adb;public class AdbBootstrap {
@@ -58,7 +60,7 @@ RECEIVER_STUBS.update({
 
 
 class AutoArEntryTests(unittest.TestCase):
-    def test_receiver_respects_mirroring_on_attach_resume_and_queued_dispatch(self):
+    def test_receiver_respects_opt_out_on_attach_resume_and_queued_dispatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
             sources = []

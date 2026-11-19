@@ -30,10 +30,7 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
     }
     private static boolean arEnabled(Context context) {
         try {
-            boolean mirroring=(Boolean)Class.forName("dev.beampro.port.GlassesConnectionCompat")
-                .getMethod("startInScreenMirroring",Context.class).invoke(null,context);
-            if(mirroring)Log.i(TAG,"Screen mirroring selected; skipping automatic AR entry");
-            return !mirroring;
+            return dev.beampro.settings.AutoConnect.automatic(context);
         } catch(Exception error) { Log.w(TAG,"Cannot read the connection preference; skipping automatic AR entry",error);return false; }
     }
     private static boolean glasses(UsbDevice device) {
@@ -65,6 +62,7 @@ public final class AutoGlassesReceiver extends BroadcastReceiver {
         PendingResult result=goAsync();
         WORK.execute(()->{
             try {
+                if(attached && (!enabled(context)||sessionActive()))return;
                 if(attached && !AdbBootstrap.ready(context)) {
                     if(AdbBootstrap.paired(context))AdbBootstrap.connect(context,0,null);
                     return; // The bootstrap calls helperReady once its Binder is available.

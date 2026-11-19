@@ -42,7 +42,8 @@ def main():
         if result.returncode: raise RuntimeError(result.stdout + result.stderr)
         return result.stdout
     sources = sorted((ROOT / "tools/connection-fixture/src").rglob("*.java"))
-    sources += [ROOT / "embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java"]
+    sources += [ROOT / "embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java",
+                ROOT / "settings-ui/src/dev/beampro/settings/AutoConnect.java"]
     sources += [ROOT / "port-client/src/dev/beampro/port" / name for name in (
         "ConnectionAnimation.java", "ConnectionHandoff.java", "PresentationReadiness.java", "PhonePointerCompat.java")]
     classes = out / "classes"

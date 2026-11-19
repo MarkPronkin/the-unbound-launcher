@@ -51,7 +51,7 @@ from immersive_stereo import SHADERS as IMMERSIVE_SHADERS, patch_immersive_stere
 from skip_ota import patch_skip_ota
 from startup_tutorial import patch_startup_tutorial
 from experimental_stereo import patch_stereo_dex, patch_stereo_native
-from photo_sound import patch_photo_sound
+from photo_sound import patch_photo_sound, patch_recording_sound
 from updater_manifest import INSTALLER, PROVIDER
 from debug_manifest import PROVIDER as DEBUG_PROVIDER
 from package_identity import PACKAGE, LEGACY_PACKAGE, METADATA, BINARY_ENCODINGS, patch_binary_identity, repackage_dex
@@ -220,6 +220,7 @@ def verify(apk):
         assert "Ldev/beampro/settings/ExperimentalStereo;" in definitions
         assert "Ldev/beampro/settings/ExperimentalOptions;" in definitions
         assert "Ldev/beampro/port/ExperimentalOptionsCompat;" in definitions
+        assert "Ldev/beampro/port/CaptureSounds;" in definitions
         assert "Ldev/beampro/settings/ExperimentalOptionsChecks;" not in definitions
         for cls in ("DisplayTests", "DisplayTestsPage", "DisplayTestRun", "DisplayTestJournal", "DisplayTestPattern", "DisplayTestScreens"):
             assert "Ldev/beampro/settings/" + cls + ";" in definitions
@@ -330,7 +331,7 @@ def verify(apk):
                           'stock_compositor_color_pipeline_verified': True}
         assert app_name_values(z.read("resources.arsc")) == (APP_NAME,) * len(app_name_values(base.read("resources.arsc")))
         for name in ("resources.arsc", METADATA):
-            expected = patch_resources(base.read(name)) if name == "resources.arsc" else base.read(name)
+            expected = patch_resources(base.read(name)) if name == "resources.arsc" else patch_recording_sound(base.read(name))
             assert patch_binary_identity(name, z.read(name), restore=True) == expected, name
         # Scan all runtime payloads, including Unity metadata and libraries. The
         # corresponding-source ZIP intentionally documents the original identity.
@@ -434,6 +435,7 @@ def verify(apk):
                          "settings-ui/src/dev/beampro/settings/DebugDisplay.java",
                          "settings-ui/src/dev/beampro/settings/ExperimentalOptions.java",
                          "port-client/src/dev/beampro/port/ExperimentalOptionsCompat.java",
+                         "port-client/src/dev/beampro/port/CaptureSounds.java",
                          "settings-ui/src/dev/beampro/settings/DisplayDiagnostics.java",
                          "settings-ui/src/dev/beampro/settings/DisplayTransitions.java",
                          "settings-ui/src/dev/beampro/settings/DisplayTests.java",

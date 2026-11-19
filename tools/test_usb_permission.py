@@ -15,6 +15,7 @@ STUBS = {
       public String getDeviceName(){return name;}public int getVendorId(){return vendor;}
       public int getProductId(){return product;}public int getDeviceId(){return id;}}''',
     'android/os/Bundle.java': '''package android.os; public class Bundle extends java.util.HashMap<String,Object> {
+      public boolean getBoolean(String k){return Boolean.TRUE.equals(get(k));}public String getString(String k){return (String)get(k);}
       public IBinder getBinder(String key){return (IBinder)get(key);}public void putBinder(String k,IBinder v){put(k,v);}}''',
     'android/os/IBinder.java': '''package android.os; public interface IBinder {
       boolean isBinderAlive();boolean transact(int code,Parcel data,Parcel reply,int flags)throws RemoteException;}''',
@@ -27,8 +28,9 @@ STUBS = {
       public int readInt(){return (Integer)values.get(at++);}public void readException(){}}''',
     'android/net/Uri.java': 'package android.net;public class Uri {public String text;public static Uri parse(String s){Uri u=new Uri();u.text=s;return u;}}',
     'android/content/ContentResolver.java': '''package android.content;public class ContentResolver {
-      public android.os.IBinder remote;public int calls;
+      public android.os.IBinder remote;public int calls;public boolean automatic=true;public String manual;
       public android.os.Bundle call(android.net.Uri uri,String method,String arg,android.os.Bundle extras){
+        if(method.equals("auto-connect-get")){android.os.Bundle b=new android.os.Bundle();b.put("automatic",automatic);b.put("manage",automatic||manual!=null);b.put("device",manual);return b;}
         if(!uri.text.equals("content://dev.beampro.portprobe.bridge")||!method.equals("get"))throw new AssertionError("provider");
         calls++;android.os.Bundle b=new android.os.Bundle();b.putBinder("binder",remote);return b;}}''',
     'android/content/Context.java': '''package android.content;public class Context {
@@ -130,9 +132,18 @@ public class UsbPermissionCompatTest {
     void success(){check(callback.responses==1&&callback.granted&&usb.requests==0&&usb.dialogs==0);}}
   public static void main(String[] args)throws Exception {
     Manual manual=new Manual();UsbPermissionCompat.worker.shutdownNow();UsbPermissionCompat.worker=manual;
+    Setup polling=new Setup(true);
+    com.xreal.glassesdisplayplugevent.GlassesInitSetting.context=polling.context;
+    check(UsbPermissionCompat.connectionGlassesType()==7);
+    polling.context.resolver.automatic=false;check(UsbPermissionCompat.connectionGlassesType()==-1);
+    polling.context.resolver.manual=polling.device.getDeviceName();check(UsbPermissionCompat.connectionGlassesType()==7);
     Setup fresh=new Setup(false);fresh.request();manual.step();
     check(fresh.usb.requests==0&&fresh.callback.responses==0&&manual.jobs.size()==1);
     fresh.context.resolver.remote=fresh.remote;manual.step();fresh.success();check(fresh.remote.calls==1);
+    Setup passive=new Setup(true);passive.context.resolver.automatic=false;passive.request();manual.step();
+    check(passive.remote.calls==0&&!passive.callback.granted&&passive.usb.dialogs==0);
+    passive.context.resolver.manual=passive.device.getDeviceName();passive.request();manual.step();
+    check(passive.remote.calls==1&&passive.callback.granted);
     Setup authorized=new Setup(false);authorized.usb.granted=true;authorized.request();manual.step();authorized.success();check(authorized.context.resolver.calls==0);
     Setup detached=new Setup(false);detached.request();manual.step();detached.usb.devices.clear();manual.step();
     check(detached.callback.responses==1&&!detached.callback.granted&&detached.usb.requests==0);
@@ -214,6 +225,13 @@ class UsbPermissionTests(unittest.TestCase):
             work = Path(tmp)
             paths = []
             stubs=dict(STUBS)
+            if name.endswith('UsbPermissionCompatTest'):
+                stubs['com/xreal/glassesdisplayplugevent/GlassesInitSetting.java'] = '''package com.xreal.glassesdisplayplugevent;
+                  public class GlassesInitSetting {public static android.content.Context context;
+                    public static GlassesInitSetting getInstance(){return new GlassesInitSetting();}
+                    public android.content.Context getContext(){return context;}}'''
+                stubs['com/xreal/glassesdisplayplugevent/helper/GlassesTypeUtil.java'] = '''package com.xreal.glassesdisplayplugevent.helper;
+                  public class GlassesTypeUtil {public static int checkGlassesType(){return 7;}}'''
             if name.endswith('UsbWorkerModeTest'):
                 stubs['dev/beampro/bridge/ShellCommand.java']=WORKER_COMMAND_STUB
             for file, text in {**stubs, name.replace('.', '/') + '.java': test}.items():

@@ -44,7 +44,8 @@ def main():
         'dev/beampro/settings/TermsConsent.java': '''package dev.beampro.settings;public class TermsConsent {
             public static boolean hasAccepted(android.content.Context c){return false;}}''',
     }
-    sources = [ROOT / 'tools/RogR1DeviceChecks.java', ROOT / 'embedded-adb/src/dev/beampro/adb/AutoGlassesReceiver.java']
+    sources = [ROOT / 'tools/RogR1DeviceChecks.java', ROOT / 'embedded-adb/src/dev/beampro/adb/AutoGlassesReceiver.java',
+               ROOT / 'settings-ui/src/dev/beampro/settings/AutoConnect.java']
     for name, code in fixtures.items():
         file = output / 'src' / name
         file.parent.mkdir(parents=True, exist_ok=True)

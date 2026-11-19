@@ -29,8 +29,11 @@ final class ManagedDisplay {
     private long started;
     private final Runnable heartbeat=this::pulse;
 
-    static void start(Context shell) {
-        ManagedDisplay manager=new ManagedDisplay();
+    private final java.util.function.BooleanSupplier allowed;
+    private ManagedDisplay(java.util.function.BooleanSupplier allowed) { this.allowed = allowed; }
+
+    static void start(Context shell, java.util.function.BooleanSupplier allowed) {
+        ManagedDisplay manager=new ManagedDisplay(allowed);
         DisplayManager displays=shell.getSystemService(DisplayManager.class);
         DisplayManager.DisplayListener listener=new DisplayManager.DisplayListener() {
             public void onDisplayAdded(int id){manager.wake(id);}
@@ -56,7 +59,7 @@ final class ManagedDisplay {
     private void wake(int id) { if(id!=0)handler.post(()->send("WAKE")); }
     private void send(String command) {
         if(commands==null)return;
-        try{commands.write(command+"\n");commands.flush();}
+        try{commands.write((allowed.getAsBoolean() ? command : "PAUSE")+"\n");commands.flush();}
         catch(Exception failure){commands=null;System.err.println("BEAM_DISPLAY_PIPE "+failure);}
     }
     private void pulse() {

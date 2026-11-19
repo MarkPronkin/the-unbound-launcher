@@ -30,6 +30,30 @@ public final class UsbPermissionCompat {
         Context app=context.getApplicationContext();application=app==null?context:app;
     }
 
+    private static Bundle connectionPolicy(Context context) {
+        return context.getContentResolver().call(Uri.parse("content://dev.beampro.portprobe.bridge"), "auto-connect-get", null, null);
+    }
+
+    /** The SDK stock attach and process-start paths share this model check before starting USB polling. */
+    public static int connectionGlassesType() {
+        try {
+            int model = (Integer) Class.forName("com.xreal.glassesdisplayplugevent.helper.GlassesTypeUtil")
+                    .getMethod("checkGlassesType").invoke(null);
+            if (model < 0) return model;
+            Class<?> init = Class.forName("com.xreal.glassesdisplayplugevent.GlassesInitSetting");
+            Context context = (Context) init.getMethod("getContext").invoke(init.getMethod("getInstance").invoke(null));
+            if (context == null) return -1;
+            if (PACKAGE.equals(context.getPackageName())) {
+                Bundle policy = connectionPolicy(context);
+                if (policy == null || !policy.getBoolean("manage")) return -1;
+            }
+            return model;
+        } catch (Exception unavailable) {
+            Log.e(TAG, "Cannot check glasses connection policy", unavailable);
+            return -1;
+        }
+    }
+
     /** Low-level SDK callers also run from provider initialization before Application.onCreate. */
     public static void requestPermission(UsbManager manager, UsbDevice device, PendingIntent callback) {
         Context context=application;
@@ -92,6 +116,11 @@ public final class UsbPermissionCompat {
                 UsbDevice live=manager.getDeviceList().get(device.getDeviceName());
                 if (live==null || live.getVendorId()!=device.getVendorId() || live.getProductId()!=device.getProductId()
                         || live.getDeviceId()!=device.getDeviceId()) { denied();return; }
+                Bundle policy = connectionPolicy(context);
+                if (policy == null || !(policy.getBoolean("automatic") || live.getDeviceName().equals(policy.getString("device")))) {
+                    denied();
+                    return;
+                }
                 if (!manager.hasPermission(live)) {
                     Bundle bundle=context.getContentResolver().call(Uri.parse("content://dev.beampro.portprobe.bridge"), "get", null, null);
                     IBinder remote=bundle==null?null:bundle.getBinder("binder");

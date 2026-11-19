@@ -7,7 +7,8 @@ public final class AutoArEntryTest {
     static void check(boolean value,String why){checks++;if(!value)throw new AssertionError(why);}
     static final class Platform implements AutoArEntry.Platform {
         static class Task {Runnable r;long at;Task(Runnable r,long at){this.r=r;this.at=at;}}
-        List<Task> tasks=new ArrayList<>();int uid=10123,grants,launches;boolean unlocked=true,present=true;long now;Runnable duringGrant;
+        List<Task> tasks=new ArrayList<>();int uid=10123,grants,launches;boolean enabled=true,unlocked=true,present=true;long now;Runnable duringGrant;
+        public boolean enabled(){return enabled;}
         public int installedUid(){return uid;}public boolean unlocked(){return unlocked;}
         public boolean grant(AutoArEntry.Key key){grants++;if(duringGrant!=null)duringGrant.run();return present;}
         public void launch(){launches++;}public void later(Runnable r,long delay){tasks.add(new Task(r,now+delay));}public void log(String s){}
@@ -35,6 +36,13 @@ public final class AutoArEntryTest {
         Platform locked=new Platform();locked.unlocked=false;AutoArEntry waiting=new AutoArEntry(locked,10123);
         waiting.request(10123,one,true);locked.advance(5000);check(locked.grants==0&&locked.launches==0,"Do not start behind the lock screen");
         locked.unlocked=true;locked.advance(1000);check(locked.launches==1,"Resume the pending attachment after unlock");
+
+        Platform optedOut=new Platform();AutoArEntry deferred=new AutoArEntry(optedOut,10123);
+        deferred.request(10123,one,true);optedOut.enabled=false;optedOut.advance(750);
+        check(optedOut.grants==0 && optedOut.launches==0,"A queued attachment respects disabling auto connect");
+        optedOut.enabled=true;optedOut.duringGrant=()->optedOut.enabled=false;
+        deferred.request(10123,one,true);optedOut.advance(750);
+        check(optedOut.grants==1 && optedOut.launches==0,"Disabling auto connect during a grant prevents launch");
 
         Platform detached=new Platform();AutoArEntry cancelled=new AutoArEntry(detached,10123);
         cancelled.request(10123,one,true);cancelled.request(10123,one,false);detached.advance(2000);

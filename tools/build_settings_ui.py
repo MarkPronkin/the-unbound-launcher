@@ -97,6 +97,7 @@ def main():
                                      ROOT / "port-client/src/dev/beampro/port/FirmwareWarningView.java",
                                      ROOT / "port-client/src/dev/beampro/port/FirmwarePolicy.java",
                                      ROOT / "port-client/src/dev/beampro/port/ExperimentalOptionsCompat.java",
+                                     ROOT / "port-client/src/dev/beampro/port/CaptureSounds.java",
                                      ROOT / "bridge/src/dev/beampro/bridge/DisplayDumpPipe.java"], build / "preview-classes")
     preview_dex = build / "preview-dex"
     preview_dex.mkdir(exist_ok=True)

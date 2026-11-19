@@ -28,6 +28,16 @@ public final class LaunchServer {
     private static final java.util.Set<Integer> DROPPED_INPUT_DISPLAYS =
             java.util.Collections.synchronizedSet(new java.util.HashSet<Integer>());
     private static Object externalProvider;
+    private static Object shellAttribution;
+    private static Class<?> providerApi;
+
+    private static boolean connectionAllowed(String key) {
+        try {
+            Bundle state = ProviderCallCompat.call(externalProvider, providerApi, shellAttribution,
+                    "dev.beampro.portprobe.bridge", "auto-connect-get", null);
+            return state != null && state.getBoolean(key);
+        } catch (Exception unavailable) { return false; }
+    }
     private static final ExecutorService LAUNCHES = Executors.newSingleThreadExecutor();
     private static RecentAppsStore recentApps;
     private static RecentAppPreviews recentPreviews;
@@ -55,7 +65,7 @@ public final class LaunchServer {
         PackageManager packages = shell.getPackageManager();
         int probeUid = packages.getApplicationInfo("dev.beampro.portprobe", 0).uid;
         XrealUsbPermissions usb = ENABLE_DISPLAY_MANAGEMENT ? new XrealUsbPermissions(packages, probeUid) : null;
-        AutoArEntry autoEntry = ENABLE_DISPLAY_MANAGEMENT ? new AutoArEntry(packages, probeUid, usb) : null;
+        AutoArEntry autoEntry = ENABLE_DISPLAY_MANAGEMENT ? new AutoArEntry(packages, probeUid, usb, () -> connectionAllowed("automatic")) : null;
         PhoneScreenPower phoneScreen = new PhoneScreenPower(shell);
         TrackpadGestures trackpadGestures = new TrackpadGestures(new java.io.File("/data/local/tmp"), probeUid);
         GlassesNetworkProbe glassesNetwork = new GlassesNetworkProbe(packages, probeUid);
@@ -285,12 +295,14 @@ public final class LaunchServer {
         Object holder = acquire.invoke(activityManager, "dev.beampro.portprobe.bridge", 0, PROVIDER_TOKEN, "beampro-launch-helper");
         if (holder == null) throw new IllegalStateException("Bridge provider unavailable");
         externalProvider = holder.getClass().getField("provider").get(holder);
-        Bundle result = ProviderCallCompat.publish(externalProvider, Class.forName("android.content.IContentProvider"),
-                ProviderCallCompat.shellAttribution(android.os.Process.myUid()), "dev.beampro.portprobe.bridge", payload);
+        providerApi = Class.forName("android.content.IContentProvider");
+        shellAttribution = ProviderCallCompat.shellAttribution(android.os.Process.myUid());
+        Bundle result = ProviderCallCompat.publish(externalProvider, providerApi,
+                shellAttribution, "dev.beampro.portprobe.bridge", payload);
         if (result == null || !result.getBoolean("published")) throw new IllegalStateException("Binder publication failed");
         System.out.println("BEAM_LAUNCH_SERVER_READY pid=" + android.os.Process.myPid() + " uid=" + android.os.Process.myUid());
         System.out.flush();
-        if (ENABLE_DISPLAY_MANAGEMENT) ManagedDisplay.start(shell);
+        if (ENABLE_DISPLAY_MANAGEMENT) ManagedDisplay.start(shell, () -> connectionAllowed("manage"));
         Looper.loop();
     }
 

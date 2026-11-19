@@ -336,20 +336,27 @@ public final class ManagedDisplayPolicy implements AutoCloseable {
     /** Independent watchdog lifetime: loss of its parent's pipe or heartbeat restores state. */
     public void runLease(BlockingQueue<String> commands,long timeoutMillis) throws Exception {
         long last=System.nanoTime()/1000000;
+        boolean managing = false;
         try {
             while(true) {
                 long now=System.nanoTime()/1000000;
                 long remaining=timeoutMillis-(now-last);
                 if(remaining<=0)break;
-                String command=commands.poll(Math.min(500,remaining),TimeUnit.MILLISECONDS);
+                String command=commands.poll(remaining,TimeUnit.MILLISECONDS);
                 now=System.nanoTime()/1000000;
-                if("STOP".equals(command))break;
-                if(command!=null) {
-                    if(!command.equals("PING")&&!command.equals("WAKE"))throw new IllegalArgumentException("Invalid display watchdog command");
-                    last=now;
-                }
-                if(now-last>=timeoutMillis)break;
-                tick(now);
+                if(command==null || "STOP".equals(command) || now-last>=timeoutMillis)break;
+                last=now;
+                if ("PAUSE".equals(command)) {
+                    if (managing) {
+                        close();
+                        enabled.clear();
+                        absentSince = -1;
+                        managing = false;
+                    }
+                } else if ("PING".equals(command) || "WAKE".equals(command)) {
+                    managing = true;
+                    tick(now);
+                } else throw new IllegalArgumentException("Invalid display watchdog command");
             }
         } finally {close();}
     }

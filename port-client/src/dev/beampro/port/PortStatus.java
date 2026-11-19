@@ -18,6 +18,7 @@ public final class PortStatus {
     public static final String PROBE_ACTION = "dev.beampro.port.PROBE_BIND";
 
     public static void install(Context context) {
+        CaptureSounds.install(context);
         UsbPermissionCompat.install(context);
         GlassesConnectionCompat.install(context);
         ConnectionHandoff.install(context);

@@ -11,6 +11,10 @@ from connection_startup import patch_connection_startup, patch_connection_theme_
 
 STUBS = dict(DISPLAY_STUBS)
 STUBS.update({
+    'dev/beampro/settings/AutoConnect.java': '''package dev.beampro.settings;public class AutoConnect {
+      public static boolean manual;public static String previous,replacement;
+      public static boolean continueManual(android.content.Context c,String oldName,String newName){
+        previous=oldName;replacement=newName;return manual;}}''',
     'dev/beampro/settings/DisplayTests.java': '''package dev.beampro.settings;public class DisplayTests {
       public static boolean testing;public static boolean active(){return testing;}}''',
     # Keep these connection-state tests isolated; test_glasses_network exercises the real network adapter and guard.
@@ -87,7 +91,7 @@ STUBS.update({
       public int refreshes;private void check3DBtn(){refreshes++;}}''',
     'android/hardware/usb/UsbDevice.java': '''package android.hardware.usb;public class UsbDevice {
       public int vendor,product;public UsbDevice(int v){this(v,1080);}public UsbDevice(int v,int p){vendor=v;product=p;}
-      public int getVendorId(){return vendor;}public int getProductId(){return product;}}''',
+      public String getDeviceName(){return "usb-"+product;}public int getVendorId(){return vendor;}public int getProductId(){return product;}}''',
     'android/hardware/usb/UsbManager.java': '''package android.hardware.usb;public class UsbManager {
       public boolean permission=true;public java.util.HashMap<String,UsbDevice> devices=new java.util.HashMap<>();
       public java.util.HashMap<String,UsbDevice> getDeviceList(){return devices;}public boolean hasPermission(UsbDevice d){return permission;}}''',
@@ -110,6 +114,7 @@ STUBS.update({
       public class XREALManager {
        public static XREALManager instance;public static XREALManager getInstance(){return instance;}
        public int mGlassesType=7,starts,launches,unregistered,nextResult=0,target=5;public boolean mUsbConnect=true,hasGoLauncher;
+       public int manualResumes;public void init(){manualResumes++;mUsbConnect=true;android.content.Context.usb.permission=true;}
        public FakeOta mOtaManager=new FakeOta();public FakeSdk mNRServiceControl=new FakeSdk();public Object mDisplayEvent;
        public ISdkStartResult callback;public boolean waitingDisplay,networkWait;
        public static class Event implements com.xreal.glassesdisplayplugevent.IGlassesEvent.IDisplayEvent {}

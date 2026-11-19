@@ -34,7 +34,7 @@
         <provider android:name="dev.beampro.settings.DisplayDiagnosticsChecks$FixtureProvider" android:exported="false"
             android:process=":displaychecks" android:authorities="dev.beampro.settings.preview.unbound.bridge" />
         <provider android:name=".ClassificationProvider" android:exported="true" android:authorities="dev.beampro.settings.preview.unbound.bridge" />
-        <provider android:name="dev.beampro.settings.ExperimentalOptionsChecks$ClientProvider" android:exported="false"
+        <provider android:name="dev.beampro.port.CaptureOptionsProvider" android:exported="false"
             android:process=":experimentalchecks" android:authorities="dev.beampro.settings.preview.experimental" />
     </application>
     <instrumentation android:name="dev.beampro.settings.HelpPageChecks" android:targetPackage="dev.beampro.settings.preview" android:functionalTest="true" />

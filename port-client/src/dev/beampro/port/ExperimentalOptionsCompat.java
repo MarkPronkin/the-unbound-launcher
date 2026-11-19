@@ -8,7 +8,7 @@ import java.io.File;
 /** Reads the settings UI's preference contract without depending on its DEX. */
 public final class ExperimentalOptionsCompat {
     private static final String FILE = "unbound-experimental-options";
-    private static final String QUIET_PHOTOS = "disable_eye_shutter_sound";
+    private static final String QUIET_CAPTURE_SOUNDS = "disable_eye_shutter_sound";
     private static final String SKIP_SCREEN_OFF_CONFIRMATION = "skip_screen_off_confirmation";
 
     private ExperimentalOptionsCompat() {}
@@ -31,9 +31,13 @@ public final class ExperimentalOptionsCompat {
         return enabled(context, SKIP_SCREEN_OFF_CONFIRMATION);
     }
 
-    /** Only the capture coroutine's raw/kaca cue is muted; all other sounds pass through. */
+    static boolean quietCaptureSounds(Context context) {
+        return enabled(context, QUIET_CAPTURE_SOUNDS);
+    }
+
+    /** The photo coroutine plays raw/kaca through MediaActionHelper. */
     public static boolean suppressPhotoSound(Context context, int resource) {
-        if (!enabled(context, QUIET_PHOTOS)) return false;
+        if (!quietCaptureSounds(context)) return false;
         try {
             return "raw".equals(context.getResources().getResourceTypeName(resource))
                     && "kaca".equals(context.getResources().getResourceEntryName(resource))

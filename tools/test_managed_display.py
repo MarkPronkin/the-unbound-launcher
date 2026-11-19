@@ -28,7 +28,7 @@ class ManagedDisplayTests(unittest.TestCase):
             result=subprocess.run([str(JAVA/'bin/java'),'-cp',work,'ManagedDisplayPolicyTest',
                                    str(ROOT/'artifacts/pixel-display-014-live-20261026/display.txt')],
                                   text=True,capture_output=True,check=True)
-            self.assertIn('PASS 45 managed-display assertions',result.stdout)
+            self.assertIn('PASS 47 managed-display assertions',result.stdout)
 
     def test_external_monitor_handoff_on_pixel_and_samsung_api_paths(self):
         with tempfile.TemporaryDirectory() as work:

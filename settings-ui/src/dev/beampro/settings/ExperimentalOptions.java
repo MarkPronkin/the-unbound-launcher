@@ -8,7 +8,7 @@ import java.io.FileOutputStream;
 /** Atomic option files are read afresh by the independently running :space client. */
 public final class ExperimentalOptions {
     public static final String FILE = "unbound-experimental-options";
-    public static final String QUIET_PHOTOS = "disable_eye_shutter_sound";
+    public static final String QUIET_CAPTURE_SOUNDS = "disable_eye_shutter_sound";
     public static final String SKIP_SCREEN_OFF_CONFIRMATION = "skip_screen_off_confirmation";
 
     private ExperimentalOptions() {}
@@ -28,7 +28,7 @@ public final class ExperimentalOptions {
     }
 
     private static AtomicFile file(Context context, String key) {
-        if (!QUIET_PHOTOS.equals(key) && !SKIP_SCREEN_OFF_CONFIRMATION.equals(key))
+        if (!QUIET_CAPTURE_SOUNDS.equals(key) && !SKIP_SCREEN_OFF_CONFIRMATION.equals(key))
             throw new IllegalArgumentException("Unknown experimental option");
         return new AtomicFile(new File(context.getFilesDir(), FILE + "-" + key));
     }

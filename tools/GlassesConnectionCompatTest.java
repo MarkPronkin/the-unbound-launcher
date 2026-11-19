@@ -42,6 +42,12 @@ public final class GlassesConnectionCompatTest {
         check(diagnostic.mActivity.finishing&&XREALManager.instance.starts==0&&XREALManager.instance.launches==0,"Manual and already-queued SDK entry cannot race the display experiment");
         dev.beampro.settings.DisplayTests.testing=false;
         check(GlassesConnectionCompat.displayTestsAvailable(),"An idle connection can be reserved for a display experiment");
+        Presenter manual=fixture();XREALManager idle=XREALManager.instance;
+        idle.mUsbConnect=false;Context.usb.permission=false;
+        GlassesConnectionCompat.begin(manual);Handler.advance(0);
+        check(idle.manualResumes==1&&manual.success==1&&idle.launches==1,
+                "Explicit entry starts the idle SDK for glasses attached while auto connect was disabled");
+        close(manual);
         Presenter mirror=fixture();XREALManager mirrorManager=XREALManager.instance;
         ai.nreal.nebula.util.helper.DbHelpUtil.mirroring=true;
         check(GlassesConnectionCompat.startInScreenMirroring(mirror.mActivity),"Read the original persisted mirroring choice");
@@ -347,7 +353,12 @@ public final class GlassesConnectionCompatTest {
         Context.usb.devices.put("glasses",new UsbDevice(0x0b05,0x1d9c));
         m.mOtaManager.mcu="MCM103";m.mOtaManager.software="1.9.0.20260709183133";
         GlassesConnectionCompat.begin(p);Handler.advance(0);
+        dev.beampro.settings.AutoConnect.manual=true;Context.usb.permission=false;
         Context.usb.devices.put("glasses",new UsbDevice(0x0b05,0x1d9d));Handler.advance(2000);
+        check(m.manualResumes==1 && "usb-7580".equals(dev.beampro.settings.AutoConnect.previous)
+                && "usb-7581".equals(dev.beampro.settings.AutoConnect.replacement),
+                "Only the explicitly requested USB reconfiguration resumes a manual connection");
+        dev.beampro.settings.AutoConnect.manual=false;
         check(m.starts==2&&p.success==1&&m.mOtaManager.reads.size()==3,
                 "R1 approval survives its own boot/app USB reconfiguration without overlapping reads");close(p);
 

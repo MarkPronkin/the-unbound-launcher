@@ -54,7 +54,7 @@ def main():
     classes = build / 'classes'
     classes.mkdir(exist_ok=True)
     run(java / 'bin/javac', '--release', '8', '-classpath', platform, '-d', classes, settings,
-        ROOT / 'embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java', ROOT / 'tools/ControllerModeDeviceChecks.java')
+        ROOT / "settings-ui/src/dev/beampro/settings/AutoConnect.java", ROOT / 'embedded-adb/src/dev/beampro/adb/LocalBridgeProvider.java', ROOT / 'tools/ControllerModeDeviceChecks.java')
     run(java / 'bin/jar', 'cf', build / 'checks.jar', '-C', classes, '.')
     dex = build / 'dex'
     dex.mkdir(exist_ok=True)

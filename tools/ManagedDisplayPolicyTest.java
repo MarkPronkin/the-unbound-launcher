@@ -136,6 +136,12 @@ public class ManagedDisplayPolicyTest {
         f=new Fake();p=new ManagedDisplayPolicy(f);queue=new LinkedBlockingQueue<>();
         queue.add("PING");p.runLease(queue,100);
         check(!f.respect&&f.mirror.equals("0")&&f.preferred.isEmpty(),"Pipe EOF/STOP restores in finally");
+        f=new Fake();p=new ManagedDisplayPolicy(f);queue=new LinkedBlockingQueue<>();
+        queue.add("PAUSE");queue.add("PAUSE");p.runLease(queue,30);
+        check(f.calls.isEmpty(),"Passive hotplug cannot change the phone's external-display policy");
+        queue.add("PING");queue.add("PAUSE");queue.add("PAUSE");queue.add("STOP");p.runLease(queue,100);
+        check(f.routeWrites==2 && !f.respect && f.mirror.equals("0") && f.preferred.isEmpty(),
+                "Opting out restores the prior route and mode and keeps them released");
         f=new Fake();p=new ManagedDisplayPolicy(f);queue=new LinkedBlockingQueue<>();queue.add("PING");p.runLease(queue,30);
         check(!f.respect&&f.preferred.isEmpty(),"Lost parent heartbeat restores policies");
         f=new Fake();p=new ManagedDisplayPolicy(f);queue=new LinkedBlockingQueue<>();queue.add("PING");f.stopQueue=queue;f.queued="invalid";
